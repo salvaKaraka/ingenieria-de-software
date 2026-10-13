@@ -1,0 +1,22 @@
+# Dependencias (se regeneran con npm install)
+node_modules/
+
+# Builds y reportes (se regeneran con npm run build / npm run test:cov)
+dist/
+build/
+coverage/
+
+# Variables de entorno: tienen credenciales, nunca se suben.
+# Se sube solo la plantilla .env.example
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# Sistema operativo y editores
+.DS_Store
+.vscode/
+.idea/
