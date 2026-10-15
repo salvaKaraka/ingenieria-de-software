@@ -1,0 +1,17 @@
+// Esquema de la base de datos: fuente de verdad de las tablas.
+// Después de cambiarlo: `npm run db:migrate -- --name <descripcion>`
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "cjs"
+  importFileExtension = ""
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Los modelos (Envio, Repartidor, Comercio, Oferta, ...) se agregan acá
+// una vez cerrado el modelo de datos.

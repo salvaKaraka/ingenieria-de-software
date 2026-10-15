@@ -1,0 +1,66 @@
+# Integración continua: corre en cada PR hacia main/dev y en cada push a esas ramas.
+# Si algo falla acá, el PR no debería mergearse.
+name: CI
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: is-backend
+    services:
+      # Postgres real para los tests e2e (mismo setup que docker-compose)
+      db:
+        image: postgres:17
+        env:
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: is2026
+          POSTGRES_DB: is_db
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U admin -d is_db"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://admin:is2026@localhost:5433/is_db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: is-backend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - run: npm run db:deploy
+      - run: npm run test:e2e
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: is-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: is-frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  docker-backend:
+    # Verifica que la imagen que usa Railway siga construyendo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t is-backend ./is-backend

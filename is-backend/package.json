@@ -1,7 +1,7 @@
 {
   "name": "is-backend",
   "version": "0.0.1",
-  "description": "",
+  "description": "API del sistema de gestión y seguimiento de repartos",
   "author": "",
   "private": true,
   "license": "UNLICENSED",
@@ -18,12 +18,24 @@
     "test:watch": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --watch",
     "test:cov": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --coverage",
     "test:debug": "node --inspect-brk --experimental-vm-modules -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config ./test/jest-e2e.json"
+    "test:e2e": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config ./test/jest-e2e.json",
+    "postinstall": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "db:generate": "prisma generate"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",
+    "@nestjs/config": "12.0.1",
     "@nestjs/core": "^12.0.1",
     "@nestjs/platform-express": "^12.0.1",
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "class-transformer": "0.5.1",
+    "class-validator": "0.15.1",
+    "dotenv": "18.0.8",
+    "prisma": "7.10.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },
@@ -47,5 +59,8 @@
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^6.0.2"
+  },
+  "allowScripts": {
+    "@prisma/engines@7.10.0": true
   }
 }

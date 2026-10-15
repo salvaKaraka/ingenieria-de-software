@@ -1,0 +1,46 @@
+# Entorno de desarrollo local. En producción la base es Supabase y la API corre en Railway.
+#
+#   Solo la base (si vas a programar el backend con `npm run start:dev`):
+#     docker compose up -d db
+#   Base + API (si vas a programar el frontend y necesitás la API andando):
+#     docker compose up -d --build
+
+# Nombre del proyecto: compose lo usa como prefijo de volúmenes y redes (ej: is_db-data).
+# Sin esto, usaría el nombre de la carpeta del repo.
+name: is
+
+services:
+  # "db" es además el nombre con el que los otros contenedores la encuentran en la red interna.
+  db:
+    image: postgres:17             # versión fija, igual para todo el equipo
+    container_name: is-db          # sin esto se llamaría is-db-1
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: is2026    # solo desarrollo local; se usa únicamente al inicializar el volumen
+      POSTGRES_DB: is_db
+    ports:
+      - "5433:5432"                # <puerto en tu máquina>:<puerto en el contenedor> (5432 suele estar ocupado)
+    volumes:
+      - db-data:/var/lib/postgresql/data   # volumen con nombre -> donde Postgres 17 guarda sus datos
+    healthcheck:                   # compose pregunta cada 5s si Postgres ya acepta conexiones
+      test: ["CMD-SHELL", "pg_isready -U admin -d is_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./is-backend            # usa is-backend/Dockerfile
+    container_name: is-api
+    environment:
+      PORT: 3000
+      # Dentro de la red de compose la base se llama "db" y escucha en 5432 (no 5433: eso es solo hacia tu máquina)
+      DATABASE_URL: postgresql://admin:is2026@db:5432/is_db
+      FRONTEND_URL: http://localhost:5173
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy # no arranca hasta que el healthcheck de la base dé ok
+
+volumes:
+  db-data:

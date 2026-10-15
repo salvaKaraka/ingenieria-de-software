@@ -20,3 +20,9 @@ npm-debug.log*
 .DS_Store
 .vscode/
 .idea/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Cliente de Prisma generado (se regenera con `npx prisma generate`)
+**/src/generated/
