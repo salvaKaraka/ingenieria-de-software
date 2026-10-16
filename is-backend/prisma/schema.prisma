@@ -1,6 +1,8 @@
 // Esquema de la base de datos: fuente de verdad de las tablas.
 // Después de cambiarlo: `npm run db:migrate -- --name <descripcion>`
 // Docs: https://pris.ly/d/prisma-schema
+// Convenciones (ver TAREAS.md): modelos PascalCase singular -> tablas snake_case plural (@@map),
+// campos camelCase -> columnas snake_case (@map). Sin ñ ni tildes en identificadores.
 
 generator client {
   provider            = "prisma-client"
@@ -13,5 +15,179 @@ datasource db {
   provider = "postgresql"
 }
 
-// Los modelos (Envio, Repartidor, Comercio, Oferta, ...) se agregan acá
-// una vez cerrado el modelo de datos.
+// ---------- Enums ----------
+
+// Lo elige el operario al registrar el envío.
+enum TamanioPaquete {
+  CHICO
+  MEDIANO
+  GRANDE
+}
+
+// Correspondencia con el tamaño: CHICO -> MOTO, MEDIANO -> AUTO, GRANDE -> CAMION.
+enum TipoVehiculo {
+  MOTO
+  AUTO
+  CAMION
+}
+
+// Ciclo de vida del envío (épica 2.3). Las transiciones válidas viven en envios/domain (E-1).
+enum EstadoEnvio {
+  PENDIENTE
+  ASIGNADO
+  EN_CAMINO_A_RETIRAR
+  RETIRADO
+  EN_DOMICILIO
+  ENTREGADO
+  CANCELADO
+}
+
+// Estado operativo del repartidor durante la jornada (épica 3.1).
+enum EstadoRepartidor {
+  FUERA_DE_JORNADA
+  DISPONIBLE
+  OCUPADO
+  EN_PAUSA
+  EMERGENCIA
+}
+
+enum EstadoOferta {
+  PENDIENTE
+  ACEPTADA
+  RECHAZADA
+  VENCIDA
+}
+
+// Quién realizó una acción (auditoría, RNF-03).
+enum TipoActor {
+  OPERARIO
+  REPARTIDOR
+  SISTEMA
+}
+
+enum TipoEvento {
+  CREADO
+  CAMBIO_ESTADO
+  REASIGNACION
+  NOVEDAD
+  INCIDENTE
+  NOTA
+}
+
+// ---------- Modelos ----------
+
+model Comercio {
+  id            Int      @id @default(autoincrement())
+  nombre        String
+  telefono      String
+  email         String
+  direccion     String
+  // Evidencia que exige el comercio al entregar (se copia a cada envío al crearlo)
+  requiereFoto  Boolean  @default(false) @map("requiere_foto")
+  requiereDni   Boolean  @default(false) @map("requiere_dni")
+  activo        Boolean  @default(true)
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  envios Envio[]
+
+  @@map("comercios")
+}
+
+// Las columnas de autenticación (PIN) se agregan en A-2.
+model Repartidor {
+  id                 Int              @id @default(autoincrement())
+  nombre             String
+  apellido           String
+  telefono           String
+  email              String
+  direccion          String
+  vehiculo           TipoVehiculo
+  estado             EstadoRepartidor @default(FUERA_DE_JORNADA)
+  // Momento en que entró a la cola FIFO de su vehículo; null = no está en la cola
+  enColaDesde        DateTime?        @map("en_cola_desde")
+  // Entregas seguidas sin descanso (regla de máximo 2 consecutivos, supuesto 5 de TAREAS.md)
+  viajesConsecutivos Int              @default(0) @map("viajes_consecutivos")
+  activo             Boolean          @default(true)
+  creadoEn           DateTime         @default(now()) @map("creado_en")
+  actualizadoEn      DateTime         @updatedAt @map("actualizado_en")
+
+  envios  Envio[]
+  ofertas Oferta[]
+
+  // Búsqueda del motor de asignación: disponibles de un vehículo en orden FIFO
+  @@index([estado, vehiculo, enColaDesde])
+  @@map("repartidores")
+}
+
+model Envio {
+  id                   Int            @id @default(autoincrement())
+  // Aleatorio y no predecible: es lo que recibe el destinatario en el link de seguimiento
+  codigoSeguimiento    String         @unique @map("codigo_seguimiento")
+  comercioId           Int            @map("comercio_id")
+  comercio             Comercio       @relation(fields: [comercioId], references: [id])
+  origenDireccion      String         @map("origen_direccion")
+  destinoDireccion     String         @map("destino_direccion")
+  destinatarioNombre   String?        @map("destinatario_nombre")
+  destinatarioApellido String?        @map("destinatario_apellido")
+  destinatarioDni      String?        @map("destinatario_dni")
+  destinatarioTelefono String?        @map("destinatario_telefono")
+  tamanio              TamanioPaquete
+  vehiculoRequerido    TipoVehiculo   @map("vehiculo_requerido")
+  observaciones        String?
+  // Copiados del comercio al crear el envío: un cambio posterior del comercio no afecta envíos en curso (riesgo 15)
+  requiereFoto         Boolean        @map("requiere_foto")
+  requiereDni          Boolean        @map("requiere_dni")
+  estado               EstadoEnvio    @default(PENDIENTE)
+  repartidorId         Int?           @map("repartidor_id")
+  // Restrict: un repartidor con envíos no se puede borrar (las bajas son lógicas) y no se pierde el historial
+  repartidor           Repartidor?    @relation(fields: [repartidorId], references: [id], onDelete: Restrict)
+  creadoEn             DateTime       @default(now()) @map("creado_en")
+  actualizadoEn        DateTime       @updatedAt @map("actualizado_en")
+
+  eventos EventoEnvio[]
+  ofertas Oferta[]
+
+  @@index([estado])
+  @@index([comercioId])
+  @@index([repartidorId])
+  @@map("envios")
+}
+
+// Historial del envío: todo cambio de estado crea un evento (seguimiento, épica 2.3, y auditoría, RNF-03).
+model EventoEnvio {
+  id             Int          @id @default(autoincrement())
+  envioId        Int          @map("envio_id")
+  envio          Envio        @relation(fields: [envioId], references: [id])
+  tipo           TipoEvento
+  estadoAnterior EstadoEnvio? @map("estado_anterior")
+  estadoNuevo    EstadoEnvio? @map("estado_nuevo")
+  detalle        String?
+  actorTipo      TipoActor    @map("actor_tipo")
+  // Id del operario o repartidor que hizo la acción; null si fue el SISTEMA
+  actorId        Int?         @map("actor_id")
+  creadoEn       DateTime     @default(now()) @map("creado_en")
+
+  @@index([envioId, creadoEn])
+  @@map("eventos_envio")
+}
+
+// Propuesta de un viaje a un repartidor, con 5 minutos para responder (épica 3.3).
+model Oferta {
+  id           Int          @id @default(autoincrement())
+  envioId      Int          @map("envio_id")
+  envio        Envio        @relation(fields: [envioId], references: [id])
+  repartidorId Int          @map("repartidor_id")
+  repartidor   Repartidor   @relation(fields: [repartidorId], references: [id])
+  estado       EstadoOferta @default(PENDIENTE)
+  creadaEn     DateTime     @default(now()) @map("creada_en")
+  // El vencimiento vive en la base (no en un setTimeout) para sobrevivir reinicios (RNF-08)
+  expiraEn     DateTime     @map("expira_en")
+  respondidaEn DateTime?    @map("respondida_en")
+
+  // Job de vencimiento: ofertas PENDIENTE con expiraEn < ahora
+  @@index([estado, expiraEn])
+  @@index([repartidorId, estado])
+  @@index([envioId])
+  @@map("ofertas")
+}
