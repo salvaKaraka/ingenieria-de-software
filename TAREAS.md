@@ -59,7 +59,7 @@ Es una **propuesta inicial** a partir de las entrevistas y épicas. T-00 la conv
 | Enum | Valores | Notas |
 |---|---|---|
 | `TamanioPaquete` | `CHICO`, `MEDIANO`, `GRANDE` | Lo elige el operario al registrar el envío. |
-| `TipoVehiculo` | `MOTO`, `AUTO`, `CAMION` | Correspondencia: CHICO→MOTO, MEDIANO→AUTO, GRANDE→CAMION. |
+| `TipoVehiculo` | `MOTO`, `AUTO`, `CAMION` | Correspondencia: CHICO→MOTO, MEDIANO→AUTO, GRANDE→CAMION. Es el vehículo **mínimo** (ver supuesto 8). |
 | `EstadoEnvio` | `PENDIENTE`, `ASIGNADO`, `EN_CAMINO_A_RETIRAR`, `RETIRADO`, `EN_DOMICILIO`, `ENTREGADO`, `CANCELADO` | Los de la épica 2.3 + `CANCELADO`. D2/F2 pueden agregar otros. |
 | `EstadoRepartidor` | `FUERA_DE_JORNADA`, `DISPONIBLE`, `OCUPADO`, `EN_PAUSA`, `EMERGENCIA` | Épica 3.1. |
 | `EstadoOferta` | `PENDIENTE`, `ACEPTADA`, `RECHAZADA`, `VENCIDA` | |
@@ -93,6 +93,7 @@ Están implementados así para poder avanzar. Son **parámetros configurables** 
 5. **Regla de 2 viajes consecutivos**: `viajesConsecutivos` suma 1 por cada entrega. Si al elegir candidato tiene 2 o más, se lo saltea **una vez**: el contador vuelve a 0 y el repartidor va al final de la cola. Si era el **único** disponible, se le ofrece igual (ya descansado): es preferible a dejar el paquete sin despachar.
 6. **Sin candidatos**: el envío queda `PENDIENTE` y se reintenta automáticamente (ver D-3). El operario lo ve marcado como "sin asignar" en el panel.
 7. **Hora de salida** que ve el destinatario = momento en que el envío pasó a `RETIRADO`.
+8. **Vehículo mínimo**: el tamaño del paquete fija el vehículo mínimo; uno más grande también puede llevarlo (chico: moto, auto o camión; mediano: auto o camión; grande: camión). El motor prefiere el vehículo más chico que sirva y, dentro de cada uno, el orden de la cola. Así se resuelve solo el riesgo 11 (sin motos disponibles).
 
 ---
 
@@ -171,7 +172,7 @@ Decisiones ya tomadas: JWT con **access token corto + refresh token guardado en 
 - **Depende de:** B-1 · **Bloquea:** B-5, D-1 · **Épica:** 1.1
 - **Qué hacer:** `POST /api/envios`. El body trae comercio, destino, datos opcionales del destinatario, tamaño y observaciones. El service:
   1. Valida que el comercio exista y esté activo.
-  2. Calcula `vehiculoRequerido` según el tamaño.
+  2. Calcula `vehiculoRequerido` (vehículo **mínimo**, supuesto 8) según el tamaño.
   3. Usa como origen la dirección del comercio, salvo que venga otra.
   4. Copia `requiereFoto` y `requiereDni` del comercio.
   5. Genera `codigoSeguimiento`: 10 caracteres de `crypto.randomInt` sobre el alfabeto `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (sin 0/O/1/I).
@@ -377,8 +378,8 @@ Botón "Auxilio" en la app del repartidor: pasa a `EMERGENCIA`, su envío activo
 ### D-5 · Historial de respuestas por repartidor
 Vista para el operario con las ofertas aceptadas, rechazadas y vencidas por repartidor, con tiempos de respuesta. Épica 3.4.
 
-### D-6 · Contingencia sin motos (riesgo 11)
-Opción que el operario puede activar para que los paquetes chicos también se ofrezcan a autos cuando la cola de motos está vacía.
+### D-6 · Contingencia sin motos (riesgo 11) ✅ resuelta por el supuesto 8
+Ya no hace falta una opción manual: el motor ofrece los paquetes chicos a autos o camiones cuando no hay motos disponibles.
 
 ### E-4 · Evidencia de entrega (foto y DNI)
 Antes de `ENTREGADO`, pedir lo que el envío exige: foto con la cámara (con vista previa y opción de repetirla; riesgo 14) subida a Supabase Storage, DNI del receptor, o ambas. Épica 4.3.

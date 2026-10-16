@@ -120,6 +120,34 @@ describe('Motor de asignación (e2e)', () => {
     expect(oferta?.repartidorId).not.toBe(segundaMoto);
   });
 
+  describe('vehículo mínimo: uno más grande también puede llevar el paquete', () => {
+    it('un envío chico sin motos disponibles se le ofrece a un camión', async () => {
+      const camion = await crearRepartidor({ vehiculo: 'CAMION' });
+
+      const oferta = await motor.asignar(await crearEnvio('MOTO'));
+
+      expect(oferta?.repartidorId).toBe(camion);
+    });
+
+    it('prefiere el vehículo más chico que sirva, aunque otro haya llegado antes a la cola', async () => {
+      await crearRepartidor({ vehiculo: 'CAMION', llegoEnMinuto: 0 });
+      const auto = await crearRepartidor({
+        vehiculo: 'AUTO',
+        llegoEnMinuto: 5,
+      });
+
+      const oferta = await motor.asignar(await crearEnvio('MOTO'));
+
+      expect(oferta?.repartidorId).toBe(auto);
+    });
+
+    it('un envío mediano nunca se le ofrece a una moto', async () => {
+      await crearRepartidor({ vehiculo: 'MOTO' });
+
+      await expect(motor.asignar(await crearEnvio('AUTO'))).resolves.toBeNull();
+    });
+  });
+
   it('la oferta vence a los 5 minutos', async () => {
     await crearRepartidor();
     const antes = Date.now();

@@ -9,12 +9,17 @@ import {
 } from '@nestjs/common';
 import { IsIn } from 'class-validator';
 import { Public } from '../common/auth';
-import type { TipoVehiculo } from '../generated/prisma/client';
+import type { TamanioPaquete, TipoVehiculo } from '../generated/prisma/client';
 import { DevService } from './dev.service';
 
 class VehiculoDto {
   @IsIn(['MOTO', 'AUTO', 'CAMION'])
   vehiculo: TipoVehiculo;
+}
+
+class TamanioDto {
+  @IsIn(['CHICO', 'MEDIANO', 'GRANDE'])
+  tamanio: TamanioPaquete;
 }
 
 // Herramientas de desarrollo (página /dev/motor del front). Públicas a propósito para probar rápido:
@@ -30,8 +35,8 @@ export class DevController {
   }
 
   @Post('envios')
-  crearEnvio(@Body() dto: VehiculoDto) {
-    return this.dev.crearEnvio(dto.vehiculo);
+  crearEnvio(@Body() dto: TamanioDto) {
+    return this.dev.crearEnvio(dto.tamanio);
   }
 
   @Post('repartidores')

@@ -1,14 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
-import type { TipoVehiculo } from '../generated/prisma/client';
+import type { TamanioPaquete, TipoVehiculo } from '../generated/prisma/client';
 import { AsignacionService } from '../modules/asignacion/asignacion.service';
 import { AuthService } from '../modules/auth/auth.service';
 
-const TAMANIO_POR_VEHICULO = {
-  MOTO: 'CHICO',
-  AUTO: 'MEDIANO',
-  CAMION: 'GRANDE',
+const VEHICULO_MINIMO = {
+  CHICO: 'MOTO',
+  MEDIANO: 'AUTO',
+  GRANDE: 'CAMION',
+} as const;
+const NOMBRE_VEHICULO = {
+  MOTO: 'Moto',
+  AUTO: 'Auto',
+  CAMION: 'Camión',
 } as const;
 
 // Atajos para probar el motor de punta a punta mientras no existen las pantallas reales
@@ -36,7 +41,6 @@ export class DevService {
           estado: true,
           enColaDesde: true,
           viajesConsecutivos: true,
-          activo: true,
         },
       }),
       this.prisma.envio.findMany({
@@ -44,11 +48,10 @@ export class DevService {
         take: 20,
         select: {
           id: true,
-          codigoSeguimiento: true,
           estado: true,
-          vehiculoRequerido: true,
+          tamanio: true,
+          destinoDireccion: true,
           repartidorId: true,
-          creadoEn: true,
           ofertas: {
             orderBy: { id: 'asc' },
             select: {
@@ -64,7 +67,7 @@ export class DevService {
     return { repartidores, envios };
   }
 
-  async crearEnvio(vehiculo: TipoVehiculo) {
+  async crearEnvio(tamanio: TamanioPaquete) {
     const comercio =
       (await this.prisma.comercio.findFirst({
         where: { nombre: 'Comercio de prueba' },
@@ -83,8 +86,8 @@ export class DevService {
         comercioId: comercio.id,
         origenDireccion: comercio.direccion,
         destinoDireccion: `Calle ${10 + Math.floor(Math.random() * 60)} ${100 + Math.floor(Math.random() * 1900)}`,
-        tamanio: TAMANIO_POR_VEHICULO[vehiculo],
-        vehiculoRequerido: vehiculo,
+        tamanio,
+        vehiculoRequerido: VEHICULO_MINIMO[tamanio],
         requiereFoto: comercio.requiereFoto,
         requiereDni: comercio.requiereDni,
         eventos: {
@@ -100,12 +103,15 @@ export class DevService {
     return { envioId: envio.id, ofrecidoA: oferta?.repartidorId ?? null };
   }
 
+  // Crea un repartidor con PIN y lo pone directo en la cola (como si hubiera iniciado la jornada).
   async crearRepartidor(vehiculo: TipoVehiculo) {
-    const cantidad = await this.prisma.repartidor.count();
+    const delMismoVehiculo = await this.prisma.repartidor.count({
+      where: { vehiculo },
+    });
     const repartidor = await this.prisma.repartidor.create({
       data: {
-        nombre: 'Prueba',
-        apellido: `${vehiculo.toLowerCase()} ${cantidad + 1}`,
+        nombre: NOMBRE_VEHICULO[vehiculo],
+        apellido: String(delMismoVehiculo + 1),
         telefono: '221 000-0000',
         email: 'prueba@example.com',
         direccion: 'La Plata',
@@ -113,7 +119,13 @@ export class DevService {
       },
     });
     const pin = await this.auth.asignarNuevoPin(repartidor.id);
-    return { id: repartidor.id, pin };
+    const { ofertasCreadas } = await this.ponerDisponible(repartidor.id);
+    return {
+      id: repartidor.id,
+      nombre: `${repartidor.nombre} ${repartidor.apellido}`,
+      pin,
+      ofertasCreadas,
+    };
   }
 
   // Simula "iniciar jornada" (C-3): entra al final de la cola y el motor reintenta los pendientes.

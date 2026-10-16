@@ -5,6 +5,7 @@ import {
   OFERTA_SEGUNDOS,
 } from './asignacion.constants';
 import { AsignacionRepository } from './asignacion.repository';
+import { vehiculosQuePuedenLlevar } from './domain/vehiculos';
 
 // Si todos los candidatos tuvieran que descansar, este tope evita un bucle infinito.
 const MAX_INTENTOS = 50;
@@ -31,11 +32,11 @@ export class AsignacionService {
         const candidato = await this.repo.tomarCandidato(
           tx,
           envioId,
-          envio.vehiculoRequerido,
+          vehiculosQuePuedenLlevar(envio.vehiculoRequerido),
         );
         if (!candidato) {
           this.logger.log(
-            `Envío ${envioId}: sin repartidores disponibles (${envio.vehiculoRequerido})`,
+            `Envío ${envioId}: sin repartidores disponibles (vehículo mínimo: ${envio.vehiculoRequerido})`,
           );
           return null;
         }
