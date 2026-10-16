@@ -25,6 +25,7 @@ enum TamanioPaquete {
 }
 
 // Correspondencia con el tamaño: CHICO -> MOTO, MEDIANO -> AUTO, GRANDE -> CAMION.
+// Es el vehículo MÍNIMO: uno más grande también puede llevarlo (ver asignacion/domain/vehiculos.ts).
 enum TipoVehiculo {
   MOTO
   AUTO

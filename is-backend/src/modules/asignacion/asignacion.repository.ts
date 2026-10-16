@@ -46,10 +46,12 @@ export class AsignacionRepository {
   // Primer repartidor de la cola FIFO que puede recibir este envío.
   // SKIP LOCKED: si otra transacción está ofreciéndole un viaje a alguien, lo saltea en vez de
   // esperar. Así dos envíos simultáneos nunca terminan ofrecidos al mismo repartidor (riesgo 7).
+  // `vehiculos`: los que pueden llevar el paquete, en orden de preferencia (ver domain/vehiculos.ts).
+  // Se elige primero por vehículo (el más chico que sirva) y, dentro de cada uno, por orden de llegada.
   async tomarCandidato(
     tx: Tx,
     envioId: number,
-    vehiculo: TipoVehiculo,
+    vehiculos: TipoVehiculo[],
   ): Promise<Candidato | null> {
     const filas = await tx.$queryRaw<Candidato[]>`
       SELECT r.id, r.viajes_consecutivos AS "viajesConsecutivos"
@@ -60,7 +62,7 @@ export class AsignacionRepository {
         -- PROPIA fila del repartidor a propósito: es lo que Postgres vuelve a verificar con datos
         -- frescos al bloquear la fila, y lo que impide dos ofertas simultáneas al mismo repartidor.
         AND r.en_cola_desde IS NOT NULL
-        AND r.vehiculo = ${vehiculo}::"TipoVehiculo"
+        AND r.vehiculo = ANY(${vehiculos}::"TipoVehiculo"[])
         -- un viaje a la vez (refuerzo de la condición anterior)
         AND NOT EXISTS (
           SELECT 1 FROM ofertas o WHERE o.repartidor_id = r.id AND o.estado = 'PENDIENTE'
@@ -70,7 +72,7 @@ export class AsignacionRepository {
           SELECT 1 FROM ofertas o
           WHERE o.repartidor_id = r.id AND o.envio_id = ${envioId} AND o.estado IN ('RECHAZADA', 'VENCIDA')
         )
-      ORDER BY r.en_cola_desde ASC, r.id ASC
+      ORDER BY array_position(${vehiculos}::"TipoVehiculo"[], r.vehiculo), r.en_cola_desde ASC, r.id ASC
       LIMIT 1
       FOR UPDATE OF r SKIP LOCKED`;
     return filas[0] ?? null;

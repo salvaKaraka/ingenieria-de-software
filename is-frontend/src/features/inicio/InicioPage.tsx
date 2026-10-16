@@ -20,7 +20,10 @@ export function InicioPage() {
         <Link className="rounded-lg border p-4 hover:bg-gray-50" to="/repartidor">App del repartidor</Link>
         <Link className="rounded-lg border p-4 hover:bg-gray-50" to="/seguimiento">Seguimiento de envío</Link>
         {import.meta.env.DEV && (
-          <Link className="rounded-lg border border-dashed p-4 text-gray-500 hover:bg-gray-50" to="/dev/ui">Componentes (solo desarrollo)</Link>
+          <>
+            <Link className="rounded-lg border border-dashed p-4 text-gray-500 hover:bg-gray-50" to="/dev/motor">Probador del motor de asignación (solo desarrollo)</Link>
+            <Link className="rounded-lg border border-dashed p-4 text-gray-500 hover:bg-gray-50" to="/dev/ui">Componentes (solo desarrollo)</Link>
+          </>
         )}
       </nav>
       <p className="text-sm text-gray-500">

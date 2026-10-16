@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate, type RouteObject } from 'react-router'
 import { LoginOperarioPage } from './features/auth/LoginOperarioPage.tsx'
 import { LoginRepartidorPage } from './features/auth/LoginRepartidorPage.tsx'
 import { RutaProtegida } from './features/auth/RutaProtegida.tsx'
+import { MotorDevPage } from './features/dev/MotorDevPage.tsx'
 import { UiDemoPage } from './features/dev/UiDemoPage.tsx'
 import { InicioPage } from './features/inicio/InicioPage.tsx'
 import { NoEncontradoPage } from './features/inicio/NoEncontradoPage.tsx'
@@ -64,8 +65,13 @@ const rutas: RouteObject[] = [
   { path: '/seguimiento', element: <BuscarSeguimientoPage /> },
   { path: '/seguimiento/:codigo', element: <SeguimientoPage /> },
 
-  // Catálogo de componentes, solo en desarrollo
-  ...(import.meta.env.DEV ? [{ path: '/dev/ui', element: <UiDemoPage /> }] : []),
+  // Herramientas, solo en desarrollo: catálogo de componentes y probador del motor
+  ...(import.meta.env.DEV
+    ? [
+        { path: '/dev/ui', element: <UiDemoPage /> },
+        { path: '/dev/motor', element: <MotorDevPage /> },
+      ]
+    : []),
 
   { path: '*', element: <NoEncontradoPage /> },
 ]
