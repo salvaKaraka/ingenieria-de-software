@@ -140,9 +140,10 @@ Decisiones ya tomadas: JWT con **access token corto + refresh token guardado en 
   - [ ] Un request sin cookie a una ruta protegida da 401; con el rol equivocado, 403.
   - [ ] Todos los controllers existentes tienen su `@Roles` o `@Public`. Se coordina con cada frente.
 
-### A-4 · Login y sesión en el frontend
+### A-4 · Login y sesión en el frontend ✅ hecha
 - **Depende de:** A-1, A-2, F-1
 - **Qué hacer:** pantallas `/operario/login` (usuario y contraseña) y `/repartidor/login` (teclado numérico grande, PIN enmascarado). Contexto de sesión, rutas protegidas por rol y refresh automático ante un 401. Proxy `/api` en `vite.config.ts` y rewrite en `vercel.json`; `shared/api.ts` pasa a usar rutas relativas y `credentials: 'include'`.
+- **Cómo usarlo desde otras pantallas:** `const { usuario, logout } = useSesion()` (de `features/auth/sesion.ts`) y `api<T>(ruta, { metodo, datos })` de `shared/api.ts`, que renueva la sesión sola. Los errores llegan como `ErrorApi` con `status` y `mensajes` (uno por campo en los 400 de validación).
 - **Criterios de aceptación:**
   - [ ] Entrar a `/operario/...` sin sesión redirige al login del operario (y lo mismo para el repartidor).
   - [ ] Al vencer el access token, la app lo renueva sola sin sacar al usuario.
@@ -344,7 +345,7 @@ Decisiones ya tomadas: JWT con **access token corto + refresh token guardado en 
 - **Qué hacer:**
   - **Supabase:** proyecto nuevo; anotar la URL de conexión.
   - **Railway:** servicio desde `is-backend/Dockerfile` con las variables `DATABASE_URL`, `PORT`, los secretos de A, `FRONTEND_URL` y healthcheck en `/api/health`.
-  - **Vercel:** raíz `is-frontend`, con rewrite de `/api/*` hacia Railway.
+  - **Vercel:** raíz `is-frontend`. En `is-frontend/vercel.json` reemplazar `REEMPLAZAR-CON-LA-URL-DE-RAILWAY` por el dominio del servicio de Railway (el rewrite de `/api/*` ya está armado).
   - Documentar todo en el README. Para conectar Railway y Vercel con el repo hace falta Salvador (dueño del repo).
 - **Criterios de aceptación:**
   - [ ] La página de inicio desplegada muestra "API: ok · base ok".

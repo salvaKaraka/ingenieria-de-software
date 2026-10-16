@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate, type RouteObject } from 'react-router'
 import { LoginOperarioPage } from './features/auth/LoginOperarioPage.tsx'
 import { LoginRepartidorPage } from './features/auth/LoginRepartidorPage.tsx'
+import { RutaProtegida } from './features/auth/RutaProtegida.tsx'
 import { UiDemoPage } from './features/dev/UiDemoPage.tsx'
 import { InicioPage } from './features/inicio/InicioPage.tsx'
 import { NoEncontradoPage } from './features/inicio/NoEncontradoPage.tsx'
@@ -23,11 +24,15 @@ import { RepartidorLayout } from './shared/layouts/RepartidorLayout.tsx'
 const rutas: RouteObject[] = [
   { path: '/', element: <InicioPage /> },
 
-  // Panel del operario
+  // Panel del operario (requiere sesión de operario)
   { path: '/operario/login', element: <LoginOperarioPage /> },
   {
     path: '/operario',
-    element: <OperarioLayout />,
+    element: (
+      <RutaProtegida rol="OPERARIO">
+        <OperarioLayout />
+      </RutaProtegida>
+    ),
     children: [
       { index: true, element: <Navigate to="envios" replace /> },
       { path: 'envios', element: <EnviosPage /> },
@@ -40,11 +45,15 @@ const rutas: RouteObject[] = [
     ],
   },
 
-  // Web móvil del repartidor
+  // Web móvil del repartidor (requiere sesión de repartidor)
   { path: '/repartidor/login', element: <LoginRepartidorPage /> },
   {
     path: '/repartidor',
-    element: <RepartidorLayout />,
+    element: (
+      <RutaProtegida rol="REPARTIDOR">
+        <RepartidorLayout />
+      </RutaProtegida>
+    ),
     children: [
       { index: true, element: <InicioRepartidorPage /> },
       { path: 'viaje', element: <ViajePage /> },
