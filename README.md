@@ -119,7 +119,7 @@ npm run dev:usuarios              # operario admin/admin1234 y repartidor con PI
 | raíz | `docker compose down` | Frena todo (**los datos se conservan**) |
 | raíz | `docker compose down -v` | ⚠️ Frena todo y **borra la base** |
 | is-backend | `npm run start:dev` | API con recarga automática |
-| is-backend | `npm test` / `npm run test:e2e` | Tests unitarios / end-to-end (e2e necesita la base) |
+| is-backend | `npm test` / `npm run test:e2e` | Tests unitarios / end-to-end. Los e2e necesitan la base levantada y usan una base aparte (`is_db_test`) que crean y vacían solos: no tocan tus datos |
 | is-backend | `npm run lint` | Linter |
 | is-backend | `npm run db:migrate -- --name <desc>` | Crea y aplica una migración después de cambiar `schema.prisma` |
 | is-backend | `npm run db:studio` | Interfaz web para ver y editar la base |
