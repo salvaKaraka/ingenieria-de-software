@@ -132,9 +132,9 @@ Decisiones ya tomadas: JWT con **access token corto + refresh token guardado en 
   - [ ] Más de 5 intentos fallidos por minuto desde la misma IP responden 429.
   - [ ] Un repartidor inactivo (`activo = false`) no puede loguearse.
 
-### A-3 · Guards, roles y protección de endpoints (backend)
+### A-3 · Guards, roles y protección de endpoints (backend) ✅ hecha
 - **Depende de:** A-1, A-2 · **Se mergea junto con A-4**
-- **Qué hacer:** guard global que exige autenticación por defecto; decorador `@Public()` para lo abierto (health, login, seguimiento); decorador `@Roles('operario' | 'repartidor')`; decorador `@UsuarioActual()` que entrega `{ id, rol }` al controller.
+- **Qué hacer:** guard global que exige autenticación por defecto; decorador `@Public()` para lo abierto (health, login, seguimiento); decorador `@Roles('OPERARIO' | 'REPARTIDOR')`; decorador `@UsuarioActual()` que entrega `{ id, rol }` al controller. Todo se importa de `src/common/auth` (ver ejemplos en AGENTS.md).
 - **Convención de rutas que protege:** `/api/repartidor/**` → rol repartidor; `/api/comercios`, `/api/envios`, `/api/repartidores`, `/api/flota` → rol operario; `/api/seguimiento/**` → público.
 - **Criterios de aceptación:**
   - [ ] Un request sin cookie a una ruta protegida da 401; con el rol equivocado, 403.
@@ -216,7 +216,7 @@ Decisiones ya tomadas: JWT con **access token corto + refresh token guardado en 
   - `POST /api/repartidor/jornada/reanudar`: vuelve a la cola, al final.
   - `POST /api/repartidor/jornada/terminar`: pasa a `FUERA_DE_JORNADA`; no se permite con un viaje activo.
   - `GET /api/flota` (operario): repartidores en jornada agrupados por vehículo y ordenados por la cola.
-  - Mientras no exista A-3, el repartidor se identifica con un header temporal `X-Repartidor-Id`, que se elimina en A-3.
+  - El repartidor se identifica con `@UsuarioActual()` (A-3); nunca con un id en el body o en un header.
 - **Criterios de aceptación:**
   - [ ] Las transiciones inválidas (por ejemplo, pausar estando fuera de jornada) responden 409.
   - [ ] `GET /api/flota` refleja el orden FIFO real.

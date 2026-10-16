@@ -84,7 +84,30 @@ Todas bajo `/api`. Sustantivos en plural y en español.
 | `/api/repartidor/...` | el repartidor logueado, sobre sí mismo | `POST /api/repartidor/jornada/iniciar` |
 | `/api/seguimiento/:codigo` | público | |
 
-Hasta que esté mergeada la tarea A-3, los endpoints no tienen protección. Después, cada controller lleva `@Roles('operario')`, `@Roles('repartidor')` o `@Public()`.
+**Toda la API exige sesión por defecto** (guards globales de A-3). Cada controller o endpoint **tiene que** declarar quién lo usa; si no, responde 403:
+
+```ts
+import { Public, Roles, UsuarioActual, type UsuarioAutenticado } from '../../common/auth';
+
+@Roles('OPERARIO')                 // todo el controller: solo operarios
+@Controller('comercios')
+export class ComerciosController { ... }
+
+@Roles('REPARTIDOR')
+@Controller('repartidor/jornada')
+export class JornadaController {
+  @Post('iniciar')
+  iniciar(@UsuarioActual() usuario: UsuarioAutenticado) {   // usuario.id = id del repartidor logueado
+    return this.jornada.iniciar(usuario.id);
+  }
+}
+
+@Public()                          // sin sesión (ej: seguimiento del destinatario)
+@Controller('seguimiento')
+export class SeguimientoController { ... }
+```
+
+Nunca uses un id de usuario que venga en el body o en un header para saber quién está logueado: usá siempre `@UsuarioActual()`.
 
 ### Base de datos
 
