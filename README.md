@@ -67,12 +67,19 @@ Levantás la base y la API con Docker, y el frontend en modo desarrollo:
 docker compose up -d --build      # base en :5433 y API en :3000
 
 cd is-frontend
-cp .env.example .env.local
 npm install
 npm run dev                       # http://localhost:5173
 ```
 
 En la página de inicio tiene que aparecer **"API: ok · base ok ✅"**.
+
+Las pantallas del operario y del repartidor **piden login**. Para crearte un operario de prueba (te pide la contraseña):
+
+```bash
+docker compose exec api node dist/scripts/crear-operario admin "Admin"
+```
+
+Para el login del repartidor hace falta un repartidor con PIN: se crean desde el panel del operario (tarea C-2) o con los datos de prueba (tarea F-2).
 
 ### Si vas a trabajar en el backend
 
@@ -86,6 +93,7 @@ cp .env.example .env
 npm install                       # también genera el cliente de Prisma
 npm run db:deploy                 # aplica las migraciones
 npm run start:dev                 # http://localhost:3000/api/health
+npm run operario:crear -- admin "Admin"   # tu usuario para entrar al panel
 ```
 
 > No corras `docker compose up` completo y `npm run start:dev` a la vez: los dos usan el puerto 3000.

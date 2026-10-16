@@ -1,10 +1,6 @@
-import type { RolUsuario } from '../../generated/prisma/client';
+import type { UsuarioAutenticado } from '../../common/auth';
 
-// Lo que sabemos del usuario después de validar su access token. Es lo que va dentro del JWT.
-export type UsuarioAutenticado = {
-  id: number;
-  rol: RolUsuario;
-};
+export type { UsuarioAutenticado };
 
 // Datos del usuario que devolvemos al front (nunca hashes ni credenciales).
 export type PerfilUsuario = UsuarioAutenticado & {

@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from 'react-router'
+import { NavLink, Outlet, useNavigate } from 'react-router'
+import { useSesion } from '../../features/auth/sesion.ts'
 
 const SECCIONES = [
   { ruta: '/operario/envios', nombre: 'Envíos' },
@@ -10,6 +11,14 @@ const SECCIONES = [
 
 // Estructura del panel del operario: menú a la izquierda (arriba en pantallas chicas) y la página a la derecha.
 export function OperarioLayout() {
+  const { usuario, logout } = useSesion()
+  const navegar = useNavigate()
+
+  async function salir() {
+    await logout()
+    navegar('/operario/login', { replace: true })
+  }
+
   return (
     <div className="flex min-h-dvh flex-col bg-gray-50 text-gray-900 md:flex-row">
       <aside className="border-b border-gray-200 bg-white md:w-56 md:border-r md:border-b-0">
@@ -27,6 +36,12 @@ export function OperarioLayout() {
             </NavLink>
           ))}
         </nav>
+        <div className="flex items-center justify-between gap-2 border-t border-gray-200 px-4 py-3 text-sm md:mt-4">
+          <span className="truncate text-gray-600">{usuario?.nombre}</span>
+          <button type="button" onClick={salir} className="text-gray-500 hover:text-gray-800 hover:underline">
+            Salir
+          </button>
+        </div>
       </aside>
       <main className="flex-1 p-4 md:p-8">
         <Outlet />

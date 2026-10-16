@@ -132,17 +132,18 @@ Decisiones ya tomadas: JWT con **access token corto + refresh token guardado en 
   - [ ] Más de 5 intentos fallidos por minuto desde la misma IP responden 429.
   - [ ] Un repartidor inactivo (`activo = false`) no puede loguearse.
 
-### A-3 · Guards, roles y protección de endpoints (backend)
+### A-3 · Guards, roles y protección de endpoints (backend) ✅ hecha
 - **Depende de:** A-1, A-2 · **Se mergea junto con A-4**
-- **Qué hacer:** guard global que exige autenticación por defecto; decorador `@Public()` para lo abierto (health, login, seguimiento); decorador `@Roles('operario' | 'repartidor')`; decorador `@UsuarioActual()` que entrega `{ id, rol }` al controller.
+- **Qué hacer:** guard global que exige autenticación por defecto; decorador `@Public()` para lo abierto (health, login, seguimiento); decorador `@Roles('OPERARIO' | 'REPARTIDOR')`; decorador `@UsuarioActual()` que entrega `{ id, rol }` al controller. Todo se importa de `src/common/auth` (ver ejemplos en AGENTS.md).
 - **Convención de rutas que protege:** `/api/repartidor/**` → rol repartidor; `/api/comercios`, `/api/envios`, `/api/repartidores`, `/api/flota` → rol operario; `/api/seguimiento/**` → público.
 - **Criterios de aceptación:**
   - [ ] Un request sin cookie a una ruta protegida da 401; con el rol equivocado, 403.
   - [ ] Todos los controllers existentes tienen su `@Roles` o `@Public`. Se coordina con cada frente.
 
-### A-4 · Login y sesión en el frontend
+### A-4 · Login y sesión en el frontend ✅ hecha
 - **Depende de:** A-1, A-2, F-1
 - **Qué hacer:** pantallas `/operario/login` (usuario y contraseña) y `/repartidor/login` (teclado numérico grande, PIN enmascarado). Contexto de sesión, rutas protegidas por rol y refresh automático ante un 401. Proxy `/api` en `vite.config.ts` y rewrite en `vercel.json`; `shared/api.ts` pasa a usar rutas relativas y `credentials: 'include'`.
+- **Cómo usarlo desde otras pantallas:** `const { usuario, logout } = useSesion()` (de `features/auth/sesion.ts`) y `api<T>(ruta, { metodo, datos })` de `shared/api.ts`, que renueva la sesión sola. Los errores llegan como `ErrorApi` con `status` y `mensajes` (uno por campo en los 400 de validación).
 - **Criterios de aceptación:**
   - [ ] Entrar a `/operario/...` sin sesión redirige al login del operario (y lo mismo para el repartidor).
   - [ ] Al vencer el access token, la app lo renueva sola sin sacar al usuario.
@@ -216,7 +217,7 @@ Decisiones ya tomadas: JWT con **access token corto + refresh token guardado en 
   - `POST /api/repartidor/jornada/reanudar`: vuelve a la cola, al final.
   - `POST /api/repartidor/jornada/terminar`: pasa a `FUERA_DE_JORNADA`; no se permite con un viaje activo.
   - `GET /api/flota` (operario): repartidores en jornada agrupados por vehículo y ordenados por la cola.
-  - Mientras no exista A-3, el repartidor se identifica con un header temporal `X-Repartidor-Id`, que se elimina en A-3.
+  - El repartidor se identifica con `@UsuarioActual()` (A-3); nunca con un id en el body o en un header.
 - **Criterios de aceptación:**
   - [ ] Las transiciones inválidas (por ejemplo, pausar estando fuera de jornada) responden 409.
   - [ ] `GET /api/flota` refleja el orden FIFO real.
@@ -344,7 +345,7 @@ Decisiones ya tomadas: JWT con **access token corto + refresh token guardado en 
 - **Qué hacer:**
   - **Supabase:** proyecto nuevo; anotar la URL de conexión.
   - **Railway:** servicio desde `is-backend/Dockerfile` con las variables `DATABASE_URL`, `PORT`, los secretos de A, `FRONTEND_URL` y healthcheck en `/api/health`.
-  - **Vercel:** raíz `is-frontend`, con rewrite de `/api/*` hacia Railway.
+  - **Vercel:** raíz `is-frontend`. En `is-frontend/vercel.json` reemplazar `REEMPLAZAR-CON-LA-URL-DE-RAILWAY` por el dominio del servicio de Railway (el rewrite de `/api/*` ya está armado).
   - Documentar todo en el README. Para conectar Railway y Vercel con el repo hace falta Salvador (dueño del repo).
 - **Criterios de aceptación:**
   - [ ] La página de inicio desplegada muestra "API: ok · base ok".

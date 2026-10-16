@@ -1,11 +1,28 @@
+import { Controller, Get } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
+import { Roles } from '../src/common/auth';
 import { configurarApp } from '../src/configurar-app';
 import { PrismaService } from '../src/database/prisma.service';
 import { RolUsuario } from '../src/generated/prisma/client';
 import { AuthService } from '../src/modules/auth/auth.service';
+
+// Endpoints de prueba para verificar la protección global (A-3).
+@Controller('prueba-roles')
+class PruebaRolesController {
+  @Get('operario')
+  @Roles('OPERARIO')
+  soloOperario() {
+    return { ok: true };
+  }
+
+  @Get('sin-anotar')
+  sinAnotar() {
+    return { ok: true };
+  }
+}
 
 // Flujo completo de sesión contra una base real (requiere `docker compose up -d db`).
 describe('Autenticación (e2e)', () => {
@@ -26,6 +43,7 @@ describe('Autenticación (e2e)', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
+      controllers: [PruebaRolesController],
     }).compile();
     app = moduleRef.createNestApplication<NestExpressApplication>();
     configurarApp(app);
@@ -131,6 +149,33 @@ describe('Autenticación (e2e)', () => {
       .post('/api/auth/repartidor/login')
       .send({ pin: '12a' })
       .expect(400));
+
+  it('protección global: sin sesión 401, rol equivocado 403, rol correcto 200', async () => {
+    const servidor = app.getHttpServer();
+    await request(servidor).get('/api/prueba-roles/operario').expect(401);
+
+    const repartidor = await request(servidor)
+      .post('/api/auth/repartidor/login')
+      .send({ pin })
+      .expect(200);
+    await request(servidor)
+      .get('/api/prueba-roles/operario')
+      .set('Cookie', cookiesDe(repartidor))
+      .expect(403);
+
+    const operario = await request(servidor)
+      .post('/api/auth/operario/login')
+      .send({ usuario, password: 'secreta123' })
+      .expect(200);
+    await request(servidor)
+      .get('/api/prueba-roles/operario')
+      .set('Cookie', cookiesDe(operario))
+      .expect(200);
+    await request(servidor)
+      .get('/api/prueba-roles/sin-anotar')
+      .set('Cookie', cookiesDe(operario))
+      .expect(403);
+  });
 
   // Va último: agota el límite de intentos de esta ruta.
   it('repartidor: más de 5 intentos por minuto da 429', async () => {
