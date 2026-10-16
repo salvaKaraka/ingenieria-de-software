@@ -73,13 +73,16 @@ npm run dev                       # http://localhost:5173
 
 En la página de inicio tiene que aparecer **"API: ok · base ok ✅"**.
 
-Las pantallas del operario y del repartidor **piden login**. Para crearte un operario de prueba (te pide la contraseña):
+Las pantallas del operario y del repartidor **piden login**. Creá los usuarios de prueba (una sola vez):
 
 ```bash
-docker compose exec api node dist/scripts/crear-operario admin "Admin"
+docker compose exec api node dist/scripts/crear-usuarios-prueba
 ```
 
-Para el login del repartidor hace falta un repartidor con PIN: se crean desde el panel del operario (tarea C-2) o con los datos de prueba (tarea F-2).
+| Para entrar a | Credenciales |
+|---|---|
+| http://localhost:5173/operario | usuario `admin`, contraseña `admin1234` |
+| http://localhost:5173/repartidor | PIN `1234` |
 
 ### Si vas a trabajar en el backend
 
@@ -93,7 +96,7 @@ cp .env.example .env
 npm install                       # también genera el cliente de Prisma
 npm run db:deploy                 # aplica las migraciones
 npm run start:dev                 # http://localhost:3000/api/health
-npm run operario:crear -- admin "Admin"   # tu usuario para entrar al panel
+npm run dev:usuarios              # operario admin/admin1234 y repartidor con PIN 1234
 ```
 
 > No corras `docker compose up` completo y `npm run start:dev` a la vez: los dos usan el puerto 3000.
@@ -120,7 +123,8 @@ npm run operario:crear -- admin "Admin"   # tu usuario para entrar al panel
 | is-backend | `npm run lint` | Linter |
 | is-backend | `npm run db:migrate -- --name <desc>` | Crea y aplica una migración después de cambiar `schema.prisma` |
 | is-backend | `npm run db:studio` | Interfaz web para ver y editar la base |
-| is-backend | `npm run operario:crear -- <usuario> "<nombre>"` | Crea un operario (pide la contraseña por consola) |
+| is-backend | `npm run dev:usuarios` | Usuarios de prueba: operario `admin`/`admin1234` y repartidor con PIN `1234` (solo bases locales) |
+| is-backend | `npm run operario:crear -- <usuario> "<nombre>"` | Crea un operario real (pide la contraseña por consola) |
 | is-frontend | `npm run dev` | Frontend con recarga automática |
 | is-frontend | `npm run build` / `npm run lint` | Build de producción / linter |
 
