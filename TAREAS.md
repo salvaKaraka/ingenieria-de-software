@@ -26,7 +26,7 @@ El trabajo está dividido en **6 frentes**, uno por persona. Cada frente es due�
 | **A** | Autenticación y seguridad | `auth/` | `auth/` | Salvador |
 | **B** | Comercios y envíos (operario) | `comercios/`, `envios/` (alta, listado, detalle) | `operario/comercios/`, `operario/envios/` | a definir |
 | **C** | Repartidores y jornada | `repartidores/` | `operario/repartidores/`, `operario/flota/`, `repartidor/jornada/` | a definir |
-| **D** | Motor de asignación y ofertas | `asignacion/` | `repartidor/ofertas/` | a definir |
+| **D** | Motor de asignación y ofertas | `asignacion/` | `repartidor/ofertas/` | Salvador |
 | **E** | Ejecución de entregas | `envios/domain/`, `envios/viajes.*` | `repartidor/viaje/` | a definir |
 | **F** | Base del frontend, seguimiento público, datos de prueba y deploy | `seguimiento/`, `prisma/seed.ts` | `shared/`, `seguimiento/` | a definir |
 
@@ -85,10 +85,10 @@ Es una **propuesta inicial** a partir de las entrevistas y épicas. T-00 la conv
 Están implementados así para poder avanzar. Son **parámetros configurables** (riesgo 1 del PGP): si Martín decide otra cosa, se cambia en un solo lugar.
 
 1. **Un viaje a la vez**: un repartidor tiene como máximo un envío activo (no hay entregas en serie en el MVP).
-2. **Cola FIFO**: el orden es `enColaDesde` ascendente. Entra a la cola al iniciar la jornada y **vuelve al final** cuando termina una entrega.
+2. **Cola FIFO**: el orden es `enColaDesde` ascendente. Entra a la cola al iniciar la jornada y **vuelve al final** cuando termina una entrega. **Mientras tiene una oferta pendiente, sale de la cola** (`enColaDesde = null`); además de ser la regla de negocio, es lo que evita dos ofertas simultáneas al mismo repartidor (ver D-1).
 3. **Rechazo**: el repartidor que rechaza vuelve al final de la cola y no se le vuelve a ofrecer **ese** envío.
 4. **Oferta vencida (5 min sin responder)**: la oferta pasa a `VENCIDA`, el repartidor pasa a `EN_PAUSA` (sale de la cola hasta que se reactive) y el envío se ofrece al siguiente.
-5. **Regla de 2 viajes consecutivos**: `viajesConsecutivos` suma 1 por cada entrega. Si al elegir candidato tiene 2 o más, se lo saltea **una vez**: el contador vuelve a 0 y el repartidor va al final de la cola.
+5. **Regla de 2 viajes consecutivos**: `viajesConsecutivos` suma 1 por cada entrega. Si al elegir candidato tiene 2 o más, se lo saltea **una vez**: el contador vuelve a 0 y el repartidor va al final de la cola. Si era el **único** disponible, se le ofrece igual (ya descansado): es preferible a dejar el paquete sin despachar.
 6. **Sin candidatos**: el envío queda `PENDIENTE` y se reintenta automáticamente (ver D-3). El operario lo ve marcado como "sin asignar" en el panel.
 7. **Hora de salida** que ve el destinatario = momento en que el envío pasó a `RETIRADO`.
 
@@ -112,7 +112,7 @@ Están implementados así para poder avanzar. Son **parámetros configurables** 
 
 Decisiones ya tomadas: JWT con **access token corto + refresh token guardado en la base**, ambos en **cookies `httpOnly` + `Secure` + `SameSite=Lax`**. El frontend llama a la API por el **mismo origen** (proxy de Vite en desarrollo, rewrite de Vercel en producción), así que no hace falta CORS. Contraseña del operario con **argon2**; PIN del repartidor con **HMAC-SHA256** y clave en el `.env`; límite de intentos con `@nestjs/throttler`.
 
-### A-1 · Login del operario (backend)
+### A-1 · Login del operario (backend) ✅ hecha
 - **Depende de:** T-00 · **Bloquea:** A-3, A-4
 - **Qué hacer:** tabla `Operario` y tabla de refresh tokens (diseño de Salvador). Endpoints `POST /api/auth/operario/login`, `POST /api/auth/refresh`, `POST /api/auth/logout`, `GET /api/auth/me`. Script para crear el primer operario (no hay registro público).
 - **Criterios de aceptación:**
@@ -122,7 +122,7 @@ Decisiones ya tomadas: JWT con **access token corto + refresh token guardado en 
   - [ ] `logout` revoca el refresh token.
   - [ ] Tests unitarios del servicio de auth.
 
-### A-2 · Login del repartidor por PIN (backend)
+### A-2 · Login del repartidor por PIN (backend) ✅ hecha
 - **Depende de:** A-1 · **Bloquea:** C-1 (generación de PIN), A-4
 - **Qué hacer:** columnas de PIN en `Repartidor` (HMAC, único). `POST /api/auth/repartidor/login` con `{ pin }`. `AuthService` (exportado por `AuthModule`) ofrece:
   - `asignarNuevoPin(repartidorId)`: genera un PIN libre, guarda su HMAC, cierra las sesiones abiertas del repartidor y devuelve el PIN en texto plano **una sola vez**. C-1 lo usa en el alta y en el reseteo.
@@ -232,13 +232,14 @@ Decisiones ya tomadas: JWT con **access token corto + refresh token guardado en 
 
 > Es el corazón del sistema y lo más delicado (riesgos 7 y 8 del PGP). Los PRs de este frente los revisa Salvador.
 
-### D-1 · Motor de asignación (backend)
+### D-1 · Motor de asignación (backend) ✅ hecha
 - **Depende de:** T-00, C-3 · **Épica:** 3.2 · **RNF-12:** menos de 3 segundos
 - **Qué hacer:** `AsignacionService.asignar(envioId)` y `AsignacionService.reintentarPendientes()`. Dentro de **una transacción** (`prisma.$transaction`):
   1. Buscar el primer repartidor con `estado = DISPONIBLE`, `vehiculo = envio.vehiculoRequerido` y `activo`, que no tenga una oferta `PENDIENTE` y que no haya rechazado ni dejado vencer una oferta de **este** envío. Orden: `enColaDesde ASC`. Bloquear la fila con `FOR UPDATE SKIP LOCKED` (SQL a mano con `tx.$queryRaw`).
   2. Si tiene `viajesConsecutivos >= 2`: ponerlo en 0, mandarlo al final de la cola y probar con el siguiente (supuesto 5).
   3. Crear la `Oferta` con `expiraEn = ahora + 5 min`.
   4. Si no hay candidato, no hacer nada: el envío queda `PENDIENTE` (supuesto 6).
+- **Cómo usarlo desde otros módulos:** importar `AsignacionModule` e inyectar `AsignacionService`: `asignar(envioId)` (B-3, D-2, D-3) y `reintentarPendientes()` (C-3, E-2). Al ofrecer, el motor ya saca al repartidor de la cola.
 - **Criterios de aceptación:**
   - [ ] Tests unitarios de las reglas: filtro por vehículo, orden FIFO, regla de 2 consecutivos, exclusión de quien rechazó.
   - [ ] Test e2e de concurrencia: 2 envíos de moto simultáneos con 1 solo repartidor de moto generan 1 sola oferta.

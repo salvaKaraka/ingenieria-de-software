@@ -143,7 +143,7 @@ is-frontend/src/
 - **Nombres:** variables y funciones en `camelCase`; clases, tipos y componentes en `PascalCase`; constantes globales en `MAYUSCULAS`.
 - **Comentarios:** en español, explicando el **por qué**, no el qué. No comentes lo obvio.
 - **Tipos:** TypeScript estricto. No uses `any`; si no sabés el tipo, averigualo.
-- **Tests:** cada service con reglas de negocio lleva su `*.spec.ts`, con los repositories mockeados (ver el ejemplo en `src/health/health.controller.spec.ts`). Los nombres de los tests describen el comportamiento en español: `it('rechaza un envío de un comercio inactivo')`.
+- **Tests:** cada service con reglas de negocio lleva su `*.spec.ts`, con los repositories mockeados (ver el ejemplo en `src/health/health.controller.spec.ts`). Lo que depende de SQL, transacciones o bloqueos se prueba con tests e2e en `test/` contra la base de test (`vaciarBase()` de `test/utils.ts` la deja vacía; ejemplo: `test/asignacion.e2e-spec.ts`). Los nombres de los tests describen el comportamiento en español: `it('rechaza un envío de un comercio inactivo')`.
 - Formateá con Prettier (`npm run format` en el backend).
 
 ## Git
