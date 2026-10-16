@@ -5,6 +5,8 @@ import type { TamanioPaquete, TipoVehiculo } from '../generated/prisma/client';
 import { AsignacionService } from '../modules/asignacion/asignacion.service';
 import { OfertasService } from '../modules/asignacion/ofertas.service';
 import { AuthService } from '../modules/auth/auth.service';
+import { HashingService } from '../modules/auth/hashing.service';
+import { PIN_REPARTIDOR_PRUEBA, verificarBaseLocal } from './dev.constants';
 
 const VEHICULO_MINIMO = {
   CHICO: 'MOTO',
@@ -26,6 +28,7 @@ export class DevService {
     private readonly asignacion: AsignacionService,
     private readonly auth: AuthService,
     private readonly ofertas: OfertasService,
+    private readonly hashing: HashingService,
   ) {}
 
   async estado() {
@@ -183,6 +186,48 @@ export class DevService {
       }),
     ]);
     return { ofertasCreadas: await this.asignacion.reintentarPendientes() };
+  }
+
+  // Empezar de cero: borra envíos (con ofertas e historial) y repartidores (con sus sesiones).
+  // Conserva operarios, comercios y el repartidor de prueba con PIN 1234, que queda reseteado.
+  async limpiar() {
+    verificarBaseLocal();
+    const dePrueba = await this.prisma.repartidor.findUnique({
+      where: { pinHmac: this.hashing.hmacPin(PIN_REPARTIDOR_PRUEBA) },
+    });
+    // Se compara por id (no por pinHmac) para no dejar afuera a los repartidores sin PIN (null).
+    const otros = dePrueba ? { id: { not: dePrueba.id } } : {};
+
+    const [, , envios, , repartidores] = await this.prisma.$transaction([
+      this.prisma.oferta.deleteMany(),
+      this.prisma.eventoEnvio.deleteMany(),
+      this.prisma.envio.deleteMany(),
+      this.prisma.refreshToken.deleteMany({
+        where: {
+          rol: 'REPARTIDOR',
+          ...(dePrueba ? { usuarioId: { not: dePrueba.id } } : {}),
+        },
+      }),
+      this.prisma.repartidor.deleteMany({ where: otros }),
+    ]);
+
+    if (dePrueba) {
+      // Sin envíos, no puede quedar "en viaje" ni en la cola con datos viejos.
+      await this.prisma.repartidor.update({
+        where: { id: dePrueba.id },
+        data: {
+          estado: 'FUERA_DE_JORNADA',
+          enColaDesde: null,
+          viajesConsecutivos: 0,
+          activo: true,
+        },
+      });
+    }
+    return {
+      enviosBorrados: envios.count,
+      repartidoresBorrados: repartidores.count,
+      conservado: dePrueba ? `${dePrueba.nombre} ${dePrueba.apellido}` : null,
+    };
   }
 
   // Adelanta el vencimiento de las ofertas pendientes: el job las procesa en la próxima vuelta (≤ 10 s).

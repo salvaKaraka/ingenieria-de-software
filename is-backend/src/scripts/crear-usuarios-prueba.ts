@@ -10,6 +10,10 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../app.module';
 import { PrismaService } from '../database/prisma.service';
+import {
+  PIN_REPARTIDOR_PRUEBA,
+  verificarBaseLocal,
+} from '../dev/dev.constants';
 import { HashingService } from '../modules/auth/hashing.service';
 
 const OPERARIO = {
@@ -17,17 +21,6 @@ const OPERARIO = {
   password: 'admin1234',
   nombre: 'Admin de prueba',
 };
-const PIN_REPARTIDOR = '1234';
-const HOSTS_LOCALES = ['localhost', '127.0.0.1', 'db'];
-
-function verificarBaseLocal() {
-  const host = new URL(process.env.DATABASE_URL ?? '').hostname;
-  if (!HOSTS_LOCALES.includes(host)) {
-    throw new Error(
-      `La base "${host}" no es local. Este script es solo para desarrollo.`,
-    );
-  }
-}
 
 async function main() {
   verificarBaseLocal();
@@ -52,7 +45,7 @@ async function main() {
     });
 
     // El HMAC depende del PIN_SECRET de cada máquina: por eso cada uno corre el script en la suya.
-    const pinHmac = hashing.hmacPin(PIN_REPARTIDOR);
+    const pinHmac = hashing.hmacPin(PIN_REPARTIDOR_PRUEBA);
     await prisma.repartidor.upsert({
       where: { pinHmac },
       create: {
@@ -72,7 +65,7 @@ async function main() {
       `  Operario   → http://localhost:5173/operario    usuario "${OPERARIO.usuario}", contraseña "${OPERARIO.password}"`,
     );
     console.log(
-      `  Repartidor → http://localhost:5173/repartidor  PIN "${PIN_REPARTIDOR}"`,
+      `  Repartidor → http://localhost:5173/repartidor  PIN "${PIN_REPARTIDOR_PRUEBA}"`,
     );
   } finally {
     await app.close();
