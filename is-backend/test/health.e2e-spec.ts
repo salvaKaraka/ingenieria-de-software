@@ -1,20 +1,20 @@
 import { Test } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { App } from 'supertest/types';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from '../src/app.module';
+import { configurarApp } from '../src/configurar-app';
 
 // Test end-to-end: levanta la app completa contra una base real (requiere `docker compose up -d db`).
 describe('Health (e2e)', () => {
-  let app: INestApplication<App>;
+  let app: NestExpressApplication;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
-    app = moduleRef.createNestApplication();
-    app.setGlobalPrefix('api');
+    app = moduleRef.createNestApplication<NestExpressApplication>();
+    configurarApp(app);
     await app.init();
   });
 

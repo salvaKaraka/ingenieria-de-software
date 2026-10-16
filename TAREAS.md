@@ -124,7 +124,9 @@ Decisiones ya tomadas: JWT con **access token corto + refresh token guardado en 
 
 ### A-2 · Login del repartidor por PIN (backend)
 - **Depende de:** A-1 · **Bloquea:** C-1 (generación de PIN), A-4
-- **Qué hacer:** columnas de PIN en `Repartidor` (HMAC, único). `POST /api/auth/repartidor/login` con `{ pin }`. Servicio exportado `generarPin()` que devuelve un PIN nuevo de 4 dígitos que no esté en uso. C-1 lo usa en el alta y en el reseteo.
+- **Qué hacer:** columnas de PIN en `Repartidor` (HMAC, único). `POST /api/auth/repartidor/login` con `{ pin }`. `AuthService` (exportado por `AuthModule`) ofrece:
+  - `asignarNuevoPin(repartidorId)`: genera un PIN libre, guarda su HMAC, cierra las sesiones abiertas del repartidor y devuelve el PIN en texto plano **una sola vez**. C-1 lo usa en el alta y en el reseteo.
+  - `cerrarSesiones(rol, usuarioId)`: revoca todas las sesiones. C-1 lo usa al dar de baja; C-3, al terminar la jornada.
 - **Criterios de aceptación:**
   - [ ] El PIN nunca se guarda en texto plano.
   - [ ] Más de 5 intentos fallidos por minuto desde la misma IP responden 429.
@@ -195,7 +197,7 @@ Decisiones ya tomadas: JWT con **access token corto + refresh token guardado en 
 
 ### C-1 · ABM de repartidores (backend)
 - **Depende de:** T-00 (y A-2 para el PIN) · **Épica:** 3.1
-- **Qué hacer:** `GET/POST/PATCH/DELETE /api/repartidores` (baja lógica). El alta devuelve el **PIN una única vez** en la respuesta, usando `generarPin()` de A-2; mientras A-2 no esté, se deja un `// TODO(A-2)`. `POST /api/repartidores/:id/resetear-pin` devuelve un PIN nuevo, también una sola vez. Al dar de baja, si tiene un viaje activo responde 409.
+- **Qué hacer:** `GET/POST/PATCH/DELETE /api/repartidores` (baja lógica). El alta devuelve el **PIN una única vez** en la respuesta, usando `authService.asignarNuevoPin(id)` de A-2; mientras A-2 no esté, se deja un `// TODO(A-2)`. `POST /api/repartidores/:id/resetear-pin` devuelve un PIN nuevo, también una sola vez. Al dar de baja, si tiene un viaje activo responde 409; si no, llama a `authService.cerrarSesiones('REPARTIDOR', id)`.
 - **Criterios de aceptación:**
   - [ ] Ningún `GET` devuelve el PIN ni su hash.
   - [ ] Tests unitarios del service.

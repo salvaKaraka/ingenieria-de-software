@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { validarEnv } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
@@ -14,6 +15,8 @@ import { SeguimientoModule } from './modules/seguimiento/seguimiento.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validarEnv }),
+    // Límite de requests por IP. Solo aplica donde se usa ThrottlerGuard (ej: login), con su propio @Throttle.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
     DatabaseModule,
     HealthModule,
     AuthModule,
