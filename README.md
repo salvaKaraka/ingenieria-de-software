@@ -112,6 +112,7 @@ npm run start:dev                 # http://localhost:3000/api/health
 | is-backend | `npm run lint` | Linter |
 | is-backend | `npm run db:migrate -- --name <desc>` | Crea y aplica una migración después de cambiar `schema.prisma` |
 | is-backend | `npm run db:studio` | Interfaz web para ver y editar la base |
+| is-backend | `npm run operario:crear -- <usuario> "<nombre>"` | Crea un operario (pide la contraseña por consola) |
 | is-frontend | `npm run dev` | Frontend con recarga automática |
 | is-frontend | `npm run build` / `npm run lint` | Build de producción / linter |
 

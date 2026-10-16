@@ -36,6 +36,9 @@ services:
       # Dentro de la red de compose la base se llama "db" y escucha en 5432 (no 5433: eso es solo hacia tu máquina)
       DATABASE_URL: postgresql://admin:is2026@db:5432/is_db
       FRONTEND_URL: http://localhost:5173
+      # Solo para desarrollo local. En producción se generan valores propios en Railway.
+      JWT_SECRET: clave-jwt-solo-para-desarrollo-local
+      PIN_SECRET: clave-pin-solo-para-desarrollo-local
     ports:
       - "3000:3000"
     depends_on:

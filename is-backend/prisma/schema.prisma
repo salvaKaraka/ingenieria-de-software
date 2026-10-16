@@ -74,6 +74,12 @@ enum TipoEvento {
   NOTA
 }
 
+// Tipo de usuario que inicia sesión. Va en el JWT y lo usan los guards (@Roles).
+enum RolUsuario {
+  OPERARIO
+  REPARTIDOR
+}
+
 // ---------- Modelos ----------
 
 model Comercio {
@@ -109,6 +115,10 @@ model Repartidor {
   // Entregas seguidas sin descanso (regla de máximo 2 consecutivos, supuesto 5 de TAREAS.md)
   viajesConsecutivos Int              @default(0) @map("viajes_consecutivos")
   activo             Boolean          @default(true)
+  // HMAC-SHA256 del PIN (con la clave PIN_SECRET del .env), nunca el PIN en texto plano.
+  // Determinístico: permite buscar al repartidor por su PIN y garantizar que sea único.
+  // Opcional porque se agrega con repartidores ya cargados; sin PIN no puede loguearse.
+  pinHmac            String?          @unique @map("pin_hmac")
   creadoEn           DateTime         @default(now()) @map("creado_en")
   actualizadoEn      DateTime         @updatedAt @map("actualizado_en")
 
@@ -190,4 +200,42 @@ model Oferta {
   @@index([repartidorId, estado])
   @@index([envioId])
   @@map("ofertas")
+}
+
+// ---------- Autenticación ----------
+
+// Usuario del panel web. No hay registro público: se crean con un script.
+model Operario {
+  id           Int      @id @default(autoincrement())
+  usuario      String   @unique
+  // Hash argon2 (incluye la sal). Nunca existe una columna con la contraseña.
+  passwordHash String   @map("password_hash")
+  nombre       String
+  activo       Boolean  @default(true)
+  creadoEn     DateTime @default(now()) @map("creado_en")
+
+  @@map("operarios")
+}
+
+// Sesión de larga duración. El JWT de acceso dura minutos y no se guarda; este token sirve
+// solo para pedir uno nuevo en /auth/refresh y, como vive en la base, se puede revocar.
+model RefreshToken {
+  id         Int        @id @default(autoincrement())
+  // SHA-256 del token: alcanza porque el token es aleatorio (no necesita sal ni ser lento)
+  // y es determinístico, así se puede buscar por él.
+  tokenHash  String     @unique @map("token_hash")
+  // Dueño del token. Sin clave foránea (puede ser operario o repartidor): la integridad la
+  // garantiza el código, que en cada refresh verifica que el usuario exista y esté activo.
+  rol        RolUsuario
+  usuarioId  Int        @map("usuario_id")
+  // Operario: ahora + 30 min, renovado en cada uso (RNF-04). Repartidor: ahora + 12 h sin uso.
+  expiraEn   DateTime   @map("expira_en")
+  creadoEn   DateTime   @default(now()) @map("creado_en")
+  // Se marca en vez de borrar la fila: queda registro de cuándo terminó cada sesión (RNF-03).
+  // Se revoca al hacer logout, al rotar el token, al terminar la jornada o al dar de baja.
+  revocadoEn DateTime?  @map("revocado_en")
+
+  // Revocar todas las sesiones de un usuario (logout, baja, fin de jornada)
+  @@index([rol, usuarioId])
+  @@map("refresh_tokens")
 }

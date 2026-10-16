@@ -1,23 +1,11 @@
-import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import { configurarApp } from './configurar-app';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-
-  // Todas las rutas quedan bajo /api (ej: GET /api/health)
-  app.setGlobalPrefix('api');
-
-  // Valida los DTOs de cada request: descarta campos no declarados y convierte tipos.
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
-
-  app.enableCors({ origin: process.env.FRONTEND_URL ?? 'http://localhost:5173' });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  configurarApp(app);
 
   // Cierra la conexión a la base prolijamente cuando el proceso se detiene (deploys en Railway)
   app.enableShutdownHooks();
