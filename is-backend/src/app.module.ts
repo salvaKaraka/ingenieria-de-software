@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { validarEnv } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
+import { DevModule } from './dev/dev.module';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ComerciosModule } from './modules/comercios/comercios.module';
@@ -28,6 +29,8 @@ import { SeguimientoModule } from './modules/seguimiento/seguimiento.module';
     RepartidoresModule,
     AsignacionModule,
     SeguimientoModule,
+    // Herramientas de prueba (/api/dev/...): nunca en producción.
+    ...(process.env.NODE_ENV === 'production' ? [] : [DevModule]),
   ],
 })
 export class AppModule {}

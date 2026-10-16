@@ -42,7 +42,9 @@ E-1 Máquina de estados ──► E-2 Endpoints de viaje ──► E-3 Pantalla 
 
 **Ya están hechas `T-00` y `F-1`**: todos los frentes pueden arrancar. Mientras tanto, cada uno lee su frente, los requisitos en `docs/` y prepara su rama.
 
-**Mientras no esté lista la autenticación (A-3/A-4):** los endpoints se hacen **sin protección**. Cuando A-3 se mergee, cada frente agrega el decorador de rol en sus controllers (ver A-3).
+**Autenticación lista (A-1 a A-4):** todo endpoint nuevo lleva `@Roles(...)` o `@Public()` (ver AGENTS.md).
+
+**Probador del motor (`/dev/motor`, solo en desarrollo):** mientras no existan el alta de envíos (B-3/B-5) ni la jornada (C-3/C-4), esa página permite crear envíos y repartidores, ponerlos en la cola y ver las ofertas en vivo. Su backend está en `is-backend/src/dev/` y no existe en producción. Cuando B y C terminen, se borra.
 
 ---
 
@@ -245,7 +247,7 @@ Decisiones ya tomadas: JWT con **access token corto + refresh token guardado en 
   - [ ] Test e2e de concurrencia: 2 envíos de moto simultáneos con 1 solo repartidor de moto generan 1 sola oferta.
   - [ ] Los tiempos de espera (5 min) y el límite de consecutivos son constantes configurables.
 
-### D-2 · Aceptar y rechazar ofertas (backend)
+### D-2 · Aceptar y rechazar ofertas (backend) ✅ hecha
 - **Depende de:** D-1 · **Épica:** 3.3
 - **Qué hacer:**
   - `GET /api/repartidor/ofertas/actual`: la oferta vigente, con los datos del envío y los segundos restantes.
@@ -255,7 +257,7 @@ Decisiones ya tomadas: JWT con **access token corto + refresh token guardado en 
 - **Criterios de aceptación:**
   - [ ] No se puede responder una oferta ajena (403), ya respondida (409) ni vencida (409).
 
-### D-3 · Vencimiento de ofertas y reintentos (backend)
+### D-3 · Vencimiento de ofertas y reintentos (backend) ✅ hecha
 - **Depende de:** D-2 · **Épica:** 3.3 · **RNF-08**
 - **Qué hacer:** job con `@nestjs/schedule` que corre cada 10 s:
   1. Toma las ofertas `PENDIENTE` con `expiraEn < ahora`, las marca `VENCIDA`, pone al repartidor `EN_PAUSA` (supuesto 4) y reasigna el envío.
@@ -264,7 +266,7 @@ Decisiones ya tomadas: JWT con **access token corto + refresh token guardado en 
   - [ ] Si el servidor se reinicia con ofertas vencidas, se procesan al volver. El vencimiento vive en la base, **no** en un `setTimeout`.
   - [ ] Dos ejecuciones superpuestas del job no procesan dos veces la misma oferta.
 
-### D-4 · Pantalla de oferta del repartidor
+### D-4 · Pantalla de oferta del repartidor ✅ hecha
 - **Depende de:** D-2, F-1 · **Ruta:** dentro de `/repartidor`
 - **Qué hacer:** consultar `ofertas/actual` cada 10 s. Si hay oferta, mostrar una tarjeta a pantalla completa con origen, destino, tamaño, cuenta regresiva y dos botones enormes "Aceptar" / "Rechazar".
 - **Criterios de aceptación:**
@@ -279,7 +281,7 @@ Decisiones ya tomadas: JWT con **access token corto + refresh token guardado en 
 
   | De | A | Quién |
   |---|---|---|
-  | PENDIENTE | ASIGNADO | SISTEMA (al aceptar una oferta) |
+  | PENDIENTE | ASIGNADO | REPARTIDOR (al aceptar una oferta; ya lo hace D-2) |
   | ASIGNADO | EN_CAMINO_A_RETIRAR | REPARTIDOR |
   | EN_CAMINO_A_RETIRAR | RETIRADO | REPARTIDOR |
   | RETIRADO | EN_DOMICILIO | REPARTIDOR |

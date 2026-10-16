@@ -133,7 +133,7 @@ is-frontend/src/
 
 - Componentes funcionales con hooks, en archivos `PascalCase.tsx`, con export nombrado (`export function EnviosPage()`).
 - Estilos solo con clases de Tailwind. Antes de crear un componente nuevo, revisá `shared/ui/`.
-- Los datos que tienen que verse actualizados se refrescan por **polling**: 10 s en la app del repartidor y 15 s en el panel del operario.
+- Los datos que tienen que verse actualizados se refrescan por **polling** con el hook `usePolling(consultar, ms)` de `shared/usePolling.ts` (no armes `setInterval` a mano): 10 s en la app del repartidor y 15 s en el panel del operario.
 - **App del repartidor (RNF-10):** botones grandes (48 px de alto o más), alto contraste, texto de 18 px o más, y como máximo 2 toques por acción (botón + confirmación). Diseñá primero para un celular de 360 px de ancho.
 - Nunca muestres en pantalla el PIN, la contraseña, el DNI completo ni ningún dato sensible innecesario.
 
