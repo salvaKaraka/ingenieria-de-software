@@ -3,6 +3,12 @@ import { ConfigModule } from '@nestjs/config';
 import { validarEnv } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { ComerciosModule } from './modules/comercios/comercios.module';
+import { EnviosModule } from './modules/envios/envios.module';
+import { RepartidoresModule } from './modules/repartidores/repartidores.module';
+import { AsignacionModule } from './modules/asignacion/asignacion.module';
+import { SeguimientoModule } from './modules/seguimiento/seguimiento.module';
 
 // Módulo raíz. Cada módulo de negocio (src/modules/<nombre>) se registra en `imports`.
 @Module({
@@ -10,6 +16,12 @@ import { HealthModule } from './health/health.module';
     ConfigModule.forRoot({ isGlobal: true, validate: validarEnv }),
     DatabaseModule,
     HealthModule,
+    AuthModule,
+    ComerciosModule,
+    EnviosModule,
+    RepartidoresModule,
+    AsignacionModule,
+    SeguimientoModule,
   ],
 })
 export class AppModule {}

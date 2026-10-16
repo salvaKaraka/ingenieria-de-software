@@ -40,7 +40,7 @@ D-1 Motor ──► D-2 Ofertas ──► D-3 Vencimiento
 E-1 Máquina de estados ──► E-2 Endpoints de viaje ──► E-3 Pantalla de viaje
 ```
 
-**Primeros dos días (15–17/10):** `T-00` tiene que estar mergeado en `dev` lo antes posible, porque desbloquea a todos (`F-1` ya está hecha). Mientras tanto, cada uno lee su frente, los requisitos en `docs/` y prepara su rama.
+**Ya están hechas `T-00` y `F-1`**: todos los frentes pueden arrancar. Mientras tanto, cada uno lee su frente, los requisitos en `docs/` y prepara su rama.
 
 **Mientras no esté lista la autenticación (A-3/A-4):** los endpoints se hacen **sin protección**. Cuando A-3 se mergee, cada frente agrega el decorador de rol en sus controllers (ver A-3).
 
@@ -96,8 +96,8 @@ Están implementados así para poder avanzar. Son **parámetros configurables** 
 
 # Demo 1 (30/10)
 
-## T-00 · Modelo de datos base
-- **Frente:** A (Salvador) · **Depende de:** nada · **Bloquea:** casi todo · **Urgente: 15–17/10**
+## T-00 · Modelo de datos base ✅ hecha
+- **Frente:** A (Salvador) · **Depende de:** nada · **Bloquea:** casi todo · **Mergeada el 16/10.** Después de traer `dev`: `cd is-backend && npm install && npm run db:deploy`.
 - **Objetivo:** que exista la base de datos compartida sobre la que trabajan todos los frentes.
 - **Qué hacer:**
   1. Pasar las tablas y enums de "Modelo de datos propuesto" a `is-backend/prisma/schema.prisma` (sin `Operario` ni columnas de PIN: son de A-1/A-2).
