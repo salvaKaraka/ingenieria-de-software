@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
 import type { TamanioPaquete, TipoVehiculo } from '../generated/prisma/client';
 import { AsignacionService } from '../modules/asignacion/asignacion.service';
+import { OfertasService } from '../modules/asignacion/ofertas.service';
 import { AuthService } from '../modules/auth/auth.service';
 
 const VEHICULO_MINIMO = {
@@ -24,6 +25,7 @@ export class DevService {
     private readonly prisma: PrismaService,
     private readonly asignacion: AsignacionService,
     private readonly auth: AuthService,
+    private readonly ofertas: OfertasService,
   ) {}
 
   async estado() {
@@ -134,6 +136,52 @@ export class DevService {
       where: { id: repartidorId },
       data: { estado: 'DISPONIBLE', enColaDesde: new Date() },
     });
+    return { ofertasCreadas: await this.asignacion.reintentarPendientes() };
+  }
+
+  // Responde una oferta en nombre de su repartidor, con el MISMO código que usa la app del repartidor (D-2).
+  async responderOferta(ofertaId: number, accion: 'aceptar' | 'rechazar') {
+    const oferta = await this.prisma.oferta.findUniqueOrThrow({
+      where: { id: ofertaId },
+    });
+    if (accion === 'aceptar')
+      await this.ofertas.aceptar(ofertaId, oferta.repartidorId);
+    else await this.ofertas.rechazar(ofertaId, oferta.repartidorId);
+    return { repartidorId: oferta.repartidorId, envioId: oferta.envioId };
+  }
+
+  // Simula que el repartidor terminó la entrega (lo hará E-2): suma un viaje consecutivo,
+  // vuelve al final de la cola y el motor reintenta los envíos pendientes.
+  async simularEntrega(envioId: number) {
+    const envio = await this.prisma.envio.findUniqueOrThrow({
+      where: { id: envioId },
+    });
+    if (!envio.repartidorId) return { ofertasCreadas: 0 };
+    await this.prisma.$transaction([
+      this.prisma.envio.update({
+        where: { id: envioId },
+        data: {
+          estado: 'ENTREGADO',
+          eventos: {
+            create: {
+              tipo: 'CAMBIO_ESTADO',
+              estadoAnterior: envio.estado,
+              estadoNuevo: 'ENTREGADO',
+              actorTipo: 'REPARTIDOR',
+              actorId: envio.repartidorId,
+            },
+          },
+        },
+      }),
+      this.prisma.repartidor.update({
+        where: { id: envio.repartidorId },
+        data: {
+          estado: 'DISPONIBLE',
+          enColaDesde: new Date(),
+          viajesConsecutivos: { increment: 1 },
+        },
+      }),
+    ]);
     return { ofertasCreadas: await this.asignacion.reintentarPendientes() };
   }
 

@@ -16,6 +16,7 @@ import { VencimientoOfertasJob } from './vencimiento-ofertas.job';
     VencimientoOfertasJob,
   ],
   // Envíos, repartidores y la ejecución de entregas disparan el motor.
-  exports: [AsignacionService],
+  // OfertasService: lo usa el probador de desarrollo (src/dev) para responder ofertas en nombre del repartidor.
+  exports: [AsignacionService, OfertasService],
 })
 export class AsignacionModule {}

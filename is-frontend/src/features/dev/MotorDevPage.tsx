@@ -136,6 +136,20 @@ export function MotorDevPage() {
       return `${repartidor.nombre} ${repartidor.apellido} volvió al final de la cola.${r.ofertasCreadas ? ` Se crearon ${r.ofertasCreadas} oferta(s).` : ''}`
     })
 
+  const responderOferta = (repartidor: Repartidor, ofertaId: number, accion: 'aceptar' | 'rechazar') =>
+    ejecutar(async () => {
+      const r = await api<{ envioId: number }>(`/dev/ofertas/${ofertaId}/${accion}`, { metodo: 'POST' })
+      return accion === 'aceptar'
+        ? `${nombreDe(repartidor.id)} aceptó el envío #${r.envioId} y salió de viaje.`
+        : `${nombreDe(repartidor.id)} rechazó el envío #${r.envioId}: volvió al final de la cola y el envío se le ofrece al siguiente.`
+    })
+
+  const simularEntrega = (repartidor: Repartidor, envioId: number) =>
+    ejecutar(async () => {
+      const r = await api<{ ofertasCreadas: number }>(`/dev/envios/${envioId}/entregar`, { metodo: 'POST' })
+      return `${nombreDe(repartidor.id)} entregó el envío #${envioId} y volvió al final de la cola (+1 viaje seguido).${r.ofertasCreadas ? ` Se crearon ${r.ofertasCreadas} oferta(s).` : ''}`
+    })
+
   const vencerOfertas = () =>
     ejecutar(async () => {
       const r = await api<{ adelantadas: number }>('/dev/ofertas/vencer', { metodo: 'POST' })
@@ -182,7 +196,7 @@ export function MotorDevPage() {
       <ol className="grid gap-3 rounded-xl bg-blue-50 p-4 text-sm text-blue-950 md:grid-cols-4">
         <li><strong>1.</strong> Sumá uno o más repartidores. Entran solos a la cola.</li>
         <li><strong>2.</strong> Cargá un envío. El sistema se lo ofrece al primero de la cola que pueda llevarlo.</li>
-        <li><strong>3.</strong> Entrá como ese repartidor en una <strong>ventana privada</strong> o en el celular (<code>/repartidor/login</code>, con su PIN) y aceptá o rechazá.</li>
+        <li><strong>3.</strong> Aceptá o rechazá con los botones del repartidor, o entrá como él en una <strong>ventana privada</strong> o en el celular (<code>/repartidor/login</code> con su PIN) para ver su pantalla.</li>
         <li><strong>4.</strong> Mirá cómo cambia todo acá. Para no esperar los 5 minutos, usá "Simular que pasaron 5 minutos".</li>
       </ol>
 
@@ -245,23 +259,36 @@ export function MotorDevPage() {
               return (
                 <Fila key={r.id} resaltada>
                   <span>
-                    {nombreDe(r.id)} → envío #{envio.id}
+                    {nombreDe(r.id)} → envío #{envio.id}{' '}
+                    <span className="font-mono font-semibold text-amber-700">⏱ {cuentaRegresiva(oferta.expiraEn, ahora)}</span>
                   </span>
-                  <span className="font-mono font-semibold text-amber-700">⏱ {cuentaRegresiva(oferta.expiraEn, ahora)}</span>
+                  <span className="flex shrink-0 gap-2">
+                    <Boton onClick={() => void responderOferta(r, oferta.id, 'aceptar')}>Aceptar</Boton>
+                    <Boton variante="secundario" onClick={() => void responderOferta(r, oferta.id, 'rechazar')}>
+                      Rechazar
+                    </Boton>
+                  </span>
                 </Fila>
               )
             })}
           </Grupo>
 
           <Grupo titulo="En viaje" vacio="Ninguno.">
-            {enViaje.map((r) => (
-              <Fila key={r.id}>
-                <span>{nombreDe(r.id)}</span>
-                <span className="text-xs text-gray-500">
-                  llevando el envío #{envios.find((e) => e.repartidorId === r.id && e.estado !== 'ENTREGADO')?.id ?? '?'}
-                </span>
-              </Fila>
-            ))}
+            {enViaje.map((r) => {
+              const viaje = envios.find((e) => e.repartidorId === r.id && e.estado !== 'ENTREGADO')
+              return (
+                <Fila key={r.id}>
+                  <span>
+                    {nombreDe(r.id)} <span className="text-xs text-gray-500">llevando el envío #{viaje?.id ?? '?'}</span>
+                  </span>
+                  {viaje && (
+                    <Boton variante="secundario" onClick={() => void simularEntrega(r, viaje.id)}>
+                      Simular entrega
+                    </Boton>
+                  )}
+                </Fila>
+              )
+            })}
           </Grupo>
 
           <Grupo titulo="Fuera de la cola" vacio="Ninguno.">

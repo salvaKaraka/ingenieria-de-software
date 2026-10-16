@@ -50,6 +50,24 @@ export class DevController {
     return this.dev.ponerDisponible(id);
   }
 
+  @Post('ofertas/:id/aceptar')
+  @HttpCode(200)
+  aceptarOferta(@Param('id', ParseIntPipe) id: number) {
+    return this.dev.responderOferta(id, 'aceptar');
+  }
+
+  @Post('ofertas/:id/rechazar')
+  @HttpCode(200)
+  rechazarOferta(@Param('id', ParseIntPipe) id: number) {
+    return this.dev.responderOferta(id, 'rechazar');
+  }
+
+  @Post('envios/:id/entregar')
+  @HttpCode(200)
+  simularEntrega(@Param('id', ParseIntPipe) id: number) {
+    return this.dev.simularEntrega(id);
+  }
+
   @Post('ofertas/vencer')
   @HttpCode(200)
   vencerOfertas() {
