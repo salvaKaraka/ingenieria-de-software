@@ -68,6 +68,12 @@ export class DevController {
     return this.dev.simularEntrega(id);
   }
 
+  @Post('limpiar')
+  @HttpCode(200)
+  limpiar() {
+    return this.dev.limpiar();
+  }
+
   @Post('ofertas/vencer')
   @HttpCode(200)
   vencerOfertas() {

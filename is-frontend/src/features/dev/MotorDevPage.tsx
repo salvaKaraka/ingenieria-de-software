@@ -150,6 +150,24 @@ export function MotorDevPage() {
       return `${nombreDe(repartidor.id)} entregó el envío #${envioId} y volvió al final de la cola (+1 viaje seguido).${r.ofertasCreadas ? ` Se crearon ${r.ofertasCreadas} oferta(s).` : ''}`
     })
 
+  async function empezarDeCero() {
+    const confirmado = window.confirm(
+      'Se borran todos los envíos y repartidores de tu base local (menos el de PIN 1234, que queda fuera de jornada). ¿Seguir?',
+    )
+    if (!confirmado) return
+    await ejecutar(async () => {
+      const r = await api<{ enviosBorrados: number; repartidoresBorrados: number; conservado: string | null }>('/dev/limpiar', {
+        metodo: 'POST',
+      })
+      setPins([])
+      guardarPins([])
+      setSucesos([])
+      return `Base limpia: se borraron ${r.enviosBorrados} envío(s) y ${r.repartidoresBorrados} repartidor(es).${
+        r.conservado ? ` Se conservó a ${r.conservado} (PIN 1234), fuera de jornada.` : ''
+      }`
+    })
+  }
+
   const vencerOfertas = () =>
     ejecutar(async () => {
       const r = await api<{ adelantadas: number }>('/dev/ofertas/vencer', { metodo: 'POST' })
@@ -200,7 +218,7 @@ export function MotorDevPage() {
         <li><strong>4.</strong> Mirá cómo cambia todo acá. Para no esperar los 5 minutos, usá "Simular que pasaron 5 minutos".</li>
       </ol>
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Tarjeta titulo="Sumar un repartidor" ayuda="Entra directo a la cola, como si hubiera iniciado la jornada.">
           <div className="flex flex-wrap gap-2">
             {VEHICULOS.map((v) => (
@@ -223,6 +241,11 @@ export function MotorDevPage() {
         <Tarjeta titulo="Ofertas sin respuesta" ayuda="Las ofertas vencen a los 5 minutos. Esto las vence ya.">
           <Boton variante="peligro" onClick={() => void vencerOfertas()}>
             ⏩ Simular que pasaron 5 minutos
+          </Boton>
+        </Tarjeta>
+        <Tarjeta titulo="Empezar de cero" ayuda="Borra envíos y repartidores. Conserva al de PIN 1234, tu usuario admin y los comercios.">
+          <Boton variante="secundario" onClick={() => void empezarDeCero()}>
+            🧹 Limpiar envíos y repartidores
           </Boton>
         </Tarjeta>
       </section>

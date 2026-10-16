@@ -31,6 +31,7 @@ import { HashingService } from './hashing.service';
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
   // Otros módulos usan AuthService: asignarNuevoPin (C-1) y cerrarSesiones (C-1, C-3).
-  exports: [AuthService],
+  // HashingService: lo usan las herramientas de desarrollo (src/dev) para reconocer al repartidor de prueba.
+  exports: [AuthService, HashingService],
 })
 export class AuthModule {}
