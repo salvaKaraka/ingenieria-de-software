@@ -1,3 +1,9 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    {
+      "source": "/api/:ruta*",
+      "destination": "https://REEMPLAZAR-CON-LA-URL-DE-RAILWAY/api/:ruta*"
+    },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }
