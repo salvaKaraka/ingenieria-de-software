@@ -168,6 +168,13 @@ export function SeguimientoPage() {
     if (codigoUrl) {
       // oxlint-disable-next-line react/set-state-in-effect
       consultarTracking(codigoUrl)
+
+      // Auto-actualización periódica cada 60 s según requerimiento F-4 de TAREAS.md
+      const intervalo = setInterval(() => {
+        consultarTracking(codigoUrl)
+      }, 60_000)
+
+      return () => clearInterval(intervalo)
     } else {
       setTracking(null)
       setError(null)
