@@ -9,5 +9,6 @@ export const router = createBrowserRouter([
   { path: '/', element: <InicioPage /> },
   { path: '/operario/*', element: <OperarioPage /> },     // panel web del operario
   { path: '/repartidor/*', element: <RepartidorPage /> }, // web móvil del repartidor
-  { path: '/seguimiento/:codigo', element: <SeguimientoPage /> }, // pantalla pública del destinatario
+  { path: '/seguimiento', element: <SeguimientoPage /> }, // pantalla pública del destinatario (input / query param)
+  { path: '/seguimiento/:codigo', element: <SeguimientoPage /> }, // pantalla pública del destinatario con código en ruta
 ])
