@@ -13,7 +13,7 @@ export class ComerciosService {
 
   async obtenerPorId(id: number) {
     const comercio = await this.comerciosRepository.buscarPorId(id);
-    if (!comercio || !comercio.activo) {
+    if (!comercio) {
       throw new NotFoundException(`Comercio con ID ${id} no encontrado`);
     }
     return comercio;

@@ -11,14 +11,7 @@ export class ComerciosRepository {
     return this.prisma.comercio.findMany({
       where: {
         activo: true, // Solo mostrar comercios activos
-        ...(q
-          ? {
-              OR: [
-                { nombre: { contains: q, mode: 'insensitive' } },
-                { email: { contains: q, mode: 'insensitive' } },
-              ],
-            }
-          : {}),
+        ...(q ? { nombre: { contains: q, mode: 'insensitive' } } : {}),
       },
       orderBy: { id: 'desc' },
     });
@@ -31,13 +24,18 @@ export class ComerciosRepository {
   }
 
   async crear(data: CrearComercioDto) {
-    return this.prisma.comercio.create({
-      data: {
-        ...data,
-        activo: true,
-      },
-    });
-  }
+  return this.prisma.comercio.create({
+    data: {
+      nombre: data.nombre,
+      telefono: data.telefono,
+      email: data.email,
+      direccion: data.direccion,
+      requiereFoto: data.requiereFoto,
+      requiereDni: data.requiereDni,
+      activo: true,
+    },
+  });
+}
 
   async actualizar(id: number, data: ActualizarComercioDto) {
     return this.prisma.comercio.update({
