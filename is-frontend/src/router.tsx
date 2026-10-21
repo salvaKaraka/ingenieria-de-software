@@ -19,6 +19,10 @@ import { BuscarSeguimientoPage } from './features/seguimiento/BuscarSeguimientoP
 import { SeguimientoPage } from './features/seguimiento/SeguimientoPage.tsx'
 import { OperarioLayout } from './shared/layouts/OperarioLayout.tsx'
 import { RepartidorLayout } from './shared/layouts/RepartidorLayout.tsx'
+import { PerfilRepartidorPage } from './features/repartidor/perfil/PerfilRepartidorPage';
+import { HistorialRepartidorPage } from './features/repartidor/historial/HistorialRepartidorPage';
+import { VerificacionPage } from './features/repartidor/verificacion/VerificacionPage';
+
 
 // Todas las rutas de la app. Cada página vive en src/features/<area>/ y la completa la tarea indicada en su archivo.
 // Para no generar conflictos, si tu tarea necesita una ruta nueva avisá en el grupo antes de agregarla acá.
@@ -58,6 +62,9 @@ const rutas: RouteObject[] = [
     children: [
       { index: true, element: <InicioRepartidorPage /> },
       { path: 'viaje', element: <ViajePage /> },
+      { path: 'perfil', element: <PerfilRepartidorPage /> },
+      { path: 'historial', element: <HistorialRepartidorPage /> },
+      { path: 'verificacion', element: <VerificacionPage /> },
     ],
   },
 
