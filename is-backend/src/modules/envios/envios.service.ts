@@ -27,7 +27,10 @@ export class EnviosService {
     const alfabeto = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
     for (let intento = 0; intento < 5; intento++) {
-      const codigoSeguimiento = Array.from({ length: 10 }, () => alfabeto[randomInt(alfabeto.length)]).join('');
+      const codigoSeguimiento = Array.from(
+        { length: 10 },
+        () => alfabeto[randomInt(alfabeto.length)],
+      ).join('');
       try {
         return await this.enviosRepository.crear({
           codigoSeguimiento,
@@ -45,7 +48,10 @@ export class EnviosService {
           requiereDni: comercio.requiereDni,
         });
       } catch (error) {
-        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+        if (
+          !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+          error.code !== 'P2002'
+        ) {
           throw error;
         }
       }

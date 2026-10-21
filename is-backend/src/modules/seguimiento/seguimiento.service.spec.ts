@@ -12,7 +12,9 @@ describe('SeguimientoService y Utilidades', () => {
     repository = {
       buscarPorCodigo: jest.fn(),
     };
-    service = new SeguimientoService(repository as unknown as SeguimientoRepository);
+    service = new SeguimientoService(
+      repository as unknown as SeguimientoRepository,
+    );
   });
 
   describe('Generador de código de seguimiento', () => {
@@ -39,8 +41,12 @@ describe('SeguimientoService y Utilidades', () => {
     });
 
     it('enmascara la dirección eliminando la altura numérica y departamento', () => {
-      expect(service.enmascararDireccion('Av. Corrientes 1234, 4to B')).toBe('Av. Corrientes');
-      expect(service.enmascararDireccion('Calle Falsa 123')).toBe('Calle Falsa');
+      expect(service.enmascararDireccion('Av. Corrientes 1234, 4to B')).toBe(
+        'Av. Corrientes',
+      );
+      expect(service.enmascararDireccion('Calle Falsa 123')).toBe(
+        'Calle Falsa',
+      );
       expect(service.enmascararDireccion('San Martín 550')).toBe('San Martín');
     });
 
@@ -57,7 +63,9 @@ describe('SeguimientoService y Utilidades', () => {
       await expect(service.consultar('CODIGO-INEXISTENTE')).rejects.toThrow(
         NotFoundException,
       );
-      expect(repository.buscarPorCodigo).toHaveBeenCalledWith('CODIGO-INEXISTENTE');
+      expect(repository.buscarPorCodigo).toHaveBeenCalledWith(
+        'CODIGO-INEXISTENTE',
+      );
     });
 
     it('devuelve los datos enmascarados, línea de tiempo y hora de salida según Supuesto 7', async () => {

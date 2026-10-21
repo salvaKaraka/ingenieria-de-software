@@ -1,4 +1,10 @@
-import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import {
+  IsEnum,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 export enum TamanoPaquete {
   CHICO = 'CHICO',
@@ -35,7 +41,9 @@ export class CrearEnvioDto {
   @IsOptional()
   destinatarioTelefono?: string;
 
-  @IsEnum(TamanoPaquete, { message: 'El tamaño debe ser CHICO, MEDIANO o GRANDE' })
+  @IsEnum(TamanoPaquete, {
+    message: 'El tamaño debe ser CHICO, MEDIANO o GRANDE',
+  })
   tamanio: TamanoPaquete;
 
   @IsString()

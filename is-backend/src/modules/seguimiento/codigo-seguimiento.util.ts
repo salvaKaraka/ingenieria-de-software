@@ -6,7 +6,7 @@ const CARACTERES = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
 /**
  * Genera un código de seguimiento alfanumérico aleatorio, seguro y no predecible.
  * Formato resultante: TRK-XXXX-YYYY (ej: TRK-7K9M-2X4Q).
- * 
+ *
  * Cumple con RNF-01 (seguridad y no enumerabilidad) para que ningún usuario
  * pueda adivinar paquetes ajenos por fuerza bruta.
  */

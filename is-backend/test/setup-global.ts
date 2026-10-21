@@ -13,7 +13,10 @@ export default async function setupGlobal() {
   servidor.pathname = '/postgres';
   const cliente = new Client({ connectionString: servidor.toString() });
   await cliente.connect();
-  const existe = await cliente.query('SELECT 1 FROM pg_database WHERE datname = $1', [nombre]);
+  const existe = await cliente.query(
+    'SELECT 1 FROM pg_database WHERE datname = $1',
+    [nombre],
+  );
   if (existe.rowCount === 0) await cliente.query(`CREATE DATABASE "${nombre}"`);
   await cliente.end();
 
