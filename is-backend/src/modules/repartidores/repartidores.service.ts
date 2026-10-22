@@ -82,11 +82,21 @@ export class RepartidoresService {
       );
     }
 
-    // Baja lógica: se desactiva y se retira de la cola FIFO
-    await this.repo.actualizar(id, {
-      activo: false,
-      enColaDesde: null,
-    });
+    // Su sesión sigue viva hasta 15 minutos: con una oferta abierta podría aceptarla
+    // después de la baja y quedar inactivo con un viaje asignado.
+    if (await this.repo.tieneOfertaPendiente(id)) {
+      throw new ConflictException(
+        'El repartidor tiene una oferta sin responder: esperá a que la responda o venza',
+      );
+    }
+
+    // Baja lógica: se desactiva, termina su jornada y sale de la cola FIFO
+    const dadoDeBaja = await this.repo.darDeBajaSiEstaLibre(id);
+    if (!dadoDeBaja) {
+      throw new ConflictException(
+        'El repartidor recibió un viaje mientras se procesaba la baja. Intentá de nuevo.',
+      );
+    }
 
     // Cierra inmediatamente todas las sesiones abiertas del repartidor
     await this.authService.cerrarSesiones(RolUsuario.REPARTIDOR, id);
