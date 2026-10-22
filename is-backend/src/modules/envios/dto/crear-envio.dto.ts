@@ -1,28 +1,26 @@
 import {
   IsEnum,
+  IsInt,
   IsNotEmpty,
-  IsNumber,
   IsOptional,
   IsString,
+  Min,
 } from 'class-validator';
-
-export enum TamanoPaquete {
-  CHICO = 'CHICO',
-  MEDIANO = 'MEDIANO',
-  GRANDE = 'GRANDE',
-}
+import { TamanioPaquete } from '../../../generated/prisma/client';
 
 export class CrearEnvioDto {
-  @IsNumber()
-  @IsNotEmpty({ message: 'El ID del comercio es obligatorio' })
+  @IsInt({ message: 'El ID del comercio es obligatorio' })
+  @Min(1, { message: 'El ID del comercio es obligatorio' })
   comercioId: number;
 
   @IsString()
   @IsNotEmpty({ message: 'La dirección de destino es obligatoria' })
   destinoDireccion: string;
 
-  @IsString()
+  // Opcional, pero si viene no puede estar vacía: el envío quedaría sin origen.
   @IsOptional()
+  @IsString()
+  @IsNotEmpty({ message: 'La dirección de origen no puede estar vacía' })
   origenDireccion?: string;
 
   @IsString()
@@ -41,10 +39,10 @@ export class CrearEnvioDto {
   @IsOptional()
   destinatarioTelefono?: string;
 
-  @IsEnum(TamanoPaquete, {
+  @IsEnum(TamanioPaquete, {
     message: 'El tamaño debe ser CHICO, MEDIANO o GRANDE',
   })
-  tamanio: TamanoPaquete;
+  tamanio: TamanioPaquete;
 
   @IsString()
   @IsOptional()

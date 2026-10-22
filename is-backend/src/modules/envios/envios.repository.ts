@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
-import { EstadoEnvio, Prisma } from '../../generated/prisma/client';
+import type {
+  EstadoEnvio,
+  Prisma,
+  TamanioPaquete,
+  TipoVehiculo,
+} from '../../generated/prisma/client';
 
 export interface FiltrosListado {
   estados?: EstadoEnvio[];
@@ -18,6 +23,7 @@ export class EnviosRepository {
 
   async crear(data: {
     codigoSeguimiento: string;
+    operarioId: number;
     comercioId: number;
     origenDireccion: string;
     destinoDireccion: string;
@@ -25,8 +31,8 @@ export class EnviosRepository {
     destinatarioApellido?: string;
     destinatarioDni?: string;
     destinatarioTelefono?: string;
-    tamanio: 'CHICO' | 'MEDIANO' | 'GRANDE';
-    vehiculoRequerido: 'MOTO' | 'AUTO' | 'CAMION';
+    tamanio: TamanioPaquete;
+    vehiculoRequerido: TipoVehiculo;
     observaciones?: string;
     requiereFoto: boolean;
     requiereDni: boolean;
@@ -54,18 +60,14 @@ export class EnviosRepository {
         data: {
           envioId: envio.id,
           tipo: 'CREADO',
+          // estadoNuevo hace que el paso PENDIENTE aparezca en la línea de tiempo (F-3).
+          estadoNuevo: 'PENDIENTE',
           actorTipo: 'OPERARIO',
+          actorId: data.operarioId,
         },
       });
 
       return envio;
-    });
-  }
-
-  async obtenerPorId(id: number) {
-    return this.prisma.envio.findUnique({
-      where: { id },
-      include: { comercio: true },
     });
   }
 
@@ -164,6 +166,18 @@ export class EnviosRepository {
   // nada y devuelve null.
   async cancelar(id: number, estadoAnterior: EstadoEnvio, operarioId: number) {
     return this.prisma.$transaction(async (tx) => {
+      // Primero se bloquean las ofertas abiertas y después el envío: el mismo orden que
+      // usa aceptar una oferta (D-2). Con el orden invertido, cancelar y aceptar a la vez
+      // se esperarían mutuamente (deadlock). Si el repartidor aceptó primero, el envío ya
+      // no está en estadoAnterior y la cancelación no hace nada.
+      const ofertasAbiertas = await tx.$queryRaw<
+        { id: number; repartidorId: number; creadaEn: Date }[]
+      >`
+        SELECT id, repartidor_id AS "repartidorId", creada_en AS "creadaEn"
+        FROM ofertas
+        WHERE envio_id = ${id} AND estado = 'PENDIENTE'
+        FOR UPDATE`;
+
       const { count } = await tx.envio.updateMany({
         where: { id, estado: estadoAnterior },
         data: { estado: 'CANCELADO' },
@@ -181,7 +195,36 @@ export class EnviosRepository {
         },
       });
 
-      return tx.envio.findUnique({ where: { id } });
+      // Una oferta abierta de un envío cancelado no se puede aceptar ni debe vencer:
+      // si venciera, el repartidor quedaría EN_PAUSA por algo que no hizo.
+      if (ofertasAbiertas.length > 0) {
+        await tx.oferta.updateMany({
+          where: { id: { in: ofertasAbiertas.map((oferta) => oferta.id) } },
+          data: { estado: 'VENCIDA' },
+        });
+      }
+      // Al recibir la oferta había salido de la cola: vuelve con la hora en que se la
+      // hicieron, que es aproximadamente el lugar que tenía.
+      for (const oferta of ofertasAbiertas) {
+        await tx.repartidor.updateMany({
+          where: {
+            id: oferta.repartidorId,
+            estado: 'DISPONIBLE',
+            enColaDesde: null,
+          },
+          data: { enColaDesde: oferta.creadaEn },
+        });
+      }
+
+      const envio = await tx.envio.findUniqueOrThrow({ where: { id } });
+      // Si ya tenía repartidor, el viaje terminó: queda libre y vuelve al final de la cola.
+      if (envio.repartidorId !== null) {
+        await tx.repartidor.updateMany({
+          where: { id: envio.repartidorId, estado: 'OCUPADO' },
+          data: { estado: 'DISPONIBLE', enColaDesde: new Date() },
+        });
+      }
+      return envio;
     });
   }
 }

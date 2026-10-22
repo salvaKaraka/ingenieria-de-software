@@ -2,62 +2,89 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { randomInt } from 'node:crypto';
-import { Prisma } from '../../generated/prisma/client';
+import {
+  Prisma,
+  type TamanioPaquete,
+  type TipoVehiculo,
+} from '../../generated/prisma/client';
+import { AsignacionService } from '../asignacion/asignacion.service';
 import { ComerciosService } from '../comercios/comercios.service';
-import { CrearEnvioDto, TamanoPaquete } from './dto/crear-envio.dto';
+import { generarCodigoSeguimiento } from './codigo-seguimiento.util';
+import { esTransicionValida } from './domain/estado-envio';
+import { CrearEnvioDto } from './dto/crear-envio.dto';
 import { ListarEnviosDto } from './dto/listar-envios.dto';
 import { EnviosRepository } from './envios.repository';
 
+// Vehículo MÍNIMO según el tamaño (supuesto 8): el motor después acepta uno más grande.
+const VEHICULO_MINIMO: Record<TamanioPaquete, TipoVehiculo> = {
+  CHICO: 'MOTO',
+  MEDIANO: 'AUTO',
+  GRANDE: 'CAMION',
+};
+
 @Injectable()
 export class EnviosService {
+  private readonly logger = new Logger(EnviosService.name);
+
   constructor(
     private readonly enviosRepository: EnviosRepository,
     private readonly comerciosService: ComerciosService,
+    private readonly asignacion: AsignacionService,
   ) {}
 
-  async crear(dto: CrearEnvioDto) {
+  async crear(dto: CrearEnvioDto, operarioId: number) {
+    // Si no existe, obtenerPorId ya responde 404.
     const comercio = await this.comerciosService.obtenerPorId(dto.comercioId);
-    if (!comercio) {
-      throw new NotFoundException(`El comercio con ID ${dto.comercioId} no existe`);
-    }
-
     if (!comercio.activo) {
       throw new BadRequestException('El comercio está dado de baja');
     }
 
-    const vehiculoRequerido =
-      dto.tamanio === TamanoPaquete.CHICO
-        ? 'MOTO'
-        : dto.tamanio === TamanoPaquete.MEDIANO
-          ? 'AUTO'
-          : 'CAMION';
+    const envio = await this.guardarConCodigoUnico(dto, operarioId, {
+      origenDireccion: dto.origenDireccion ?? comercio.direccion,
+      requiereFoto: comercio.requiereFoto,
+      requiereDni: comercio.requiereDni,
+    });
 
-    const alfabeto = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    // El envío ya quedó guardado: si el motor falla, no se le responde error al operario
+    // (reintentaría y lo duplicaría). El job de vencimientos lo vuelve a intentar en segundos.
+    try {
+      await this.asignacion.asignar(envio.id);
+    } catch (error) {
+      this.logger.error(`No se pudo asignar el envío ${envio.id}`, error);
+    }
+    return envio;
+  }
 
+  private async guardarConCodigoUnico(
+    dto: CrearEnvioDto,
+    operarioId: number,
+    delComercio: {
+      origenDireccion: string;
+      requiereFoto: boolean;
+      requiereDni: boolean;
+    },
+  ) {
     for (let intento = 0; intento < 5; intento++) {
-      const codigoSeguimiento = Array.from(
-        { length: 10 },
-        () => alfabeto[randomInt(alfabeto.length)],
-      ).join('');
-
       try {
         return await this.enviosRepository.crear({
-          codigoSeguimiento,
+          codigoSeguimiento: generarCodigoSeguimiento(),
+          operarioId,
           comercioId: dto.comercioId,
-          origenDireccion: dto.origenDireccion ?? comercio.direccion,
+          origenDireccion: delComercio.origenDireccion,
           destinoDireccion: dto.destinoDireccion,
           destinatarioNombre: dto.destinatarioNombre,
           destinatarioApellido: dto.destinatarioApellido,
           destinatarioDni: dto.destinatarioDni,
           destinatarioTelefono: dto.destinatarioTelefono,
           tamanio: dto.tamanio,
-          vehiculoRequerido,
+          vehiculoRequerido: VEHICULO_MINIMO[dto.tamanio],
           observaciones: dto.observaciones,
-          requiereFoto: comercio.requiereFoto,
-          requiereDni: comercio.requiereDni,
+          requiereFoto: delComercio.requiereFoto,
+          requiereDni: delComercio.requiereDni,
         });
       } catch (error) {
         if (
@@ -69,7 +96,9 @@ export class EnviosService {
       }
     }
 
-    throw new Error('No se pudo generar un código de seguimiento único');
+    throw new InternalServerErrorException(
+      'No se pudo generar un código de seguimiento único',
+    );
   }
 
   async listar(filtros: ListarEnviosDto) {
@@ -115,12 +144,12 @@ export class EnviosService {
       throw new NotFoundException('El envío no existe');
     }
 
-    if (envio.estado === 'ENTREGADO') {
-      throw new ConflictException('No se puede cancelar un envío entregado');
-    }
-
-    if (envio.estado === 'CANCELADO') {
-      throw new ConflictException('El envío ya está cancelado');
+    if (!esTransicionValida(envio.estado, 'CANCELADO', 'OPERARIO')) {
+      throw new ConflictException(
+        envio.estado === 'CANCELADO'
+          ? 'El envío ya está cancelado'
+          : 'No se puede cancelar un envío entregado',
+      );
     }
 
     const cancelado = await this.enviosRepository.cancelar(
@@ -135,6 +164,9 @@ export class EnviosService {
       );
     }
 
+    // La cancelación puede haber liberado repartidores (el del viaje o el de una oferta
+    // abierta): que el motor les ofrezca los envíos que esperan.
+    await this.asignacion.reintentarPendientes();
     return cancelado;
   }
 

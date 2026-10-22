@@ -6,8 +6,9 @@ import {
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { Prisma } from '../../generated/prisma/client';
+import { AsignacionService } from '../asignacion/asignacion.service';
 import { ComerciosService } from '../comercios/comercios.service';
-import { CrearEnvioDto, TamanoPaquete } from './dto/crear-envio.dto';
+import { CrearEnvioDto } from './dto/crear-envio.dto';
 import { ListarEnviosDto } from './dto/listar-envios.dto';
 import { EnviosRepository } from './envios.repository';
 import { EnviosService } from './envios.service';
@@ -24,7 +25,7 @@ function crearDto(cambios: Partial<CrearEnvioDto> = {}): CrearEnvioDto {
   return {
     comercioId: 1,
     destinoDireccion: 'Calle 50 n° 200',
-    tamanio: TamanoPaquete.CHICO,
+    tamanio: 'CHICO',
     ...cambios,
   };
 }
@@ -41,6 +42,13 @@ describe('EnviosService', () => {
   const comerciosService = {
     obtenerPorId: jest.fn(),
   };
+
+  const asignacion = {
+    asignar: jest.fn(),
+    reintentarPendientes: jest.fn(),
+  };
+
+  const OPERARIO_ID = 3;
 
   let service: EnviosService;
 
@@ -62,18 +70,22 @@ describe('EnviosService', () => {
     service = new EnviosService(
       repository as unknown as EnviosRepository,
       comerciosService as unknown as ComerciosService,
+      asignacion as unknown as AsignacionService,
     );
   });
 
   describe('crear (B-3)', () => {
     it.each([
-      [TamanoPaquete.CHICO, 'MOTO'],
-      [TamanoPaquete.MEDIANO, 'AUTO'],
-      [TamanoPaquete.GRANDE, 'CAMION'],
-    ])('un paquete %s requiere vehículo %s', async (tamanio, vehiculo) => {
-      await service.crear(crearDto({ tamanio }));
-      expect(datosGuardados()).toMatchObject({ vehiculoRequerido: vehiculo });
-    });
+      ['CHICO', 'MOTO'],
+      ['MEDIANO', 'AUTO'],
+      ['GRANDE', 'CAMION'],
+    ] as const)(
+      'un paquete %s requiere vehículo %s',
+      async (tamanio, vehiculo) => {
+        await service.crear(crearDto({ tamanio }), OPERARIO_ID);
+        expect(datosGuardados()).toMatchObject({ vehiculoRequerido: vehiculo });
+      },
+    );
 
     it('rechaza un envío de un comercio inactivo', async () => {
       comerciosService.obtenerPorId.mockResolvedValue({
@@ -81,21 +93,21 @@ describe('EnviosService', () => {
         activo: false,
       });
 
-      await expect(service.crear(crearDto())).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
+      await expect(
+        service.crear(crearDto(), OPERARIO_ID),
+      ).rejects.toBeInstanceOf(BadRequestException);
       expect(repository.crear).not.toHaveBeenCalled();
     });
 
     it('usa la dirección del comercio como origen si no viene otra', async () => {
-      await service.crear(crearDto());
+      await service.crear(crearDto(), OPERARIO_ID);
       expect(datosGuardados()).toMatchObject({
         origenDireccion: comercioMock.direccion,
       });
     });
 
     it('copia requiereFoto y requiereDni del comercio', async () => {
-      await service.crear(crearDto());
+      await service.crear(crearDto(), OPERARIO_ID);
       expect(datosGuardados()).toMatchObject({
         requiereFoto: true,
         requiereDni: false,
@@ -103,7 +115,8 @@ describe('EnviosService', () => {
     });
 
     it('genera un código de 10 caracteres sin 0, O, 1 ni I', async () => {
-      for (let i = 0; i < 100; i++) await service.crear(crearDto());
+      for (let i = 0; i < 100; i++)
+        await service.crear(crearDto(), OPERARIO_ID);
       for (let i = 0; i < 100; i++) {
         expect(datosGuardados(i).codigoSeguimiento).toMatch(
           /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{10}$/,
@@ -118,8 +131,25 @@ describe('EnviosService', () => {
           clientVersion: 'test',
         }),
       );
-      await service.crear(crearDto());
+      await service.crear(crearDto(), OPERARIO_ID);
       expect(repository.crear).toHaveBeenCalledTimes(2);
+    });
+
+    it('registra qué operario creó el envío', async () => {
+      await service.crear(crearDto(), OPERARIO_ID);
+      expect(datosGuardados()).toMatchObject({ operarioId: OPERARIO_ID });
+    });
+
+    it('le pide al motor que asigne el envío recién creado', async () => {
+      await service.crear(crearDto(), OPERARIO_ID);
+      expect(asignacion.asignar).toHaveBeenCalledWith(7);
+    });
+
+    it('si el motor falla, el envío igual queda creado', async () => {
+      asignacion.asignar.mockRejectedValue(new Error('sin conexión'));
+      await expect(
+        service.crear(crearDto(), OPERARIO_ID),
+      ).resolves.toMatchObject({ id: 7 });
     });
   });
 
@@ -196,6 +226,13 @@ describe('EnviosService', () => {
       repository.cancelar.mockResolvedValue({ id: 5, estado: 'CANCELADO' });
       await service.cancelar(5, 12);
       expect(repository.cancelar).toHaveBeenCalledWith(5, 'PENDIENTE', 12);
+    });
+
+    it('después de cancelar, el motor reintenta los envíos pendientes', async () => {
+      repository.obtenerEstado.mockResolvedValue({ id: 5, estado: 'ASIGNADO' });
+      repository.cancelar.mockResolvedValue({ id: 5, estado: 'CANCELADO' });
+      await service.cancelar(5, 12);
+      expect(asignacion.reintentarPendientes).toHaveBeenCalled();
     });
 
     it.each(['ASIGNADO', 'EN_CAMINO_A_RETIRAR', 'RETIRADO', 'EN_DOMICILIO'])(
