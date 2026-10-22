@@ -1,6 +1,7 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import {
   EstadoRepartidor,
+  Prisma,
   RolUsuario,
   TipoVehiculo,
 } from '../../generated/prisma/client';
@@ -110,6 +111,39 @@ describe('RepartidoresService', () => {
         ...repartidorEjemplo,
         pin: '4321',
       });
+    });
+  });
+
+  describe('email único', () => {
+    const emailRepetido = () =>
+      new Prisma.PrismaClientKnownRequestError('duplicado', {
+        code: 'P2002',
+        clientVersion: 'test',
+      });
+
+    it('al crear con un email que ya existe responde 409 y no genera PIN', async () => {
+      repo.crear.mockRejectedValue(emailRepetido());
+
+      await expect(
+        servicio.crear({
+          nombre: 'Ana',
+          apellido: 'Paz',
+          telefono: '221 555-0000',
+          email: 'ana@repartos.com',
+          direccion: 'Calle 7 1234',
+          vehiculo: TipoVehiculo.MOTO,
+        }),
+      ).rejects.toThrow(ConflictException);
+      expect(authService.asignarNuevoPin).not.toHaveBeenCalled();
+    });
+
+    it('al editar con un email de otro repartidor responde 409', async () => {
+      repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
+      repo.actualizar.mockRejectedValue(emailRepetido());
+
+      await expect(
+        servicio.actualizar(1, { email: 'otro@repartos.com' }),
+      ).rejects.toThrow(ConflictException);
     });
   });
 

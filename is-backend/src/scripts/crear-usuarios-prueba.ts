@@ -46,19 +46,31 @@ async function main() {
 
     // El HMAC depende del PIN_SECRET de cada máquina: por eso cada uno corre el script en la suya.
     const pinHmac = hashing.hmacPin(PIN_REPARTIDOR_PRUEBA);
-    await prisma.repartidor.upsert({
+    const conPinDePrueba = await prisma.repartidor.findUnique({
       where: { pinHmac },
-      create: {
-        nombre: 'Repartidor',
-        apellido: 'de Prueba',
-        telefono: '221 000-0000',
-        email: 'repartidor.prueba@example.com',
-        direccion: 'Calle 1 y 50, La Plata',
-        vehiculo: 'MOTO',
-        pinHmac,
-      },
-      update: { activo: true },
     });
+    if (conPinDePrueba) {
+      await prisma.repartidor.update({
+        where: { id: conPinDePrueba.id },
+        data: { activo: true },
+      });
+    } else {
+      // Por email (único): si cambió el PIN_SECRET, se le actualiza el PIN en vez de
+      // intentar crear otro repartidor con el mismo email.
+      await prisma.repartidor.upsert({
+        where: { email: 'repartidor.prueba@example.com' },
+        create: {
+          nombre: 'Repartidor',
+          apellido: 'de Prueba',
+          telefono: '221 000-0000',
+          email: 'repartidor.prueba@example.com',
+          direccion: 'Calle 1 y 50, La Plata',
+          vehiculo: 'MOTO',
+          pinHmac,
+        },
+        update: { activo: true, pinHmac },
+      });
+    }
 
     console.log('Usuarios de prueba listos:');
     console.log(

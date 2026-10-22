@@ -7,7 +7,7 @@ import type { EstadoEnvio } from '../src/generated/prisma/client';
 import { AsignacionService } from '../src/modules/asignacion/asignacion.service';
 import { OfertasService } from '../src/modules/asignacion/ofertas.service';
 import { EnviosService } from '../src/modules/envios/envios.service';
-import { vaciarBase } from './utils';
+import { emailUnico, vaciarBase } from './utils';
 
 // Cancelar un envío toca ofertas y repartidores en la misma transacción que el envío:
 // se prueba contra la base real porque depende de los bloqueos de Postgres.
@@ -26,7 +26,7 @@ describe('Cancelación de envíos (e2e)', () => {
         nombre: 'R',
         apellido: 'Test',
         telefono: '1',
-        email: 'r@test.com',
+        email: emailUnico(),
         direccion: 'x',
         vehiculo: 'MOTO',
         estado: 'DISPONIBLE',
