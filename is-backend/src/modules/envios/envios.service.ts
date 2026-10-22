@@ -20,6 +20,10 @@ export class EnviosService {
 
   async crear(dto: CrearEnvioDto) {
     const comercio = await this.comerciosService.obtenerPorId(dto.comercioId);
+    if (!comercio) {
+      throw new NotFoundException(`El comercio con ID ${dto.comercioId} no existe`);
+    }
+
     if (!comercio.activo) {
       throw new BadRequestException('El comercio está dado de baja');
     }
@@ -30,6 +34,7 @@ export class EnviosService {
         : dto.tamanio === TamanoPaquete.MEDIANO
           ? 'AUTO'
           : 'CAMION';
+
     const alfabeto = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
     for (let intento = 0; intento < 5; intento++) {
@@ -37,6 +42,7 @@ export class EnviosService {
         { length: 10 },
         () => alfabeto[randomInt(alfabeto.length)],
       ).join('');
+
       try {
         return await this.enviosRepository.crear({
           codigoSeguimiento,
@@ -91,7 +97,7 @@ export class EnviosService {
       total,
       pagina,
       limite,
-      totalPaginas: Math.ceil(total / limite),
+      totalPaginas: Math.ceil(total / limite) || 0,
     };
   }
 
@@ -108,9 +114,11 @@ export class EnviosService {
     if (!envio) {
       throw new NotFoundException('El envío no existe');
     }
+
     if (envio.estado === 'ENTREGADO') {
       throw new ConflictException('No se puede cancelar un envío entregado');
     }
+
     if (envio.estado === 'CANCELADO') {
       throw new ConflictException('El envío ya está cancelado');
     }
@@ -120,16 +128,16 @@ export class EnviosService {
       envio.estado,
       operarioId,
     );
+
     if (!cancelado) {
-      // Cambió de estado mientras lo cancelábamos.
       throw new ConflictException(
         'El envío cambió de estado, intente nuevamente',
       );
     }
+
     return cancelado;
   }
 
-  // Si "hasta" viene sin hora (2026-10-21), incluye el día completo.
   private finDelDia(fecha: string): Date {
     return fecha.length === 10
       ? new Date(`${fecha}T23:59:59.999Z`)

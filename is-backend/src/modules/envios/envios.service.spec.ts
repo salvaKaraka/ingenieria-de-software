@@ -12,7 +12,7 @@ import { ListarEnviosDto } from './dto/listar-envios.dto';
 import { EnviosRepository } from './envios.repository';
 import { EnviosService } from './envios.service';
 
-const comercio = {
+const comercioMock = {
   id: 1,
   direccion: 'Calle 1 n° 100',
   activo: true,
@@ -20,7 +20,7 @@ const comercio = {
   requiereDni: false,
 };
 
-function dto(cambios: Partial<CrearEnvioDto> = {}): CrearEnvioDto {
+function crearDto(cambios: Partial<CrearEnvioDto> = {}): CrearEnvioDto {
   return {
     comercioId: 1,
     destinoDireccion: 'Calle 50 n° 200',
@@ -30,7 +30,6 @@ function dto(cambios: Partial<CrearEnvioDto> = {}): CrearEnvioDto {
 }
 
 describe('EnviosService', () => {
-  // Los repositories se mockean: acá solo se prueban las reglas de negocio.
   const repository = {
     crear: jest.fn(),
     listar: jest.fn(),
@@ -38,7 +37,11 @@ describe('EnviosService', () => {
     obtenerEstado: jest.fn(),
     cancelar: jest.fn(),
   };
-  const comerciosService = { obtenerPorId: jest.fn() };
+
+  const comerciosService = {
+    obtenerPorId: jest.fn(),
+  };
+
   let service: EnviosService;
 
   function datosGuardados(llamada = 0): Record<string, unknown> {
@@ -51,7 +54,7 @@ describe('EnviosService', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
-    comerciosService.obtenerPorId.mockResolvedValue(comercio);
+    comerciosService.obtenerPorId.mockResolvedValue(comercioMock);
     repository.crear.mockImplementation((datos: object) =>
       Promise.resolve({ id: 7, ...datos }),
     );
@@ -68,30 +71,31 @@ describe('EnviosService', () => {
       [TamanoPaquete.MEDIANO, 'AUTO'],
       [TamanoPaquete.GRANDE, 'CAMION'],
     ])('un paquete %s requiere vehículo %s', async (tamanio, vehiculo) => {
-      await service.crear(dto({ tamanio }));
+      await service.crear(crearDto({ tamanio }));
       expect(datosGuardados()).toMatchObject({ vehiculoRequerido: vehiculo });
     });
 
     it('rechaza un envío de un comercio inactivo', async () => {
       comerciosService.obtenerPorId.mockResolvedValue({
-        ...comercio,
+        ...comercioMock,
         activo: false,
       });
-      await expect(service.crear(dto())).rejects.toBeInstanceOf(
+
+      await expect(service.crear(crearDto())).rejects.toBeInstanceOf(
         BadRequestException,
       );
       expect(repository.crear).not.toHaveBeenCalled();
     });
 
     it('usa la dirección del comercio como origen si no viene otra', async () => {
-      await service.crear(dto());
+      await service.crear(crearDto());
       expect(datosGuardados()).toMatchObject({
-        origenDireccion: comercio.direccion,
+        origenDireccion: comercioMock.direccion,
       });
     });
 
     it('copia requiereFoto y requiereDni del comercio', async () => {
-      await service.crear(dto());
+      await service.crear(crearDto());
       expect(datosGuardados()).toMatchObject({
         requiereFoto: true,
         requiereDni: false,
@@ -99,7 +103,7 @@ describe('EnviosService', () => {
     });
 
     it('genera un código de 10 caracteres sin 0, O, 1 ni I', async () => {
-      for (let i = 0; i < 100; i++) await service.crear(dto());
+      for (let i = 0; i < 100; i++) await service.crear(crearDto());
       for (let i = 0; i < 100; i++) {
         expect(datosGuardados(i).codigoSeguimiento).toMatch(
           /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{10}$/,
@@ -114,7 +118,7 @@ describe('EnviosService', () => {
           clientVersion: 'test',
         }),
       );
-      await service.crear(dto());
+      await service.crear(crearDto());
       expect(repository.crear).toHaveBeenCalledTimes(2);
     });
   });
