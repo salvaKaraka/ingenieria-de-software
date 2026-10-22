@@ -12,10 +12,14 @@ import { EnviosModule } from './modules/envios/envios.module';
 import { RepartidoresModule } from './modules/repartidores/repartidores.module';
 import { AsignacionModule } from './modules/asignacion/asignacion.module';
 import { SeguimientoModule } from './modules/seguimiento/seguimiento.module';
+import { OfertasModule } from './modules/ofertas/ofertas.module';
+import { PrismaService } from './database/prisma.service';
 
 // Módulo raíz. Cada módulo de negocio (src/modules/<nombre>) se registra en `imports`.
 @Module({
   imports: [
+    RepartidoresModule,
+    OfertasModule,
     ConfigModule.forRoot({ isGlobal: true, validate: validarEnv }),
     // Límite de requests por IP. Solo aplica donde se usa ThrottlerGuard (ej: login), con su propio @Throttle.
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
@@ -32,5 +36,7 @@ import { SeguimientoModule } from './modules/seguimiento/seguimiento.module';
     // Herramientas de prueba (/api/dev/...): nunca en producción.
     ...(process.env.NODE_ENV === 'production' ? [] : [DevModule]),
   ],
+  controllers: [],
+  providers: [PrismaService],
 })
 export class AppModule {}
