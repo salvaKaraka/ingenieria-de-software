@@ -8,11 +8,15 @@ interface Comercio {
   id: number
   nombre: string
   direccion: string
+  telefono: string
+  requiereFoto: boolean
+  requiereDni: boolean
   activo: boolean
 }
 
 interface FormularioEnvio {
   comercioId: string
+  origenDireccion: string
   destinoDireccion: string
   destinatarioNombre: string
   destinatarioApellido: string
@@ -24,6 +28,7 @@ interface FormularioEnvio {
 
 const FORMULARIO_VACIO: FormularioEnvio = {
   comercioId: '',
+  origenDireccion: '',
   destinoDireccion: '',
   destinatarioNombre: '',
   destinatarioApellido: '',
@@ -60,6 +65,15 @@ export function NuevoEnvioPage() {
     cargarComercios()
   }, [])
 
+  const comercioElegido = comercios.find((comercio) => String(comercio.id) === form.comercioId)
+
+  // Al elegir el comercio se completa el retiro con su dirección; el operario la puede cambiar
+  // si ese día el paquete sale de otro lado.
+  const elegirComercio = (comercioId: string) => {
+    const comercio = comercios.find((c) => String(c.id) === comercioId)
+    setForm({ ...form, comercioId, origenDireccion: comercio?.direccion ?? '' })
+  }
+
   const guardarEnvio = async (evento: FormEvent) => {
     evento.preventDefault()
     setGuardando(true)
@@ -76,6 +90,8 @@ export function NuevoEnvioPage() {
         metodo: 'POST',
         datos: {
           comercioId: Number(form.comercioId),
+          // Vacío = el backend usa la dirección del comercio.
+          origenDireccion: form.origenDireccion.trim() || undefined,
           destinoDireccion: form.destinoDireccion,
           destinatarioNombre: form.destinatarioNombre,
           destinatarioApellido: form.destinatarioApellido,
@@ -170,7 +186,7 @@ export function NuevoEnvioPage() {
             </label>
             <select
               value={form.comercioId}
-              onChange={(evento) => setForm({ ...form, comercioId: evento.target.value })}
+              onChange={(evento) => elegirComercio(evento.target.value)}
               required
               disabled={cargandoComercios}
               className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -184,6 +200,28 @@ export function NuevoEnvioPage() {
                 </option>
               ))}
             </select>
+
+            {comercioElegido && (
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <Campo
+                    etiqueta="Dirección de retiro *"
+                    value={form.origenDireccion}
+                    onChange={(evento) => setForm({ ...form, origenDireccion: evento.target.value })}
+                    required
+                  />
+                </div>
+                <p className="text-sm text-slate-600">
+                  <span className="font-medium text-slate-700">Teléfono del comercio:</span> {comercioElegido.telefono}
+                </p>
+                <p className="text-sm text-slate-600">
+                  <span className="font-medium text-slate-700">Evidencia al entregar:</span>{' '}
+                  {[comercioElegido.requiereFoto && 'foto', comercioElegido.requiereDni && 'DNI del receptor']
+                    .filter(Boolean)
+                    .join(' y ') || 'no exige'}
+                </p>
+              </div>
+            )}
           </section>
 
           <section>

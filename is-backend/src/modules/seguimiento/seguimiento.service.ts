@@ -2,6 +2,15 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { SeguimientoRepository } from './seguimiento.repository';
 import type { HistorialEstadoDto, TrackingPublicoDto } from './seguimiento.dto';
 
+// Piso o departamento escritos sin coma: "Belgrano 456 piso 2 B".
+const PISO_O_DEPTO = /\s+(piso|dpto\.?|depto\.?|departamento|dto\.?)\b.*$/i;
+// La altura al final de la calle, con o sin "n°", "nro", "#" o "km": "San Martín 550", "Calle 50 n° 200".
+const ALTURA_AL_FINAL =
+  /\s+(?:(?:n[°º]|nro\.?|n[uú]mero|#|km)\s*)?\d+\s*[a-z]?$/i;
+// Tipos de calle que se nombran con un número: "Calle 7", "Diagonal 74", "Ruta 2".
+const PALABRA_DE_CALLE_NUMERADA =
+  /^(calle|diagonal|diag\.?|ruta|avenida|av\.?|camino|pasaje)$/i;
+
 @Injectable()
 export class SeguimientoService {
   constructor(private readonly repository: SeguimientoRepository) {}
@@ -28,14 +37,23 @@ export class SeguimientoService {
 
   /**
    * Enmascara la dirección de destino (Épica 2.5):
-   * Oculta la altura numérica y piso/departamento para resguardar la privacidad.
-   * Ej: "Av. Corrientes 1234, 4to B" -> "Av. Corrientes"
+   * Oculta la altura y el piso/departamento para resguardar la privacidad.
+   * Ej: "Av. Corrientes 1234, 4to B" -> "Av. Corrientes"; "Calle 7 1234" -> "Calle 7"
    */
   enmascararDireccion(direccion?: string | null): string {
-    if (!direccion) return 'Dirección de destino';
-    // Remueve a partir del primer número que represente la altura
-    const sinAltura = direccion.replace(/\s+\d+.*$/, '').trim();
-    return sinAltura || 'Dirección de destino';
+    const sinDatos = 'Dirección de destino';
+    if (!direccion) return sinDatos;
+
+    // Lo que va después de la primera coma (altura, piso, depto, localidad) nunca es la calle.
+    let calle = direccion.split(',')[0].trim();
+    calle = calle.replace(PISO_O_DEPTO, '').trim();
+    // La altura es el número del FINAL, no el primero: en La Plata las calles se llaman
+    // por número ("Calle 7 1234") y cortar en el primero dejaba solo "Calle".
+    const sinAltura = calle.replace(ALTURA_AL_FINAL, '').trim();
+    // "Calle 7" sin altura: el número es el nombre de la calle y se conserva.
+    if (!PALABRA_DE_CALLE_NUMERADA.test(sinAltura)) calle = sinAltura;
+
+    return calle || sinDatos;
   }
 
   async consultar(codigo: string): Promise<TrackingPublicoDto> {
