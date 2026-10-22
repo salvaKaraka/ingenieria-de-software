@@ -35,4 +35,10 @@ export class JornadaController {
   reanudar(@UsuarioActual() usuario: UsuarioAutenticado) {
     return this.jornada.reanudar(usuario.id);
   }
+
+  @Post('terminar')
+  @HttpCode(200)
+  terminar(@UsuarioActual() usuario: UsuarioAutenticado) {
+    return this.jornada.terminar(usuario.id);
+  }
 }

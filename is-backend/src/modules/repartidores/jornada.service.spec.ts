@@ -9,6 +9,8 @@ describe('JornadaService', () => {
     iniciarJornada: jest.fn(),
     pausar: jest.fn(),
     reanudar: jest.fn(),
+    terminarJornada: jest.fn(),
+    obtenerFlota: jest.fn(),
   };
   const asignacion = { reintentarPendientes: jest.fn() };
   let servicio: JornadaService;
@@ -78,5 +80,92 @@ describe('JornadaService', () => {
     await expect(servicio.reanudar(1)).rejects.toBeInstanceOf(
       ConflictException,
     );
+  });
+
+  describe('terminar', () => {
+    it('termina la jornada y pasa a FUERA_DE_JORNADA', async () => {
+      repo.terminarJornada.mockResolvedValue(true);
+      estaEn('FUERA_DE_JORNADA');
+
+      await expect(servicio.terminar(1)).resolves.toEqual({
+        estado: 'FUERA_DE_JORNADA',
+      });
+      expect(repo.terminarJornada).toHaveBeenCalledWith(1);
+    });
+
+    it('no deja terminar la jornada con una oferta pendiente (409)', async () => {
+      repo.terminarJornada.mockResolvedValue(false);
+      estaEn('DISPONIBLE');
+
+      await expect(servicio.terminar(1)).rejects.toThrow('oferta pendiente');
+    });
+
+    it('no deja terminar la jornada con un viaje en curso (409)', async () => {
+      repo.terminarJornada.mockResolvedValue(false);
+      estaEn('OCUPADO');
+
+      await expect(servicio.terminar(1)).rejects.toThrow('viaje en curso');
+    });
+
+    it('terminar fuera de jornada responde 409', async () => {
+      repo.terminarJornada.mockResolvedValue(false);
+      estaEn('FUERA_DE_JORNADA');
+
+      await expect(servicio.terminar(1)).rejects.toThrow('No estás en jornada');
+    });
+  });
+
+  describe('flota', () => {
+    it('agrupa por vehículo y ordena primero la cola FIFO y luego el resto', async () => {
+      const t1 = new Date('2026-01-01T10:00:00Z');
+      const t2 = new Date('2026-01-01T10:05:00Z');
+
+      const repMotoSinCola = {
+        id: 1,
+        nombre: 'M1',
+        vehiculo: 'MOTO',
+        estado: 'OCUPADO',
+        enColaDesde: null,
+      };
+      const repMotoCola2 = {
+        id: 2,
+        nombre: 'M2',
+        vehiculo: 'MOTO',
+        estado: 'DISPONIBLE',
+        enColaDesde: t2,
+      };
+      const repMotoCola1 = {
+        id: 3,
+        nombre: 'M3',
+        vehiculo: 'MOTO',
+        estado: 'DISPONIBLE',
+        enColaDesde: t1,
+      };
+      const repAutoCola = {
+        id: 4,
+        nombre: 'A1',
+        vehiculo: 'AUTO',
+        estado: 'DISPONIBLE',
+        enColaDesde: t1,
+      };
+
+      repo.obtenerFlota.mockResolvedValue([
+        repMotoSinCola,
+        repMotoCola2,
+        repMotoCola1,
+        repAutoCola,
+      ]);
+
+      const resultado = await servicio.flota();
+
+      expect(resultado.CAMION).toEqual([]);
+      expect(resultado.AUTO).toEqual([repAutoCola]);
+      // En MOTO: repMotoCola1 (t1) -> repMotoCola2 (t2) -> repMotoSinCola (null)
+      expect(resultado.MOTO).toEqual([
+        repMotoCola1,
+        repMotoCola2,
+        repMotoSinCola,
+      ]);
+    });
   });
 });
