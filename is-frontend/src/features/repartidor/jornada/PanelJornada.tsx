@@ -4,11 +4,11 @@ import { BotonGrande } from '../../../shared/ui/index.ts'
 import { usePolling } from '../../../shared/usePolling.ts'
 
 type EstadoRepartidor = 'FUERA_DE_JORNADA' | 'DISPONIBLE' | 'OCUPADO' | 'EN_PAUSA' | 'EMERGENCIA'
-type Accion = 'iniciar' | 'pausar' | 'reanudar'
+type Accion = 'iniciar' | 'pausar' | 'reanudar' | 'terminar'
 
 const CONSULTA_CADA_MS = 10_000
 
-// Qué ve el repartidor en cada estado y qué botón tiene (si tiene alguno).
+// Qué ve el repartidor en cada estado y qué botón principal tiene.
 const PANTALLA: Record<EstadoRepartidor, { titulo: string; detalle: string; accion?: { tipo: Accion; texto: string } }> = {
   FUERA_DE_JORNADA: {
     titulo: 'Fuera de jornada',
@@ -29,12 +29,11 @@ const PANTALLA: Record<EstadoRepartidor, { titulo: string; detalle: string; acci
   EMERGENCIA: { titulo: 'Emergencia', detalle: 'La central está al tanto.' },
 }
 
-// C-4 (versión mínima): estado de la jornada en grande y el botón para iniciar, pausar o reanudar.
-// Falta "Terminar jornada", que queda para C-3/C-4.
 export function PanelJornada() {
   const [estado, setEstado] = useState<EstadoRepartidor | null>(null)
   const [enviando, setEnviando] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
+  const [confirmandoTerminar, setConfirmandoTerminar] = useState(false)
 
   const consultar = useCallback(async () => {
     const respuesta = await api<{ estado: EstadoRepartidor }>('/repartidor/jornada')
@@ -46,6 +45,7 @@ export function PanelJornada() {
   async function ejecutar(accion: Accion) {
     setEnviando(true)
     setAviso(null)
+    setConfirmandoTerminar(false)
     try {
       const respuesta = await api<{ estado: EstadoRepartidor }>(`/repartidor/jornada/${accion}`, { metodo: 'POST' })
       setEstado(respuesta.estado)
@@ -61,6 +61,7 @@ export function PanelJornada() {
   if (!estado) return <p className="text-center text-slate-400">Cargando jornada…</p>
 
   const { titulo, detalle, accion } = PANTALLA[estado]
+  const puedeTerminar = estado === 'DISPONIBLE' || estado === 'EN_PAUSA'
 
   return (
     <section className="space-y-4 rounded-2xl bg-slate-900 p-5" aria-live="polite">
@@ -72,14 +73,46 @@ export function PanelJornada() {
 
       {aviso && <p className="rounded-xl bg-slate-800 p-4">{aviso}</p>}
 
-      {accion && (
-        <BotonGrande
-          variante={accion.tipo === 'pausar' ? 'secundario' : 'primario'}
-          onClick={() => void ejecutar(accion.tipo)}
-          disabled={enviando}
-        >
-          {accion.texto}
-        </BotonGrande>
+      {confirmandoTerminar ? (
+        <div className="space-y-3 rounded-xl border border-red-500/30 bg-red-950/20 p-4">
+          <p className="text-center text-lg font-semibold text-red-200">¿Confirmás terminar la jornada?</p>
+          <BotonGrande
+            variante="peligro"
+            onClick={() => void ejecutar('terminar')}
+            disabled={enviando}
+          >
+            Sí, terminar jornada
+          </BotonGrande>
+          <BotonGrande
+            variante="secundario"
+            onClick={() => setConfirmandoTerminar(false)}
+            disabled={enviando}
+          >
+            Cancelar
+          </BotonGrande>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {accion && (
+            <BotonGrande
+              variante={accion.tipo === 'pausar' ? 'secundario' : 'primario'}
+              onClick={() => void ejecutar(accion.tipo)}
+              disabled={enviando}
+            >
+              {accion.texto}
+            </BotonGrande>
+          )}
+
+          {puedeTerminar && (
+            <BotonGrande
+              variante="peligro"
+              onClick={() => setConfirmandoTerminar(true)}
+              disabled={enviando}
+            >
+              Terminar jornada
+            </BotonGrande>
+          )}
+        </div>
       )}
     </section>
   )
