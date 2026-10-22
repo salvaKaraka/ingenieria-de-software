@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, ErrorApi } from '../../../shared/api'
 import { Boton } from '../../../shared/ui/Boton'
 import { Campo } from '../../../shared/ui/Campo'
@@ -37,24 +37,30 @@ export function ComerciosPage() {
   const [form, setForm] = useState<FormularioComercio>(FORMULARIO_VACIO)
   const [erroresFormulario, setErroresFormulario] = useState<ErroresFormulario>({})
   const [errorGlobal, setErrorGlobal] = useState<string | null>(null)
+  const [errorCarga, setErrorCarga] = useState(false)
+  const ultimaConsulta = useRef(0)
 
-  const cargarComercios = async (query = '') => {
+  const cargarComercios = useCallback(async (query = '') => {
+    // Mientras se escribe, las respuestas pueden llegar desordenadas: solo vale la última.
+    const consulta = ++ultimaConsulta.current
     try {
-      setCargando(true)
       const url = query ? `/comercios?q=${encodeURIComponent(query)}` : '/comercios'
       const datos = await api<Comercio[]>(url)
-      setComercios(Array.isArray(datos) ? datos : [])
-    } catch (err) {
-      console.error('Error al cargar comercios:', err)
-      setComercios([])
+      if (consulta !== ultimaConsulta.current) return
+      setComercios(datos)
+      setErrorCarga(false)
+    } catch {
+      if (consulta === ultimaConsulta.current) setErrorCarga(true)
     } finally {
-      setCargando(false)
+      if (consulta === ultimaConsulta.current) setCargando(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
-    cargarComercios(busqueda)
-  }, [busqueda])
+    // Espera a que se deje de escribir para no hacer un request por tecla.
+    const espera = setTimeout(() => void cargarComercios(busqueda), 300)
+    return () => clearTimeout(espera)
+  }, [busqueda, cargarComercios])
 
   const abrirModalCrear = () => {
     setComercioEditar(null)
@@ -216,6 +222,12 @@ export function ComerciosPage() {
           />
         </div>
       </div>
+
+      {errorCarga && (
+        <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">
+          No se pudieron cargar los comercios. Probá de nuevo en unos segundos.
+        </p>
+      )}
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <Tabla

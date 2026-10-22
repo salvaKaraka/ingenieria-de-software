@@ -24,18 +24,18 @@ export class ComerciosRepository {
   }
 
   async crear(data: CrearComercioDto) {
-  return this.prisma.comercio.create({
-    data: {
-      nombre: data.nombre,
-      telefono: data.telefono,
-      email: data.email,
-      direccion: data.direccion,
-      requiereFoto: data.requiereFoto,
-      requiereDni: data.requiereDni,
-      activo: true,
-    },
-  });
-}
+    return this.prisma.comercio.create({
+      data: {
+        nombre: data.nombre,
+        telefono: data.telefono,
+        email: data.email,
+        direccion: data.direccion,
+        requiereFoto: data.requiereFoto,
+        requiereDni: data.requiereDni,
+        activo: true,
+      },
+    });
+  }
 
   async actualizar(id: number, data: ActualizarComercioDto) {
     return this.prisma.comercio.update({
