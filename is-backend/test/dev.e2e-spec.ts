@@ -6,7 +6,7 @@ import { configurarApp } from '../src/configurar-app';
 import { PrismaService } from '../src/database/prisma.service';
 import { PIN_REPARTIDOR_PRUEBA } from '../src/dev/dev.constants';
 import { HashingService } from '../src/modules/auth/hashing.service';
-import { vaciarBase } from './utils';
+import { emailUnico, vaciarBase } from './utils';
 
 // Herramientas de desarrollo del probador /dev/motor.
 describe('Probador del motor (e2e)', () => {
@@ -18,7 +18,7 @@ describe('Probador del motor (e2e)', () => {
     nombre: 'R',
     apellido,
     telefono: '1',
-    email: 'r@test.com',
+    email: emailUnico(),
     direccion: 'x',
     vehiculo: 'MOTO' as const,
   });

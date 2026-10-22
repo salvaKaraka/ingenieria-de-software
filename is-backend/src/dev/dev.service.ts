@@ -118,7 +118,8 @@ export class DevService {
         nombre: NOMBRE_VEHICULO[vehiculo],
         apellido: String(delMismoVehiculo + 1),
         telefono: '221 000-0000',
-        email: 'prueba@example.com',
+        // El email es único: uno aleatorio por repartidor de prueba.
+        email: `prueba.${randomBytes(4).toString('hex')}@example.com`,
         direccion: 'La Plata',
         vehiculo,
       },
