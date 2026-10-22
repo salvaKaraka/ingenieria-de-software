@@ -24,8 +24,11 @@ export class EnviosController {
   constructor(private readonly enviosService: EnviosService) {}
 
   @Post()
-  async crear(@Body() dto: CrearEnvioDto) {
-    return this.enviosService.crear(dto);
+  async crear(
+    @Body() dto: CrearEnvioDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ) {
+    return this.enviosService.crear(dto, usuario.id);
   }
 
   @Get()

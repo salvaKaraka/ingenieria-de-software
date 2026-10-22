@@ -2,36 +2,39 @@ import {
   IsBoolean,
   IsEmail,
   IsNotEmpty,
-  IsOptional,
   IsString,
+  ValidateIf,
 } from 'class-validator';
 
-// Todos los campos son opcionales en un PATCH, pero si vienen deben ser válidos.
+// En un PATCH los campos que no vienen no se tocan. No se usa @IsOptional porque también
+// deja pasar null, y null en una columna obligatoria terminaba en un 500 de Prisma.
+const SI_VIENE = (_dto: object, valor: unknown) => valor !== undefined;
+
 export class ActualizarComercioDto {
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
+  @ValidateIf(SI_VIENE)
+  @IsString({ message: 'El nombre debe ser una cadena de texto' })
+  @IsNotEmpty({ message: 'El nombre es obligatorio' })
   nombre?: string;
 
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
+  @ValidateIf(SI_VIENE)
+  @IsString({ message: 'El teléfono debe ser una cadena de texto' })
+  @IsNotEmpty({ message: 'El teléfono es obligatorio' })
   telefono?: string;
 
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
+  @ValidateIf(SI_VIENE)
+  @IsString({ message: 'La dirección es obligatoria' })
+  @IsNotEmpty({ message: 'La dirección es obligatoria' })
   direccion?: string;
 
-  @IsOptional()
-  @IsEmail()
+  @ValidateIf(SI_VIENE)
+  @IsEmail({}, { message: 'El formato de email no es válido' })
   email?: string;
 
-  @IsOptional()
-  @IsBoolean()
+  @ValidateIf(SI_VIENE)
+  @IsBoolean({ message: 'requiereFoto debe ser booleano' })
   requiereFoto?: boolean;
 
-  @IsOptional()
-  @IsBoolean()
+  @ValidateIf(SI_VIENE)
+  @IsBoolean({ message: 'requiereDni debe ser booleano' })
   requiereDni?: boolean;
 }

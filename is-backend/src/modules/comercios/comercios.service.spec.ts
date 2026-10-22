@@ -1,7 +1,10 @@
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ComerciosRepository } from './comercios.repository';
 import { ComerciosService } from './comercios.service';
+import { ActualizarComercioDto } from './dto/actualizar-comercio.dto';
 
 describe('ComerciosService', () => {
   let service: ComerciosService;
@@ -61,5 +64,29 @@ describe('ComerciosService', () => {
     repository.buscarPorId.mockResolvedValue(null);
     await expect(service.eliminarLogico(99)).rejects.toThrow(NotFoundException);
     expect(repository.eliminarLogico).not.toHaveBeenCalled();
+  });
+});
+
+describe('ActualizarComercioDto', () => {
+  async function errores(datos: object) {
+    const errores = await validate(
+      plainToInstance(ActualizarComercioDto, datos),
+    );
+    return errores.map((error) => error.property);
+  }
+
+  it('acepta un PATCH con un solo campo', async () => {
+    expect(await errores({ telefono: '221 555-0000' })).toEqual([]);
+  });
+
+  it('rechaza null en un campo obligatorio en vez de llegar a la base', async () => {
+    expect(await errores({ nombre: null, requiereFoto: null })).toEqual([
+      'nombre',
+      'requiereFoto',
+    ]);
+  });
+
+  it('rechaza un email inválido', async () => {
+    expect(await errores({ email: 'a@b' })).toEqual(['email']);
   });
 });

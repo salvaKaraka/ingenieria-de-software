@@ -41,6 +41,7 @@ export function NuevoEnvioPage() {
   const [form, setForm] = useState<FormularioEnvio>(FORMULARIO_VACIO)
   const [errorGlobal, setErrorGlobal] = useState<string | null>(null)
   const [codigoExito, setCodigoExito] = useState<string | null>(null)
+  const [linkCopiado, setLinkCopiado] = useState(false)
 
   useEffect(() => {
     const cargarComercios = async () => {
@@ -97,6 +98,13 @@ export function NuevoEnvioPage() {
     }
   }
 
+  // B-5: el operario le pasa este link al destinatario.
+  const copiarLink = async () => {
+    await navigator.clipboard.writeText(`${window.location.origin}/seguimiento/${codigoExito}`)
+    setLinkCopiado(true)
+    setTimeout(() => setLinkCopiado(false), 2000)
+  }
+
   if (codigoExito) {
     return (
       <div className="mx-auto max-w-xl">
@@ -106,6 +114,13 @@ export function NuevoEnvioPage() {
           <div className="mb-5 rounded-md bg-green-50 p-4">
             <p className="mb-1 text-sm text-slate-600">Código de seguimiento</p>
             <p className="font-mono text-2xl font-bold text-green-700">{codigoExito}</p>
+            <button
+              type="button"
+              onClick={copiarLink}
+              className="mt-2 text-sm font-medium text-blue-700 underline hover:text-blue-900"
+            >
+              {linkCopiado ? '¡Link copiado!' : 'Copiar link de seguimiento'}
+            </button>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
             <Boton

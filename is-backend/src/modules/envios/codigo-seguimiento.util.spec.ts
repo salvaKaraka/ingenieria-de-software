@@ -18,7 +18,9 @@ describe('Generador de código de seguimiento (B-3)', () => {
   });
 
   it('genera códigos distintos en llamadas sucesivas', () => {
-    const codigos = new Set(Array.from({ length: 20 }, () => generarCodigoSeguimiento()));
+    const codigos = new Set(
+      Array.from({ length: 20 }, () => generarCodigoSeguimiento()),
+    );
     expect(codigos.size).toBe(20);
   });
 });

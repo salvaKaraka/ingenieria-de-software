@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { api } from '../../../shared/api'
 import { Boton } from '../../../shared/ui/Boton'
 import { Tabla } from '../../../shared/ui/Tabla'
+import { usePolling } from '../../../shared/usePolling'
 
 interface EnvioResumen {
   id: number
@@ -56,10 +57,10 @@ export function EnviosPage() {
   const [pestanaActiva, setPestanaActiva] = useState<Pestana>('PENDIENTE')
   const [cargando, setCargando] = useState(true)
   const [ultimaActualizacion, setUltimaActualizacion] = useState<Date | null>(null)
+  const [error, setError] = useState(false)
 
   const cargarEnvios = useCallback(async () => {
     try {
-      setCargando(true)
       const filtros: Record<Pestana, string> = {
         PENDIENTE: 'PENDIENTE',
         EN_CURSO: 'ASIGNADO,EN_CAMINO_A_RETIRAR,RETIRADO,EN_DOMICILIO',
@@ -69,19 +70,24 @@ export function EnviosPage() {
 
       setEnvios(Array.isArray(respuesta?.datos) ? respuesta.datos : [])
       setUltimaActualizacion(new Date())
-    } catch (error) {
-      console.error('Error al cargar envíos:', error)
-      setEnvios([])
+      setError(false)
+    } catch {
+      // Se deja la última lista: un corte de red no debería vaciar el panel.
+      setError(true)
     } finally {
       setCargando(false)
     }
   }, [pestanaActiva])
 
-  useEffect(() => {
-    cargarEnvios()
-    const intervalo = setInterval(cargarEnvios, 15000)
-    return () => clearInterval(intervalo)
-  }, [cargarEnvios])
+  usePolling(cargarEnvios, 15_000)
+
+  const cambiarPestana = (pestana: Pestana) => {
+    // Solo al cambiar de pestaña se muestra "cargando": en cada refresco del polling la tabla
+    // quedaría parpadeando cada 15 s.
+    setCargando(true)
+    setEnvios([])
+    setPestanaActiva(pestana)
+  }
 
   const columnasTabla = [
     {
@@ -163,7 +169,7 @@ export function EnviosPage() {
           <button
             key={pestana.id}
             type="button"
-            onClick={() => setPestanaActiva(pestana.id)}
+            onClick={() => cambiarPestana(pestana.id)}
             className={`rounded-lg px-6 py-2.5 text-sm font-semibold transition-all duration-200 ${
               pestanaActiva === pestana.id
                 ? 'border border-blue-100/50 bg-blue-50 text-blue-700 shadow-sm'
@@ -174,6 +180,12 @@ export function EnviosPage() {
           </button>
         ))}
       </div>
+
+      {error && (
+        <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800">
+          No se pudo actualizar el panel. Se reintenta en 15 s.
+        </p>
+      )}
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         {cargando ? (

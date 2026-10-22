@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router'
-import { api } from '../../shared/api.ts'
+import { api, ErrorApi } from '../../shared/api.ts'
 import { usePolling } from '../../shared/usePolling.ts'
 import { ETIQUETA_ESTADO_ENVIO, type EstadoEnvio } from '../../shared/tipos.ts'
 import type { TrackingResponseDto } from './types.ts'
+
+const NO_ENCONTRADO = 'Código de seguimiento no encontrado'
 
 // Mock para desarrollo local (solo accesible cuando import.meta.env.DEV)
 const DEMO_ENVIOS: Record<string, TrackingResponseDto> = {
@@ -378,15 +380,20 @@ export function SeguimientoPage() {
       const data = await api<TrackingResponseDto>(`/seguimiento/${encodeURIComponent(codeLimpio)}`)
       setTracking(data)
       setError(null)
-    } catch {
+    } catch (err) {
       // Fallback a datos demo únicamente en desarrollo
       if (import.meta.env.DEV && DEMO_ENVIOS[codeLimpio]) {
         setTracking(DEMO_ENVIOS[codeLimpio])
         setError(null)
-      } else {
+      } else if (err instanceof ErrorApi && err.status === 404) {
         setTracking(null)
-        setError('Código de seguimiento no encontrado')
+        setError(NO_ENCONTRADO)
+      } else if (!silente) {
+        // Sin red, 429 o error del servidor: el código puede ser correcto, no hay que decir que no existe.
+        setTracking(null)
+        setError('No pudimos consultar el envío. Probá de nuevo en unos minutos.')
       }
+      // En un refresco silencioso que falla se deja el último dato: es un error pasajero.
     } finally {
       if (!silente) {
         setCargando(false)
@@ -460,7 +467,7 @@ export function SeguimientoPage() {
                 type="text"
                 value={inputCodigo}
                 onChange={(e) => setInputCodigo(e.target.value)}
-                placeholder="Ej: DEMO123"
+                placeholder="Ej: K7M2X9QP4R"
                 className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-blue-500 focus:outline-hidden focus:ring-2 focus:ring-blue-100 uppercase"
                 disabled={cargando}
               />
@@ -507,9 +514,11 @@ export function SeguimientoPage() {
             </div>
             <div>
               <p className="font-semibold text-base">{error}</p>
-              <p className="text-sm text-rose-700 mt-1">
-                Por favor, comprobá que el código ingresado coincida exactamente con el de tu comprobante.
-              </p>
+              {error === NO_ENCONTRADO && (
+                <p className="text-sm text-rose-700 mt-1">
+                  Por favor, comprobá que el código ingresado coincida exactamente con el de tu comprobante.
+                </p>
+              )}
             </div>
           </div>
         )}

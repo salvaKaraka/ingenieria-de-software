@@ -39,6 +39,8 @@ describe('RepartidoresService', () => {
       crear: jest.fn(),
       actualizar: jest.fn(),
       tieneViajeActivo: jest.fn(),
+      tieneOfertaPendiente: jest.fn(),
+      darDeBajaSiEstaLibre: jest.fn(),
     } as unknown as jest.Mocked<RepartidoresRepository>;
 
     authService = {
@@ -150,25 +152,38 @@ describe('RepartidoresService', () => {
       repo.tieneViajeActivo.mockResolvedValue(true);
 
       await expect(servicio.darDeBaja(1)).rejects.toThrow(ConflictException);
-      expect(repo.actualizar).not.toHaveBeenCalled();
+      expect(repo.darDeBajaSiEstaLibre).not.toHaveBeenCalled();
       expect(authService.cerrarSesiones).not.toHaveBeenCalled();
     });
 
-    it('desactiva al repartidor, lo retira de la cola y revoca sus sesiones si no tiene viajes activos', async () => {
+    it('rechaza la baja (409) si el repartidor tiene una oferta sin responder', async () => {
       repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
       repo.tieneViajeActivo.mockResolvedValue(false);
-      repo.actualizar.mockResolvedValue({
-        ...repartidorEjemplo,
-        activo: false,
-        enColaDesde: null,
-      });
+      repo.tieneOfertaPendiente.mockResolvedValue(true);
+
+      await expect(servicio.darDeBaja(1)).rejects.toThrow(ConflictException);
+      expect(repo.darDeBajaSiEstaLibre).not.toHaveBeenCalled();
+    });
+
+    it('si recibió un viaje durante la baja, responde 409 y no cierra sus sesiones', async () => {
+      repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
+      repo.tieneViajeActivo.mockResolvedValue(false);
+      repo.tieneOfertaPendiente.mockResolvedValue(false);
+      repo.darDeBajaSiEstaLibre.mockResolvedValue(false);
+
+      await expect(servicio.darDeBaja(1)).rejects.toThrow(ConflictException);
+      expect(authService.cerrarSesiones).not.toHaveBeenCalled();
+    });
+
+    it('desactiva al repartidor y revoca sus sesiones si no tiene viajes ni ofertas', async () => {
+      repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
+      repo.tieneViajeActivo.mockResolvedValue(false);
+      repo.tieneOfertaPendiente.mockResolvedValue(false);
+      repo.darDeBajaSiEstaLibre.mockResolvedValue(true);
 
       await servicio.darDeBaja(1);
 
-      expect(repo.actualizar).toHaveBeenCalledWith(1, {
-        activo: false,
-        enColaDesde: null,
-      });
+      expect(repo.darDeBajaSiEstaLibre).toHaveBeenCalledWith(1);
       expect(authService.cerrarSesiones).toHaveBeenCalledWith(
         RolUsuario.REPARTIDOR,
         1,
