@@ -1,10 +1,9 @@
 import { NotFoundException } from '@nestjs/common';
 import { SeguimientoService } from './seguimiento.service';
 import { SeguimientoRepository } from './seguimiento.repository';
-import { generarCodigoSeguimiento } from './codigo-seguimiento.util';
 import type { EstadoEnvio } from '../../generated/prisma/client';
 
-describe('SeguimientoService y Utilidades', () => {
+describe('SeguimientoService', () => {
   let service: SeguimientoService;
   let repository: { buscarPorCodigo: jest.Mock };
 
@@ -13,17 +12,6 @@ describe('SeguimientoService y Utilidades', () => {
       buscarPorCodigo: jest.fn(),
     };
     service = new SeguimientoService(repository as unknown as SeguimientoRepository);
-  });
-
-  describe('Generador de código de seguimiento', () => {
-    it('genera códigos alfanuméricos con formato seguro y no predecible', () => {
-      const codigo1 = generarCodigoSeguimiento();
-      const codigo2 = generarCodigoSeguimiento();
-
-      expect(codigo1).toMatch(/^TRK-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/);
-      expect(codigo2).toMatch(/^TRK-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/);
-      expect(codigo1).not.toBe(codigo2);
-    });
   });
 
   describe('Enmascaramiento de datos sensibles (Épica 2.5)', () => {

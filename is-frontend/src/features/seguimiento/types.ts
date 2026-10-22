@@ -1,4 +1,11 @@
-export type EstadoEnvio = 'PENDIENTE' | 'EN_CAMINO' | 'ENTREGADO' | 'CANCELADO';
+export type EstadoEnvio =
+  | 'PENDIENTE'
+  | 'ASIGNADO'
+  | 'EN_CAMINO_A_RETIRAR'
+  | 'RETIRADO'
+  | 'EN_DOMICILIO'
+  | 'ENTREGADO'
+  | 'CANCELADO';
 
 export interface HistorialEstadoItem {
   estado: EstadoEnvio;
@@ -8,6 +15,9 @@ export interface HistorialEstadoItem {
 export interface TrackingResponseDto {
   trackingCode: string;
   estadoActual: EstadoEnvio;
+  comercio?: string;
+  destinatario?: string;
+  direccionDestino?: string;
   horaSalida?: string;
   franjaEstimadaInicio?: string;
   franjaEstimadaFin?: string;
