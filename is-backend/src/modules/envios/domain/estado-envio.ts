@@ -1,65 +1,35 @@
-export enum EstadoEnvio {
-  PENDIENTE = 'PENDIENTE',
-  ASIGNADO = 'ASIGNADO',
-  EN_CAMINO_A_RETIRAR = 'EN_CAMINO_A_RETIRAR',
-  RETIRADO = 'RETIRADO',
-  EN_DOMICILIO = 'EN_DOMICILIO',
-  ENTREGADO = 'ENTREGADO',
-  CANCELADO = 'CANCELADO',
-}
+// Solo tipos: el dominio sigue sin depender de la base, pero usa los mismos estados que
+// Prisma. Así un `envio.estado` leído de la base se puede pasar directo, sin casts.
+import type { EstadoEnvio, TipoActor } from '../../../generated/prisma/client';
 
-export enum TipoActor {
-  OPERARIO = 'OPERARIO',
-  REPARTIDOR = 'REPARTIDOR',
-  SISTEMA = 'SISTEMA',
-}
+// Camino del envío: cada estado tiene un único siguiente y lo avanza el repartidor.
+// PENDIENTE → ASIGNADO ocurre al aceptar una oferta (D-2), no con el botón "siguiente".
+const SIGUIENTE: Partial<Record<EstadoEnvio, EstadoEnvio>> = {
+  PENDIENTE: 'ASIGNADO',
+  ASIGNADO: 'EN_CAMINO_A_RETIRAR',
+  EN_CAMINO_A_RETIRAR: 'RETIRADO',
+  RETIRADO: 'EN_DOMICILIO',
+  EN_DOMICILIO: 'ENTREGADO',
+};
 
 export function esTransicionValida(
   estadoActual: EstadoEnvio,
   estadoDestino: EstadoEnvio,
   actor: TipoActor,
 ): boolean {
-  if (estadoDestino === EstadoEnvio.CANCELADO) {
+  // El operario no avanza el viaje (lo hace quien tiene el paquete): solo puede cancelarlo,
+  // y nunca después de que terminó.
+  if (estadoDestino === 'CANCELADO') {
     return (
-      actor === TipoActor.OPERARIO &&
-      estadoActual !== EstadoEnvio.ENTREGADO &&
-      estadoActual !== EstadoEnvio.CANCELADO
+      actor === 'OPERARIO' &&
+      estadoActual !== 'ENTREGADO' &&
+      estadoActual !== 'CANCELADO'
     );
   }
-
-  if (actor !== TipoActor.REPARTIDOR) {
-    return false;
-  }
-
-  switch (estadoActual) {
-    case EstadoEnvio.PENDIENTE:
-      return estadoDestino === EstadoEnvio.ASIGNADO;
-    case EstadoEnvio.ASIGNADO:
-      return estadoDestino === EstadoEnvio.EN_CAMINO_A_RETIRAR;
-    case EstadoEnvio.EN_CAMINO_A_RETIRAR:
-      return estadoDestino === EstadoEnvio.RETIRADO;
-    case EstadoEnvio.RETIRADO:
-      return estadoDestino === EstadoEnvio.EN_DOMICILIO;
-    case EstadoEnvio.EN_DOMICILIO:
-      return estadoDestino === EstadoEnvio.ENTREGADO;
-    default:
-      return false;
-  }
+  return actor === 'REPARTIDOR' && SIGUIENTE[estadoActual] === estadoDestino;
 }
 
+// Para el botón "siguiente" del repartidor. null si el envío ya terminó.
 export function siguienteEstado(estadoActual: EstadoEnvio): EstadoEnvio | null {
-  switch (estadoActual) {
-    case EstadoEnvio.PENDIENTE:
-      return EstadoEnvio.ASIGNADO;
-    case EstadoEnvio.ASIGNADO:
-      return EstadoEnvio.EN_CAMINO_A_RETIRAR;
-    case EstadoEnvio.EN_CAMINO_A_RETIRAR:
-      return EstadoEnvio.RETIRADO;
-    case EstadoEnvio.RETIRADO:
-      return EstadoEnvio.EN_DOMICILIO;
-    case EstadoEnvio.EN_DOMICILIO:
-      return EstadoEnvio.ENTREGADO;
-    default:
-      return null;
-  }
+  return SIGUIENTE[estadoActual] ?? null;
 }
