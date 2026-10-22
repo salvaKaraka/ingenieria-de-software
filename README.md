@@ -4,6 +4,12 @@ Práctica de Ingeniería de Software 2026 — Ingeniería en Computación (UNLP)
 
 Aplicación web con tres áreas: **panel del operario** (envíos, comercios, repartidores, incidentes), **web móvil del repartidor** (jornada, ofertas, estados, evidencias) y **seguimiento público** para el destinatario. La documentación funcional (entrevistas, épicas, RNF, PGP) está en [`docs/`](docs/).
 
+| Archivo | Para qué |
+|---|---|
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Cómo trabajamos: ramas, commits, PRs, revisiones, cambios en la base |
+| [TAREAS.md](TAREAS.md) | Todo el trabajo pendiente, repartido en frentes, con criterios de aceptación |
+| [AGENTS.md](AGENTS.md) | Instrucciones para asistentes de IA y convenciones de código |
+
 ## Stack
 
 | Parte | Tecnología | Producción |
@@ -61,12 +67,22 @@ Levantás la base y la API con Docker, y el frontend en modo desarrollo:
 docker compose up -d --build      # base en :5433 y API en :3000
 
 cd is-frontend
-cp .env.example .env.local
 npm install
 npm run dev                       # http://localhost:5173
 ```
 
 En la página de inicio tiene que aparecer **"API: ok · base ok ✅"**.
+
+Las pantallas del operario y del repartidor **piden login**. Creá los usuarios de prueba (una sola vez):
+
+```bash
+docker compose exec api node dist/scripts/crear-usuarios-prueba
+```
+
+| Para entrar a | Credenciales |
+|---|---|
+| http://localhost:5173/operario | usuario `admin`, contraseña `admin1234` |
+| http://localhost:5173/repartidor | PIN `1234` |
 
 ### Si vas a trabajar en el backend
 
@@ -80,6 +96,7 @@ cp .env.example .env
 npm install                       # también genera el cliente de Prisma
 npm run db:deploy                 # aplica las migraciones
 npm run start:dev                 # http://localhost:3000/api/health
+npm run dev:usuarios              # operario admin/admin1234 y repartidor con PIN 1234
 ```
 
 > No corras `docker compose up` completo y `npm run start:dev` a la vez: los dos usan el puerto 3000.
@@ -102,45 +119,17 @@ npm run start:dev                 # http://localhost:3000/api/health
 | raíz | `docker compose down` | Frena todo (**los datos se conservan**) |
 | raíz | `docker compose down -v` | ⚠️ Frena todo y **borra la base** |
 | is-backend | `npm run start:dev` | API con recarga automática |
-| is-backend | `npm test` / `npm run test:e2e` | Tests unitarios / end-to-end (e2e necesita la base) |
+| is-backend | `npm test` / `npm run test:e2e` | Tests unitarios / end-to-end. Los e2e necesitan la base levantada y usan una base aparte (`is_db_test`) que crean y vacían solos: no tocan tus datos |
 | is-backend | `npm run lint` | Linter |
 | is-backend | `npm run db:migrate -- --name <desc>` | Crea y aplica una migración después de cambiar `schema.prisma` |
 | is-backend | `npm run db:studio` | Interfaz web para ver y editar la base |
+| is-backend | `npm run dev:usuarios` | Usuarios de prueba: operario `admin`/`admin1234` y repartidor con PIN `1234` (solo bases locales) |
+| is-backend | `npm run operario:crear -- <usuario> "<nombre>"` | Crea un operario real (pide la contraseña por consola) |
 | is-frontend | `npm run dev` | Frontend con recarga automática |
 | is-frontend | `npm run build` / `npm run lint` | Build de producción / linter |
 
-## Convenciones del backend
+## Cómo trabajamos
 
-Monolito modular: cada módulo de negocio vive en `src/modules/<nombre>/` con sus capas adentro.
-
-```
-src/modules/envios/
-├── envios.module.ts       declara el módulo; exporta SOLO el service
-├── envios.controller.ts   HTTP: rutas, DTOs, códigos de respuesta. Sin reglas de negocio.
-├── envios.service.ts      reglas de negocio. No sabe de HTTP ni de SQL.
-├── envios.repository.ts   acceso a datos con Prisma. Sin reglas de negocio.
-├── domain/                lógica pura (ej: máquina de estados del envío)
-├── dto/                   forma de los datos que entran por la API (class-validator)
-└── *.spec.ts              tests
-```
-
-- Un módulo **nunca** importa el repository de otro módulo: le pide lo que necesita a su service.
-- Dependencias en una sola dirección: controller → service → repository.
-- SQL a mano solo dentro de un repository y con `` prisma.$queryRaw`...` `` (nunca `$queryRawUnsafe`).
-- Para generar el esqueleto de un módulo: `npx nest g resource modules/<nombre>` (después se agrega el repository a mano).
-
-## Flujo de trabajo con Git
-
-```
-main  ← entregas y demos. Protegida: solo por PR con aprobación.
- └── dev  ← integración del día a día. Todo PR apunta acá.
-      └── feature/<algo>  ← una rama por historia de usuario o tarea
-```
-
-1. Actualizá `dev` y creá tu rama: `git checkout dev && git pull && git checkout -b feature/registro-envios`.
-2. Hacé commits chicos con mensajes que digan **qué** cambia ("Agregar validación de teléfono en alta de comercio").
-3. Subí la rama y abrí un PR **hacia `dev`** (no hacia `main`).
-4. El CI tiene que pasar en verde y otro integrante tiene que aprobar el PR.
-5. Antes de cada demo se abre un PR de `dev` → `main`.
-
-Nunca subas archivos `.env`: tienen credenciales. Para compartir una variable nueva, agregala a `.env.example`.
+- **Flujo de trabajo** (ramas `feature/*` → PR a `dev` → PR a `main` antes de cada demo): [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Arquitectura y convenciones de código** (monolito modular, capas controller → service → repository): [AGENTS.md](AGENTS.md).
+- **Qué hay que hacer:** [TAREAS.md](TAREAS.md).
