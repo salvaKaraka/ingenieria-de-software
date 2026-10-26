@@ -161,6 +161,73 @@ export class EnviosRepository {
     });
   }
 
+  // Método para buscar el viaje activo del repartidor
+  async buscarViajeActivoPorRepartidor(repartidorId: number) {
+    return this.prisma.envio.findFirst({
+      where: {
+        repartidorId: repartidorId,
+        estado: {
+          in: ['ASIGNADO', 'EN_CAMINO_A_RETIRAR', 'RETIRADO', 'EN_DOMICILIO'],
+        },
+      },
+      include: {
+        comercio: true, // Necesario para obtener el nombre y teléfono del comercio en el contrato
+      },
+    });
+  }
+
+  // Método transaccional para avanzar el estado y liberar al repartidor si llega a ENTREGADO
+  async avanzarEstadoEnvioTransaccional(
+    envioId: number,
+    estadoActual: string,
+    nuevoEstado: string,
+    siguienteEstadoNuevo: string | null,
+    repartidorId: number,
+    esEntregado: boolean,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      // UPDATE condicionado para prevenir condiciones de carrera (si otro proceso cambió el estado, fallará)
+      const envioActualizado = await tx.envio.updateMany({
+        where: { id: envioId, estado: estadoActual as any },
+        data: {
+          estado: nuevoEstado as any,
+          siguienteEstado: siguienteEstadoNuevo as any,
+        },
+      });
+
+      if (envioActualizado.count === 0) {
+        throw new Error('CONCURRENCY_ERROR');
+      }
+
+      // Registrar el evento del cambio de estado con actor REPARTIDOR
+      await tx.eventoEnvio.create({
+        data: {
+          envioId: envioId,
+          tipo: 'CAMBIO_ESTADO',
+          estadoNuevo: nuevoEstado as any,
+          actorTipo: 'REPARTIDOR',
+          actorId: repartidorId,
+        },
+      });
+
+      // Si el paquete fue entregado, actualizar al repartidor a DISPONIBLE al final de la cola
+      if (esEntregado) {
+        await tx.repartidor.update({
+          where: { id: repartidorId },
+          data: {
+            estado: 'DISPONIBLE',
+            enColaDesde: new Date(),
+            viajesConsecutivos: {
+              increment: 1,
+            },
+          },
+        });
+      }
+
+      return { estado: nuevoEstado, siguienteEstado: siguienteEstadoNuevo };
+    });
+  }
+
   // Cancela solo si el envío sigue en el estado que el service leyó. Si otro
   // proceso lo cambió en el medio (p. ej. el repartidor lo entregó), no toca
   // nada y devuelve null.
