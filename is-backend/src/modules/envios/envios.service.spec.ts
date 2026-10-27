@@ -60,8 +60,10 @@ describe('EnviosService', () => {
     return repository.crear.mock.calls[llamada][0] as Record<string, unknown>;
   }
 
-  function filtrosAlRepository(): Record<string, unknown> {
-    return repository.listar.mock.calls[0][0] as Record<string, unknown>;
+  function filtrosAlRepository(
+    llamada = repository.listar.mock.calls.length - 1,
+  ): Record<string, unknown> {
+    return repository.listar.mock.calls[llamada][0] as Record<string, unknown>;
   }
 
   beforeEach(() => {
@@ -211,10 +213,40 @@ describe('EnviosService', () => {
       expect(filtrosAlRepository().q).toBeUndefined();
     });
 
-    it('"hasta" sin hora incluye el día completo', async () => {
+    it('interpreta los límites de fecha como el día local de Argentina', async () => {
+      await service.listar({ desde: '2026-10-21', hasta: '2026-10-21' });
+      expect(filtrosAlRepository()).toMatchObject({
+        desde: new Date('2026-10-21T03:00:00.000Z'),
+        hasta: new Date('2026-10-22T02:59:59.999Z'),
+      });
+    });
+
+    it('permite combinar estado, comercio, texto y fecha', async () => {
+      await service.listar({
+        estado: ['ENTREGADO'],
+        comercioId: 4,
+        q: ' ABC123 ',
+        desde: '2026-10-21',
+        hasta: '2026-10-21',
+      });
+      expect(filtrosAlRepository()).toMatchObject({
+        estados: ['ENTREGADO'],
+        comercioId: 4,
+        q: 'ABC123',
+        desde: new Date('2026-10-21T03:00:00.000Z'),
+        hasta: new Date('2026-10-22T02:59:59.999Z'),
+      });
+    });
+
+    it('respeta los límites con hora y las fechas de calendario', async () => {
+      await service.listar({ hasta: '2026-10-21T12:30:00.000Z' });
+      expect((filtrosAlRepository().hasta as Date).toISOString()).toBe(
+        '2026-10-21T12:30:00.000Z',
+      );
+
       await service.listar({ hasta: '2026-10-21' });
       const hasta = filtrosAlRepository().hasta as Date;
-      expect(hasta.toISOString()).toBe('2026-10-21T23:59:59.999Z');
+      expect(hasta.toISOString()).toBe('2026-10-22T02:59:59.999Z');
     });
 
     it('rechaza "desde" posterior a "hasta" (400)', async () => {
