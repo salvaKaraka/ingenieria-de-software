@@ -138,6 +138,28 @@ export class RepartidoresRepository {
     return count > 0;
   }
 
+  // Cambio de vehículo junto con el resto de los datos editados. Igual que la baja, el UPDATE
+  // vuelve a exigir que esté libre: en la cola sin oferta (enColaDesde no nulo), en pausa o
+  // fuera de jornada. Si estaba en la cola, pasa al final de la cola del vehículo nuevo.
+  // Las dos sentencias aplican a estados distintos, así que a lo sumo una cambia la fila.
+  // Devuelve false si no se pudo cambiar.
+  async cambiarVehiculoSiEstaLibre(
+    id: number,
+    datos: Prisma.RepartidorUpdateManyMutationInput,
+  ): Promise<boolean> {
+    const enCola = await this.prisma.repartidor.updateMany({
+      where: { id, estado: 'DISPONIBLE', enColaDesde: { not: null } },
+      data: { ...datos, enColaDesde: new Date() },
+    });
+    if (enCola.count > 0) return true;
+
+    const fueraDeCola = await this.prisma.repartidor.updateMany({
+      where: { id, estado: { in: ['FUERA_DE_JORNADA', 'EN_PAUSA'] } },
+      data: datos,
+    });
+    return fueraDeCola.count > 0;
+  }
+
   // Jornada (C-3). Cada cambio es un UPDATE condicionado al estado esperado, así una
   // transición que ya no vale (por ejemplo, el motor le acaba de ofrecer un viaje) no se
   // aplica. Devuelven false si no se cambió nada.

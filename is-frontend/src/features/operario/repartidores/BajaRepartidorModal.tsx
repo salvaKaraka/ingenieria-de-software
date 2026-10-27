@@ -35,7 +35,7 @@ function BajaContenido({
         if (err.status === 409) {
           setError(
             err.mensajes[0] ||
-              'No se puede dar de baja a un repartidor con un viaje activo.',
+              'El repartidor tiene un viaje en curso',
           )
         } else {
           setError(
