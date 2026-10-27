@@ -292,6 +292,7 @@ async function main() {
                 apellido: r.apellido,
                 telefono: `221 500-00${i + 1}0`,
                 email: `repartidor${i + 1}@example.com`,
+                dni: String(30_000_001 + i),
                 direccion: 'La Plata',
                 vehiculo: r.vehiculo,
                 pinHmac: hashing.hmacPin(pin),
