@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { useNavigate } from 'react-router'
 import { api, ErrorApi } from '../../../shared/api.ts'
 import { BotonGrande } from '../../../shared/ui/index.ts'
 import { usePolling } from '../../../shared/usePolling.ts'
@@ -30,6 +31,7 @@ const PANTALLA: Record<EstadoRepartidor, { titulo: string; detalle: string; acci
 }
 
 export function PanelJornada() {
+  const navegar = useNavigate()
   const [estado, setEstado] = useState<EstadoRepartidor | null>(null)
   const [enviando, setEnviando] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
@@ -101,6 +103,10 @@ export function PanelJornada() {
             >
               {accion.texto}
             </BotonGrande>
+          )}
+
+          {estado === 'OCUPADO' && (
+            <BotonGrande onClick={() => navegar('/repartidor/viaje')}>Ver mi viaje</BotonGrande>
           )}
 
           {puedeTerminar && (
