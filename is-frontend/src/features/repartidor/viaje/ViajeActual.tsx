@@ -1,5 +1,4 @@
 import { useCallback, useState, type ReactNode } from 'react'
-import { useNavigate } from 'react-router'
 import { api, ErrorApi } from '../../../shared/api.ts'
 import type { EstadoEnvio } from '../../../shared/tipos.ts'
 import { BotonGrande } from '../../../shared/ui/index.ts'
@@ -33,11 +32,11 @@ const PASO: Record<EstadoViaje, { numero: number; accion: string }> = {
   EN_DOMICILIO: { numero: 4, accion: 'Entregado' },
 }
 
-function Dato({ titulo, children }: { titulo: string; children: ReactNode }) {
+function Dato({ titulo, grande = false, children }: { titulo: string; grande?: boolean; children: ReactNode }) {
   return (
     <div>
       <dt className="text-sm uppercase text-slate-400">{titulo}</dt>
-      <dd className="text-xl font-semibold">{children}</dd>
+      <dd className={grande ? 'text-2xl font-bold' : 'text-lg font-semibold'}>{children}</dd>
     </div>
   )
 }
@@ -50,10 +49,15 @@ function Telefono({ numero }: { numero: string }) {
   )
 }
 
-// E-3: viaje activo. Muestra solo lo que sirve en la etapa actual (retiro o entrega)
-// y un único botón con la próxima acción, con confirmación: 2 toques (RNF-10).
-export function ViajePage() {
-  const navegar = useNavigate()
+function describirEvidencia(viaje: Viaje): string {
+  const pedidos = [viaje.requiereDni && 'pedir el DNI', viaje.requiereFoto && 'sacar una foto'].filter(Boolean)
+  return pedidos.length > 0 ? `Al entregar: ${pedidos.join(' y ')}.` : 'El comercio no exige evidencia.'
+}
+
+// E-3: viaje activo, en la pantalla principal del repartidor. Arriba va lo de la etapa actual
+// (adónde ir ahora) y un único botón con la próxima acción, con confirmación: 2 toques (RNF-10).
+// El resto de los datos del viaje queda en un desplegable para no saturar la pantalla.
+export function ViajeActual({ alEntregar }: { alEntregar: () => void }) {
   // undefined = todavía cargando; null = no hay viaje activo.
   const [viaje, setViaje] = useState<Viaje | null | undefined>(undefined)
   const [confirmando, setConfirmando] = useState(false)
@@ -75,7 +79,7 @@ export function ViajePage() {
       const respuesta = await api<{ estado: EstadoEnvio }>('/repartidor/viajes/actual/avanzar', { metodo: 'POST' })
       setConfirmando(false)
       if (respuesta.estado === 'ENTREGADO') {
-        navegar('/repartidor', { replace: true, state: { aviso: '¡Entrega registrada! Ya estás de nuevo en la cola.' } })
+        alEntregar()
         return
       }
       await consultar()
@@ -89,68 +93,78 @@ export function ViajePage() {
     }
   }
 
-  if (viaje === undefined) return <p className="text-center text-slate-400">Cargando viaje…</p>
+  if (viaje === undefined) return null
 
   if (viaje === null) {
     return (
-      <section className="space-y-4 rounded-2xl bg-slate-900 p-5">
+      <section className="space-y-3 rounded-2xl bg-slate-900 p-5">
         {aviso && <p className="rounded-xl bg-slate-800 p-4">{aviso}</p>}
-        <h2 className="text-2xl font-bold">No tenés un viaje activo</h2>
-        <p className="text-slate-300">Si estabas en un viaje, puede que lo hayan cancelado desde la central.</p>
-        <BotonGrande onClick={() => navegar('/repartidor')}>Volver al inicio</BotonGrande>
+        <p className="text-center text-lg text-slate-300">No tenés viajes asignados en este momento.</p>
       </section>
     )
   }
 
   const { numero, accion } = PASO[viaje.estado]
   const enRetiro = viaje.estado === 'ASIGNADO' || viaje.estado === 'EN_CAMINO_A_RETIRAR'
-  const destinatario = [viaje.destinatario.nombre, viaje.destinatario.apellido].filter(Boolean).join(' ')
-  const evidencia = [viaje.requiereDni && 'pedí el DNI', viaje.requiereFoto && 'sacá una foto'].filter(Boolean)
+  const destinatario = [viaje.destinatario.nombre, viaje.destinatario.apellido].filter(Boolean).join(' ') || '—'
 
   return (
-    <section className="space-y-5 rounded-2xl bg-slate-900 p-5" aria-live="polite">
+    <section className="space-y-5 rounded-2xl border-4 border-yellow-400 bg-slate-900 p-5" aria-live="polite">
       <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-2xl font-bold">{enRetiro ? 'Retiro' : 'Entrega'}</h2>
-        <p className="text-base text-slate-400">Paso {numero} de 4</p>
+        <h2 className="text-2xl font-bold">{enRetiro ? 'Retirá el paquete' : 'Entregá el paquete'}</h2>
+        <p className="shrink-0 text-base text-slate-400">Paso {numero} de 4</p>
       </div>
 
       <dl className="space-y-3">
         {enRetiro ? (
           <>
-            <Dato titulo="Comercio">{viaje.comercio.nombre}</Dato>
-            <Dato titulo="Retirar en">{viaje.origenDireccion}</Dato>
-            <Dato titulo="Teléfono del comercio">
-              <Telefono numero={viaje.comercio.telefono} />
+            <Dato titulo="Retirar en" grande>
+              {viaje.origenDireccion}
             </Dato>
+            <Dato titulo="Comercio">{viaje.comercio.nombre}</Dato>
+            <Dato titulo="Después, entregar en">{viaje.destinoDireccion}</Dato>
           </>
         ) : (
           <>
-            <Dato titulo="Entregar en">{viaje.destinoDireccion}</Dato>
-            {destinatario && <Dato titulo="Destinatario">{destinatario}</Dato>}
-            {viaje.destinatario.telefono && (
-              <Dato titulo="Teléfono del destinatario">
-                <Telefono numero={viaje.destinatario.telefono} />
-              </Dato>
-            )}
+            <Dato titulo="Entregar en" grande>
+              {viaje.destinoDireccion}
+            </Dato>
+            <Dato titulo="Destinatario">{destinatario}</Dato>
           </>
         )}
-        {viaje.observaciones && (
-          <div>
-            <dt className="text-sm uppercase text-slate-400">Observaciones</dt>
-            <dd>{viaje.observaciones}</dd>
-          </div>
-        )}
-        <div>
-          <dt className="text-sm uppercase text-slate-400">Código</dt>
-          <dd className="font-mono">{viaje.codigoSeguimiento}</dd>
-        </div>
+        {viaje.observaciones && <Dato titulo="Observaciones">{viaje.observaciones}</Dato>}
       </dl>
 
-      {!enRetiro && evidencia.length > 0 && (
-        <p className="rounded-xl border border-yellow-400/40 bg-yellow-950/30 p-4 font-semibold text-yellow-200">
-          Al entregar: {evidencia.join(' y ')}.
-        </p>
-      )}
+      <p className="rounded-xl border border-yellow-400/40 bg-yellow-950/30 p-4 font-semibold text-yellow-200">
+        {describirEvidencia(viaje)}
+      </p>
+
+      {/* Todo el viaje de una, por si necesita llamar o mirar la otra punta del recorrido. */}
+      <details className="rounded-xl bg-slate-800 p-4">
+        <summary className="min-h-12 cursor-pointer content-center text-lg font-semibold">
+          Ver todos los datos del viaje
+        </summary>
+        <dl className="mt-3 space-y-3">
+          <Dato titulo="Retiro">
+            {viaje.comercio.nombre} · {viaje.origenDireccion}
+          </Dato>
+          <Dato titulo="Teléfono del comercio">
+            <Telefono numero={viaje.comercio.telefono} />
+          </Dato>
+          <Dato titulo="Entrega">{viaje.destinoDireccion}</Dato>
+          <Dato titulo="Destinatario">{destinatario}</Dato>
+          {viaje.destinatario.telefono && (
+            <Dato titulo="Teléfono del destinatario">
+              <Telefono numero={viaje.destinatario.telefono} />
+            </Dato>
+          )}
+          <Dato titulo="Observaciones">{viaje.observaciones ?? 'Sin observaciones'}</Dato>
+          <Dato titulo="Evidencia">{describirEvidencia(viaje)}</Dato>
+          <Dato titulo="Código de seguimiento">
+            <span className="font-mono">{viaje.codigoSeguimiento}</span>
+          </Dato>
+        </dl>
+      </details>
 
       {aviso && <p className="rounded-xl bg-slate-800 p-4">{aviso}</p>}
 

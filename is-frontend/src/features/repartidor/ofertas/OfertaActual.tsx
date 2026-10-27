@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router'
 import { api, ErrorApi } from '../../../shared/api.ts'
 import { BotonGrande } from '../../../shared/ui/index.ts'
 import { usePolling } from '../../../shared/usePolling.ts'
@@ -26,9 +25,8 @@ function formatearTiempo(segundos: number) {
 }
 
 // D-4: oferta de viaje vigente, con cuenta regresiva y botones Aceptar / Rechazar.
-// Mientras no haya oferta no muestra nada.
-export function OfertaActual() {
-  const navegar = useNavigate()
+// Mientras no haya oferta no muestra nada. Al aceptar, el viaje aparece en la misma pantalla (E-3).
+export function OfertaActual({ alAceptar }: { alAceptar: () => void }) {
   const [oferta, setOferta] = useState<Oferta | null>(null)
   // Momento (reloj local) en que vence: se calcula con los segundos que manda el servidor,
   // así la cuenta no depende de que la hora del celular esté bien.
@@ -61,7 +59,7 @@ export function OfertaActual() {
     try {
       await api(`/repartidor/ofertas/${oferta.id}/${accion}`, { metodo: 'POST' })
       setOferta(null)
-      if (accion === 'aceptar') navegar('/repartidor/viaje')
+      if (accion === 'aceptar') alAceptar()
     } catch (error) {
       setOferta(null)
       setAviso(error instanceof ErrorApi && error.status === 409 ? 'La oferta ya no está disponible.' : 'No se pudo responder. Probá de nuevo.')
