@@ -183,6 +183,7 @@ export class EnviosRepository {
     estadoAnterior: EstadoEnvio,
     estadoNuevo: EstadoEnvio,
     repartidorId: number,
+    detalle?: string,
   ): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const { count } = await tx.envio.updateMany({
@@ -197,6 +198,7 @@ export class EnviosRepository {
           tipo: 'CAMBIO_ESTADO',
           estadoAnterior,
           estadoNuevo,
+          detalle,
           actorTipo: 'REPARTIDOR',
           actorId: repartidorId,
         },

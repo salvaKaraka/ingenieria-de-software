@@ -96,7 +96,8 @@ export function NuevoEnvioPage() {
           destinatarioNombre: form.destinatarioNombre,
           destinatarioApellido: form.destinatarioApellido,
           destinatarioTelefono: form.destinatarioTelefono,
-          destinatarioDni: form.destinatarioDni || undefined,
+          // Sin puntos ni espacios: así se guarda y así lo compara el backend al entregar.
+          destinatarioDni: form.destinatarioDni.replace(/\D/g, '') || undefined,
           tamanio: form.tamanio,
           observaciones: form.observaciones || undefined,
         },
@@ -259,11 +260,14 @@ export function NuevoEnvioPage() {
                 onChange={(evento) => setForm({ ...form, destinatarioTelefono: evento.target.value })}
                 required
               />
+              {/* Si el comercio exige DNI, el repartidor lo compara contra este al entregar (E-4). */}
               <Campo
-                etiqueta="DNI (opcional)"
-                placeholder="Documento del destinatario"
+                etiqueta={comercioElegido?.requiereDni ? 'DNI * (el comercio lo exige al entregar)' : 'DNI (opcional)'}
+                placeholder="Documento del destinatario, sin puntos"
+                inputMode="numeric"
                 value={form.destinatarioDni}
                 onChange={(evento) => setForm({ ...form, destinatarioDni: evento.target.value })}
+                required={comercioElegido?.requiereDni}
               />
             </div>
           </section>
