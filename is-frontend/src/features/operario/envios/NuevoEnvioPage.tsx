@@ -1,8 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router'
 import { api, ErrorApi } from '../../../shared/api'
+import { ETIQUETA_VEHICULO, type EstadoEnvio, type TipoVehiculo } from '../../../shared/tipos'
 import { Boton } from '../../../shared/ui/Boton'
 import { Campo } from '../../../shared/ui/Campo'
+import { EtiquetaEstado } from '../../../shared/ui/EtiquetaEstado'
+import { describirEvidencia } from './evidencia'
 
 interface Comercio {
   id: number
@@ -12,6 +15,15 @@ interface Comercio {
   requiereFoto: boolean
   requiereDni: boolean
   activo: boolean
+}
+
+// Lo que devuelve POST /api/envios: solo lo que se confirma al operario.
+interface EnvioCreado {
+  codigoSeguimiento: string
+  estado: EstadoEnvio
+  vehiculoRequerido: TipoVehiculo
+  requiereFoto: boolean
+  requiereDni: boolean
 }
 
 interface FormularioEnvio {
@@ -45,7 +57,7 @@ export function NuevoEnvioPage() {
   const [guardando, setGuardando] = useState(false)
   const [form, setForm] = useState<FormularioEnvio>(FORMULARIO_VACIO)
   const [errorGlobal, setErrorGlobal] = useState<string | null>(null)
-  const [codigoExito, setCodigoExito] = useState<string | null>(null)
+  const [envioCreado, setEnvioCreado] = useState<EnvioCreado | null>(null)
   const [linkCopiado, setLinkCopiado] = useState(false)
 
   useEffect(() => {
@@ -86,7 +98,7 @@ export function NuevoEnvioPage() {
     }
 
     try {
-      const respuesta = await api<{ codigoSeguimiento: string }>('/envios', {
+      const respuesta = await api<EnvioCreado>('/envios', {
         metodo: 'POST',
         datos: {
           comercioId: Number(form.comercioId),
@@ -103,7 +115,7 @@ export function NuevoEnvioPage() {
         },
       })
 
-      setCodigoExito(respuesta.codigoSeguimiento)
+      setEnvioCreado(respuesta)
     } catch (error) {
       setErrorGlobal(
         error instanceof ErrorApi
@@ -117,12 +129,12 @@ export function NuevoEnvioPage() {
 
   // B-5: el operario le pasa este link al destinatario.
   const copiarLink = async () => {
-    await navigator.clipboard.writeText(`${window.location.origin}/seguimiento/${codigoExito}`)
+    await navigator.clipboard.writeText(`${window.location.origin}/seguimiento/${envioCreado?.codigoSeguimiento}`)
     setLinkCopiado(true)
     setTimeout(() => setLinkCopiado(false), 2000)
   }
 
-  if (codigoExito) {
+  if (envioCreado) {
     return (
       <div className="mx-auto max-w-xl">
         <div className="rounded-lg border border-green-200 bg-white p-6 text-center">
@@ -130,7 +142,7 @@ export function NuevoEnvioPage() {
           <p className="mb-5 text-slate-600">El pedido se registró correctamente.</p>
           <div className="mb-5 rounded-md bg-green-50 p-4">
             <p className="mb-1 text-sm text-slate-600">Código de seguimiento</p>
-            <p className="font-mono text-2xl font-bold text-green-700">{codigoExito}</p>
+            <p className="font-mono text-2xl font-bold text-green-700">{envioCreado.codigoSeguimiento}</p>
             <button
               type="button"
               onClick={copiarLink}
@@ -139,11 +151,28 @@ export function NuevoEnvioPage() {
               {linkCopiado ? '¡Link copiado!' : 'Copiar link de seguimiento'}
             </button>
           </div>
+          {/* Lo que calculó el sistema, para que el operario lo verifique sin abrir el detalle. */}
+          <dl className="mb-5 grid grid-cols-1 gap-3 text-left text-sm sm:grid-cols-3">
+            <div>
+              <dt className="text-slate-500">Estado</dt>
+              <dd className="mt-1">
+                <EtiquetaEstado estado={envioCreado.estado} />
+              </dd>
+            </div>
+            <div>
+              <dt className="text-slate-500">Vehículo requerido</dt>
+              <dd className="font-medium text-slate-800">{ETIQUETA_VEHICULO[envioCreado.vehiculoRequerido]}</dd>
+            </div>
+            <div>
+              <dt className="text-slate-500">Evidencia al entregar</dt>
+              <dd className="font-medium text-slate-800">{describirEvidencia(envioCreado)}</dd>
+            </div>
+          </dl>
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
             <Boton
               onClick={() => {
                 setForm(FORMULARIO_VACIO)
-                setCodigoExito(null)
+                setEnvioCreado(null)
               }}
               className="bg-blue-600 text-white hover:bg-blue-700"
             >
@@ -217,9 +246,7 @@ export function NuevoEnvioPage() {
                 </p>
                 <p className="text-sm text-slate-600">
                   <span className="font-medium text-slate-700">Evidencia al entregar:</span>{' '}
-                  {[comercioElegido.requiereFoto && 'foto', comercioElegido.requiereDni && 'DNI del receptor']
-                    .filter(Boolean)
-                    .join(' y ') || 'no exige'}
+                  {describirEvidencia(comercioElegido)}
                 </p>
               </div>
             )}

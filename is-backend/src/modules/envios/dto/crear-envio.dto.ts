@@ -24,13 +24,14 @@ export class CrearEnvioDto {
   @IsNotEmpty({ message: 'La dirección de origen no puede estar vacía' })
   origenDireccion?: string;
 
+  // Obligatorios: el repartidor necesita saber a quién entregar y poder llamarlo.
   @IsString()
-  @IsOptional()
-  destinatarioNombre?: string;
+  @IsNotEmpty({ message: 'El nombre del destinatario es obligatorio' })
+  destinatarioNombre: string;
 
   @IsString()
-  @IsOptional()
-  destinatarioApellido?: string;
+  @IsNotEmpty({ message: 'El apellido del destinatario es obligatorio' })
+  destinatarioApellido: string;
 
   // Solo dígitos: el front saca los puntos, así se compara igual que el que tipea el repartidor.
   // Opcional acá; el service lo exige si el comercio pide DNI al entregar.
@@ -39,8 +40,8 @@ export class CrearEnvioDto {
   destinatarioDni?: string;
 
   @IsString()
-  @IsOptional()
-  destinatarioTelefono?: string;
+  @IsNotEmpty({ message: 'El teléfono del destinatario es obligatorio' })
+  destinatarioTelefono: string;
 
   @IsEnum(TamanioPaquete, {
     message: 'El tamaño debe ser CHICO, MEDIANO o GRANDE',

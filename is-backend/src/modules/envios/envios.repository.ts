@@ -27,10 +27,10 @@ export class EnviosRepository {
     comercioId: number;
     origenDireccion: string;
     destinoDireccion: string;
-    destinatarioNombre?: string;
-    destinatarioApellido?: string;
+    destinatarioNombre: string;
+    destinatarioApellido: string;
     destinatarioDni?: string;
-    destinatarioTelefono?: string;
+    destinatarioTelefono: string;
     tamanio: TamanioPaquete;
     vehiculoRequerido: TipoVehiculo;
     observaciones?: string;

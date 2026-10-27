@@ -25,6 +25,9 @@ function crearDto(cambios: Partial<CrearEnvioDto> = {}): CrearEnvioDto {
   return {
     comercioId: 1,
     destinoDireccion: 'Calle 50 n° 200',
+    destinatarioNombre: 'Ana',
+    destinatarioApellido: 'Paz',
+    destinatarioTelefono: '221 555-0000',
     tamanio: 'CHICO',
     ...cambios,
   };
@@ -340,5 +343,38 @@ describe('ListarEnviosDto', () => {
 
   it('sin parámetros es válido', async () => {
     expect((await validar({})).campos).toEqual([]);
+  });
+});
+
+describe('CrearEnvioDto', () => {
+  async function camposConError(cuerpo: object) {
+    const errores = await validate(plainToInstance(CrearEnvioDto, cuerpo));
+    return errores.map((e) => e.property).sort();
+  }
+
+  it('exige nombre, apellido y teléfono del destinatario', async () => {
+    const campos = await camposConError({
+      comercioId: 1,
+      destinoDireccion: 'Calle 50 n° 200',
+      destinatarioNombre: '',
+      tamanio: 'CHICO',
+    });
+    expect(campos).toEqual([
+      'destinatarioApellido',
+      'destinatarioNombre',
+      'destinatarioTelefono',
+    ]);
+  });
+
+  it('el DNI del destinatario sigue siendo opcional', async () => {
+    const campos = await camposConError({
+      comercioId: 1,
+      destinoDireccion: 'Calle 50 n° 200',
+      destinatarioNombre: 'Ana',
+      destinatarioApellido: 'Paz',
+      destinatarioTelefono: '221 555-0000',
+      tamanio: 'CHICO',
+    });
+    expect(campos).toEqual([]);
   });
 });
