@@ -71,6 +71,9 @@ function responsable(entrada: EntradaHistorial): string {
   return [ACTOR[entrada.actorTipo], entrada.actorNombre].filter(Boolean).join(' ')
 }
 
+// Antes de que el repartidor retire el paquete (HU 31).
+const ESTADOS_MODIFICABLES: EstadoEnvio[] = ['PENDIENTE', 'ASIGNADO', 'EN_CAMINO_A_RETIRAR']
+
 export function DetalleEnvioPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -84,6 +87,7 @@ export function DetalleEnvioPage() {
   const [editando, setEditando] = useState(false)
   const [guardandoEdicion, setGuardandoEdicion] = useState(false)
   const [errorEdicion, setErrorEdicion] = useState<string | null>(null)
+  const [errorModificacion, setErrorModificacion] = useState<string | null>(null)
   const [formEdicion, setFormEdicion] = useState<{
     destinoDireccion: string
     destinatarioNombre: string
@@ -137,6 +141,12 @@ export function DetalleEnvioPage() {
 
   const abrirModalEdicion = () => {
     if (!envio) return
+    // Con el paquete ya retirado el botón sigue visible, pero explica por qué no se puede
+    // (HU 31, escenario 4) en lugar de esconderse sin más.
+    if (!ESTADOS_MODIFICABLES.includes(envio.estado)) {
+      setErrorModificacion('No se puede modificar: el paquete ya fue retirado')
+      return
+    }
     setFormEdicion({
       destinoDireccion: envio.destinoDireccion,
       destinatarioNombre: envio.destinatarioNombre ?? '',
@@ -201,8 +211,6 @@ export function DetalleEnvioPage() {
 
   const destinatario = [envio.destinatarioNombre, envio.destinatarioApellido].filter(Boolean).join(' ')
   const sePuedeCancelar = envio.estado !== 'ENTREGADO' && envio.estado !== 'CANCELADO'
-  const sePuedeModificar =
-    envio.estado === 'PENDIENTE' || envio.estado === 'ASIGNADO' || envio.estado === 'EN_CAMINO_A_RETIRAR'
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -219,7 +227,7 @@ export function DetalleEnvioPage() {
           <Boton variante="secundario" onClick={copiarLink}>
             {copiado ? '¡Link copiado!' : 'Copiar link de seguimiento'}
           </Boton>
-          {sePuedeModificar && (
+          {sePuedeCancelar && (
             <Boton variante="secundario" onClick={abrirModalEdicion}>
               Modificar datos
             </Boton>
@@ -231,6 +239,12 @@ export function DetalleEnvioPage() {
           )}
         </div>
       </div>
+
+      {errorModificacion && (
+        <p className="rounded-md bg-red-50 p-3 text-sm text-red-600" role="alert">
+          {errorModificacion}
+        </p>
+      )}
 
       {error && <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800">{error} Se muestra el último dato.</p>}
 
