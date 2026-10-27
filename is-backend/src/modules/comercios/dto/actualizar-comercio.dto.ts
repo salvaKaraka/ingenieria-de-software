@@ -5,12 +5,15 @@ import {
   IsString,
   ValidateIf,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { RECORTAR } from './crear-comercio.dto';
 
 // En un PATCH los campos que no vienen no se tocan. No se usa @IsOptional porque también
 // deja pasar null, y null en una columna obligatoria terminaba en un 500 de Prisma.
 const SI_VIENE = (_dto: object, valor: unknown) => valor !== undefined;
 
 export class ActualizarComercioDto {
+  @Transform(RECORTAR)
   @ValidateIf(SI_VIENE)
   @IsString({ message: 'El nombre debe ser una cadena de texto' })
   @IsNotEmpty({ message: 'El nombre es obligatorio' })

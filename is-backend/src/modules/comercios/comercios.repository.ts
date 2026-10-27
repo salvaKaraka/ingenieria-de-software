@@ -23,6 +23,13 @@ export class ComerciosRepository {
     });
   }
 
+  // Incluye los dados de baja: el nombre tiene que ser único en todo el sistema.
+  async buscarPorNombre(nombre: string) {
+    return this.prisma.comercio.findFirst({
+      where: { nombre: { equals: nombre, mode: 'insensitive' } },
+    });
+  }
+
   async crear(data: CrearComercioDto) {
     return this.prisma.comercio.create({
       data: {

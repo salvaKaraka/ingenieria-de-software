@@ -304,7 +304,7 @@ Decisiones ya tomadas: JWT con **access token corto + refresh token guardado en 
   - [ ] Un repartidor no puede avanzar un envío que no es suyo.
   - [ ] Todo avance queda en `EventoEnvio` con `actorTipo = REPARTIDOR`.
 
-### E-3 · Pantalla del viaje activo
+### E-3 · Pantalla del viaje activo ✅ hecha
 - **Depende de:** E-2, F-1 · **Ruta:** `/repartidor/viaje`
 - **Qué hacer:** datos del viaje en letra grande (dirección de retiro o de entrega según la etapa, destinatario y observaciones) y **un** botón enorme con la próxima acción ("Llegué al comercio", "Paquete retirado", "Llegué al domicilio", "Entregado"), con confirmación. Son 2 toques en total (RNF-10).
 - **Criterios de aceptación:**

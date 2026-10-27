@@ -5,8 +5,14 @@ import {
   IsBoolean,
   IsOptional,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
+
+// Sin los espacios de los bordes, "Sol " no pasa como un comercio distinto de "Sol".
+export const RECORTAR = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() : value;
 
 export class CrearComercioDto {
+  @Transform(RECORTAR)
   @IsString({ message: 'El nombre debe ser una cadena de texto' })
   @IsNotEmpty({ message: 'El nombre es obligatorio' })
   nombre: string;
