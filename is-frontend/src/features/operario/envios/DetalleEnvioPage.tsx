@@ -1,9 +1,16 @@
 import { useCallback, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { api, ErrorApi } from '../../../shared/api.ts'
-import { ETIQUETA_ESTADO_ENVIO, type EstadoEnvio, type TamanioPaquete } from '../../../shared/tipos.ts'
+import {
+  ETIQUETA_ESTADO_ENVIO,
+  ETIQUETA_VEHICULO,
+  type EstadoEnvio,
+  type TamanioPaquete,
+  type TipoVehiculo,
+} from '../../../shared/tipos.ts'
 import { Boton, EtiquetaEstado, Modal } from '../../../shared/ui/index.ts'
 import { usePolling } from '../../../shared/usePolling.ts'
+import { describirEvidencia } from './evidencia.ts'
 
 // Lo que devuelve GET /api/envios/:id (B-4). Solo los campos que usa esta pantalla.
 interface Evento {
@@ -24,6 +31,9 @@ interface DetalleEnvio {
   destinatarioNombre: string | null
   destinatarioApellido: string | null
   tamanio: TamanioPaquete
+  vehiculoRequerido: TipoVehiculo
+  requiereFoto: boolean
+  requiereDni: boolean
   observaciones: string | null
   comercio: { nombre: string }
   repartidor: { nombre: string; apellido: string } | null
@@ -143,6 +153,14 @@ export function DetalleEnvioPage() {
         <div>
           <dt className="text-gray-500">Tamaño</dt>
           <dd className="font-medium">{envio.tamanio}</dd>
+        </div>
+        <div>
+          <dt className="text-gray-500">Vehículo requerido</dt>
+          <dd className="font-medium">{ETIQUETA_VEHICULO[envio.vehiculoRequerido]}</dd>
+        </div>
+        <div>
+          <dt className="text-gray-500">Evidencia al entregar</dt>
+          <dd className="font-medium">{describirEvidencia(envio)}</dd>
         </div>
         {envio.observaciones && (
           <div className="sm:col-span-2">
