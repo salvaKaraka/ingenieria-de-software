@@ -138,4 +138,63 @@ describe('Jornada del repartidor (e2e)', () => {
       .set('Cookie', await cookieDe(1, 'OPERARIO'))
       .expect(403);
   });
+
+  it('termina la jornada desde DISPONIBLE o EN_PAUSA', async () => {
+    const repartidor = await crearRepartidor();
+    await post(repartidor, 'iniciar');
+
+    const res = await post(repartidor, 'terminar');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ estado: 'FUERA_DE_JORNADA' });
+
+    const enBase = await prisma.repartidor.findUniqueOrThrow({
+      where: { id: repartidor },
+    });
+    expect(enBase.estado).toBe('FUERA_DE_JORNADA');
+    expect(enBase.enColaDesde).toBeNull();
+  });
+
+  it('no deja terminar la jornada con una oferta pendiente (409)', async () => {
+    const repartidor = await crearRepartidor();
+    await crearEnvio();
+    await post(repartidor, 'iniciar'); // el motor le ofrece el envío
+
+    const res = await post(repartidor, 'terminar');
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toContain('oferta pendiente');
+  });
+
+  it('la flota respeta el orden FIFO y la agrupación por vehículo', async () => {
+    const r1 = await crearRepartidor();
+    await post(r1, 'iniciar');
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    const r2 = await crearRepartidor();
+    await post(r2, 'iniciar');
+
+    // Repartidor 3 fuera de jornada: no debe aparecer en la flota
+    await crearRepartidor();
+
+    const res = await request(app.getHttpServer())
+      .get('/api/flota')
+      .set('Cookie', await cookieDe(1, 'OPERARIO'));
+
+    expect(res.status).toBe(200);
+    expect(res.body.MOTO).toHaveLength(2);
+    expect(res.body.MOTO[0].id).toBe(r1);
+    expect(res.body.MOTO[1].id).toBe(r2);
+    expect(res.body.MOTO[0].pinHmac).toBeUndefined();
+    expect(res.body.AUTO).toEqual([]);
+    expect(res.body.CAMION).toEqual([]);
+  });
+
+  it('un repartidor no puede acceder a /api/flota (403)', async () => {
+    const r = await crearRepartidor();
+    await request(app.getHttpServer())
+      .get('/api/flota')
+      .set('Cookie', await cookieDe(r, 'REPARTIDOR'))
+      .expect(403);
+  });
 });

@@ -3,11 +3,17 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { EstadoRepartidor } from '../../generated/prisma/client';
+import type {
+  EstadoRepartidor,
+  TipoVehiculo,
+} from '../../generated/prisma/client';
 import { AsignacionService } from '../asignacion/asignacion.service';
-import { RepartidoresRepository } from './repartidores.repository';
+import {
+  RepartidoresRepository,
+  type RepartidorPublico,
+} from './repartidores.repository';
 
-type Accion = 'iniciar' | 'pausar' | 'reanudar';
+type Accion = 'iniciar' | 'pausar' | 'reanudar' | 'terminar';
 
 // Por qué no se pudo hacer cada acción, según el estado en que está el repartidor.
 const MOTIVO: Record<Accion, Partial<Record<EstadoRepartidor, string>>> = {
@@ -27,6 +33,13 @@ const MOTIVO: Record<Accion, Partial<Record<EstadoRepartidor, string>>> = {
     FUERA_DE_JORNADA: 'No estás en jornada: iniciala',
     DISPONIBLE: 'Ya estás en jornada',
     OCUPADO: 'Ya estás en jornada',
+  },
+  terminar: {
+    FUERA_DE_JORNADA: 'No estás en jornada',
+    OCUPADO: 'No podés terminar la jornada con un viaje en curso',
+    // Disponible pero fuera de la cola: tiene una oferta esperando respuesta.
+    DISPONIBLE:
+      'Tenés una oferta pendiente: respondela antes de terminar la jornada',
   },
 };
 
@@ -67,6 +80,42 @@ export class JornadaService {
     }
     await this.asignacion.reintentarPendientes();
     return this.estado(repartidorId);
+  }
+
+  async terminar(repartidorId: number) {
+    if (!(await this.repo.terminarJornada(repartidorId))) {
+      throw await this.conflicto(repartidorId, 'terminar');
+    }
+    return this.estado(repartidorId);
+  }
+
+  async flota(): Promise<Record<TipoVehiculo, RepartidorPublico[]>> {
+    const repartidores = await this.repo.obtenerFlota();
+    const agrupados: Record<TipoVehiculo, RepartidorPublico[]> = {
+      MOTO: [],
+      AUTO: [],
+      CAMION: [],
+    };
+
+    for (const rep of repartidores) {
+      agrupados[rep.vehiculo].push(rep);
+    }
+
+    for (const vehiculo of Object.keys(agrupados) as TipoVehiculo[]) {
+      const enCola = agrupados[vehiculo]
+        .filter((r) => r.enColaDesde !== null)
+        .sort(
+          (a, b) =>
+            new Date(a.enColaDesde!).getTime() -
+            new Date(b.enColaDesde!).getTime(),
+        );
+      const fueraDeCola = agrupados[vehiculo].filter(
+        (r) => r.enColaDesde === null,
+      );
+      agrupados[vehiculo] = [...enCola, ...fueraDeCola];
+    }
+
+    return agrupados;
   }
 
   private async conflicto(repartidorId: number, accion: Accion) {

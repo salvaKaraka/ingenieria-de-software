@@ -151,4 +151,31 @@ export class RepartidoresRepository {
     });
     return count > 0;
   }
+
+  // Termina la jornada (C-3): solo si está DISPONIBLE en la cola (enColaDesde != null) o EN_PAUSA.
+  async terminarJornada(id: number): Promise<boolean> {
+    const { count } = await this.prisma.repartidor.updateMany({
+      where: {
+        id,
+        activo: true,
+        OR: [
+          { estado: 'DISPONIBLE', enColaDesde: { not: null } },
+          { estado: 'EN_PAUSA' },
+        ],
+      },
+      data: { estado: 'FUERA_DE_JORNADA', enColaDesde: null },
+    });
+    return count > 0;
+  }
+
+  // Flota en jornada (C-3): repartidores activos que no están FUERA_DE_JORNADA
+  async obtenerFlota(): Promise<RepartidorPublico[]> {
+    return this.prisma.repartidor.findMany({
+      where: {
+        activo: true,
+        estado: { not: 'FUERA_DE_JORNADA' },
+      },
+      select: SELECT_REPARTIDOR_PUBLICO,
+    });
+  }
 }
