@@ -191,7 +191,9 @@ describe('Modificación de envíos por el operario (e2e)', () => {
     const eventoReasignacion = envioDespues.eventos.find(
       (e) => e.tipo === 'REASIGNACION',
     );
-    expect(eventoReasignacion).toBeDefined();
+    expect(eventoReasignacion?.detalle).toBe(
+      'Cambio de tamaño a Grande: ahora requiere Camión y vuelve a Pendiente. El repartidor que lo tenía vuelve a la cola.',
+    );
   });
 
   // Escenario 3: Cambio de dirección con el repartidor en camino

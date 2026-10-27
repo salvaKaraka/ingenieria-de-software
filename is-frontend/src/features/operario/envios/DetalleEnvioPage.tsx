@@ -59,7 +59,9 @@ function describirEntrada(entrada: EntradaHistorial): string {
   // Modificaciones del operario (HU 31): el detalle dice qué pasó. Van antes que estadoNuevo
   // porque la reasignación por cambio de tamaño también lo trae (vuelve a PENDIENTE).
   if (entrada.tipo === 'REASIGNACION') return entrada.detalle ?? 'Envío reasignado'
-  if (entrada.tipo === 'NOVEDAD') return entrada.detalle ?? 'Novedad registrada'
+  // La novedad es lo que le llega al repartidor en la app: se aclara para no leerla como un
+  // segundo cambio de datos, que ya figura en su propia entrada.
+  if (entrada.tipo === 'NOVEDAD') return `Aviso al repartidor: «${entrada.detalle ?? 'Novedad registrada'}»`
   if (entrada.tipo === 'NOTA') return entrada.detalle ?? 'Modificación de datos'
   if (entrada.estadoNuevo) return ETIQUETA_ESTADO_ENVIO[entrada.estadoNuevo]
   return entrada.detalle ?? entrada.tipo
