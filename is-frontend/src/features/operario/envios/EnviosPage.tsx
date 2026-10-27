@@ -1,14 +1,16 @@
 import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { api } from '../../../shared/api'
+import type { EstadoEnvio } from '../../../shared/tipos'
 import { Boton } from '../../../shared/ui/Boton'
+import { EtiquetaEstado } from '../../../shared/ui/EtiquetaEstado'
 import { Tabla } from '../../../shared/ui/Tabla'
 import { usePolling } from '../../../shared/usePolling'
 
 interface EnvioResumen {
   id: number
   codigoSeguimiento: string
-  estado: string
+  estado: EstadoEnvio
   destinoDireccion: string
   comercio: { nombre: string }
 }
@@ -28,28 +30,6 @@ const PESTANAS: { id: Pestana; etiqueta: string }[] = [
   { id: 'EN_CURSO', etiqueta: 'En curso' },
   { id: 'FINALIZADO', etiqueta: 'Finalizados' },
 ]
-
-function obtenerEstiloEstado(estado: string) {
-  switch (estado.toUpperCase()) {
-    case 'PENDIENTE':
-      return 'border-amber-200 bg-amber-100 text-amber-800'
-    case 'ASIGNADO':
-    case 'EN_CAMINO_A_RETIRAR':
-    case 'RETIRADO':
-    case 'EN_DOMICILIO':
-      return 'border-blue-200 bg-blue-100 text-blue-800'
-    case 'ENTREGADO':
-      return 'border-emerald-200 bg-emerald-100 text-emerald-800'
-    case 'CANCELADO':
-      return 'border-rose-200 bg-rose-100 text-rose-800'
-    default:
-      return 'border-slate-200 bg-slate-100 text-slate-800'
-  }
-}
-
-function formatearEstado(estado: string) {
-  return estado.replace(/_/g, ' ').replace(/\b\w/g, (letra) => letra.toUpperCase())
-}
 
 export function EnviosPage() {
   const navigate = useNavigate()
@@ -113,11 +93,8 @@ export function EnviosPage() {
     {
       titulo: 'Estado actual',
       celda: (envio: EnvioResumen) => (
-        <span
-          className={`inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-bold ${obtenerEstiloEstado(envio.estado)}`}
-        >
-          {formatearEstado(envio.estado)}
-        </span>
+        // Mismos nombres que ve el repartidor en sus botones y el destinatario en el seguimiento.
+        <EtiquetaEstado estado={envio.estado} />
       ),
     },
     {
