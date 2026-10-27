@@ -58,4 +58,11 @@ export class RepartidoresController {
   resetearPin(@Param('id', ParseIntPipe) id: number) {
     return this.repartidoresService.resetearPin(id);
   }
+
+  // Devuelve el PIN nuevo una única vez, igual que el alta.
+  @Post(':id/reactivar')
+  @HttpCode(200)
+  reactivar(@Param('id', ParseIntPipe) id: number) {
+    return this.repartidoresService.reactivar(id);
+  }
 }

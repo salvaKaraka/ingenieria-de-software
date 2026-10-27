@@ -5,6 +5,7 @@ import {
   RolUsuario,
   TipoVehiculo,
 } from '../../generated/prisma/client';
+import type { AsignacionService } from '../asignacion/asignacion.service';
 import type { AuthService } from '../auth/auth.service';
 import type {
   RepartidoresRepository,
@@ -16,6 +17,7 @@ describe('RepartidoresService', () => {
   let servicio: RepartidoresService;
   let repo: jest.Mocked<RepartidoresRepository>;
   let authService: jest.Mocked<AuthService>;
+  let asignacion: jest.Mocked<AsignacionService>;
 
   const repartidorEjemplo: RepartidorPublico = {
     id: 1,
@@ -45,6 +47,8 @@ describe('RepartidoresService', () => {
       tieneViajeActivo: jest.fn(),
       tieneOfertaPendiente: jest.fn(),
       darDeBajaSiEstaLibre: jest.fn(),
+      cambiarVehiculoSiEstaLibre: jest.fn(),
+      reactivarSiEstaInactivo: jest.fn(),
     } as unknown as jest.Mocked<RepartidoresRepository>;
 
     authService = {
@@ -52,7 +56,11 @@ describe('RepartidoresService', () => {
       cerrarSesiones: jest.fn(),
     } as unknown as jest.Mocked<AuthService>;
 
-    servicio = new RepartidoresService(repo, authService);
+    asignacion = {
+      reintentarPendientes: jest.fn(),
+    } as unknown as jest.Mocked<AsignacionService>;
+
+    servicio = new RepartidoresService(repo, authService, asignacion);
   });
 
   describe('listar', () => {
@@ -209,6 +217,83 @@ describe('RepartidoresService', () => {
     });
   });
 
+  describe('cambio de vehículo', () => {
+    const conMoto = { ...repartidorEjemplo, vehiculo: TipoVehiculo.MOTO };
+    const conAuto = { ...repartidorEjemplo, vehiculo: TipoVehiculo.AUTO };
+
+    it('cambia el vehículo con los demás datos y vuelve a correr el motor', async () => {
+      repo.buscarPorId
+        .mockResolvedValueOnce(conMoto)
+        .mockResolvedValueOnce(conAuto);
+      repo.tieneViajeActivo.mockResolvedValue(false);
+      repo.tieneOfertaPendiente.mockResolvedValue(false);
+      repo.cambiarVehiculoSiEstaLibre.mockResolvedValue(true);
+
+      const resultado = await servicio.actualizar(1, {
+        telefono: ' 221 ',
+        vehiculo: TipoVehiculo.AUTO,
+      });
+
+      expect(repo.cambiarVehiculoSiEstaLibre).toHaveBeenCalledWith(1, {
+        telefono: '221',
+        vehiculo: TipoVehiculo.AUTO,
+      });
+      expect(repo.actualizar).not.toHaveBeenCalled();
+      expect(asignacion.reintentarPendientes).toHaveBeenCalled();
+      expect(resultado.vehiculo).toBe(TipoVehiculo.AUTO);
+    });
+
+    it('rechaza el cambio (409) con "El repartidor tiene un viaje en curso" y no lo modifica', async () => {
+      repo.buscarPorId.mockResolvedValue(conMoto);
+      repo.tieneViajeActivo.mockResolvedValue(true);
+
+      await expect(
+        servicio.actualizar(1, { vehiculo: TipoVehiculo.AUTO }),
+      ).rejects.toThrow(
+        new ConflictException('El repartidor tiene un viaje en curso'),
+      );
+      expect(repo.cambiarVehiculoSiEstaLibre).not.toHaveBeenCalled();
+      expect(repo.actualizar).not.toHaveBeenCalled();
+    });
+
+    it('rechaza el cambio (409) si tiene una oferta sin responder', async () => {
+      repo.buscarPorId.mockResolvedValue(conMoto);
+      repo.tieneViajeActivo.mockResolvedValue(false);
+      repo.tieneOfertaPendiente.mockResolvedValue(true);
+
+      await expect(
+        servicio.actualizar(1, { vehiculo: TipoVehiculo.AUTO }),
+      ).rejects.toThrow(ConflictException);
+      expect(repo.cambiarVehiculoSiEstaLibre).not.toHaveBeenCalled();
+    });
+
+    it('si recibió un viaje mientras se guardaba, responde 409 y no corre el motor', async () => {
+      repo.buscarPorId.mockResolvedValue(conMoto);
+      repo.tieneViajeActivo.mockResolvedValue(false);
+      repo.tieneOfertaPendiente.mockResolvedValue(false);
+      repo.cambiarVehiculoSiEstaLibre.mockResolvedValue(false);
+
+      await expect(
+        servicio.actualizar(1, { vehiculo: TipoVehiculo.AUTO }),
+      ).rejects.toThrow(ConflictException);
+      expect(asignacion.reintentarPendientes).not.toHaveBeenCalled();
+    });
+
+    it('con el mismo vehículo es una edición común y se permite aunque esté en un viaje', async () => {
+      repo.buscarPorId.mockResolvedValue(conMoto);
+      repo.actualizar.mockResolvedValue(conMoto);
+
+      await servicio.actualizar(1, {
+        telefono: '221',
+        vehiculo: TipoVehiculo.MOTO,
+      });
+
+      expect(repo.tieneViajeActivo).not.toHaveBeenCalled();
+      expect(repo.actualizar).toHaveBeenCalledWith(1, { telefono: '221' });
+      expect(repo.cambiarVehiculoSiEstaLibre).not.toHaveBeenCalled();
+    });
+  });
+
   describe('darDeBaja', () => {
     it('lanza NotFoundException si el repartidor no existe', async () => {
       repo.buscarPorId.mockResolvedValue(null);
@@ -216,11 +301,13 @@ describe('RepartidoresService', () => {
       await expect(servicio.darDeBaja(999)).rejects.toThrow(NotFoundException);
     });
 
-    it('lanza ConflictException (409) si el repartidor tiene un viaje activo y no lo modifica', async () => {
+    it('rechaza la baja (409) con "El repartidor tiene un viaje en curso" y no lo modifica', async () => {
       repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
       repo.tieneViajeActivo.mockResolvedValue(true);
 
-      await expect(servicio.darDeBaja(1)).rejects.toThrow(ConflictException);
+      await expect(servicio.darDeBaja(1)).rejects.toThrow(
+        new ConflictException('El repartidor tiene un viaje en curso'),
+      );
       expect(repo.darDeBajaSiEstaLibre).not.toHaveBeenCalled();
       expect(authService.cerrarSesiones).not.toHaveBeenCalled();
     });
@@ -287,6 +374,47 @@ describe('RepartidoresService', () => {
 
       expect(resultado).toEqual({ pin: '9876' });
       expect(authService.asignarNuevoPin).toHaveBeenCalledWith(1);
+    });
+  });
+
+  describe('reactivar', () => {
+    const dadoDeBaja = { ...repartidorEjemplo, activo: false };
+
+    it('lanza NotFoundException si el repartidor no existe', async () => {
+      repo.buscarPorId.mockResolvedValue(null);
+
+      await expect(servicio.reactivar(999)).rejects.toThrow(NotFoundException);
+    });
+
+    it('rechaza (409) reactivar a un repartidor que ya está activo y no le cambia el PIN', async () => {
+      repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
+
+      await expect(servicio.reactivar(1)).rejects.toThrow(
+        new ConflictException('El repartidor ya está activo'),
+      );
+      expect(repo.reactivarSiEstaInactivo).not.toHaveBeenCalled();
+      expect(authService.asignarNuevoPin).not.toHaveBeenCalled();
+    });
+
+    it('si otro operario lo reactivó mientras tanto, responde 409 y no genera otro PIN', async () => {
+      repo.buscarPorId.mockResolvedValue(dadoDeBaja);
+      repo.reactivarSiEstaInactivo.mockResolvedValue(false);
+
+      await expect(servicio.reactivar(1)).rejects.toThrow(ConflictException);
+      expect(authService.asignarNuevoPin).not.toHaveBeenCalled();
+    });
+
+    it('lo vuelve a activar y le genera un PIN nuevo que devuelve una sola vez', async () => {
+      repo.buscarPorId.mockResolvedValue(dadoDeBaja);
+      repo.reactivarSiEstaInactivo.mockResolvedValue(true);
+      authService.asignarNuevoPin.mockResolvedValue('5555');
+
+      const resultado = await servicio.reactivar(1);
+
+      expect(repo.reactivarSiEstaInactivo).toHaveBeenCalledWith(1);
+      expect(authService.asignarNuevoPin).toHaveBeenCalledWith(1);
+      expect(resultado).toMatchObject({ id: 1, activo: true, pin: '5555' });
+      expect(resultado.dni).toBe('•••••456');
     });
   });
 });
