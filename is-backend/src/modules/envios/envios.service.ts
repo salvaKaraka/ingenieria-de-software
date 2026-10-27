@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import {
   Prisma,
+  type EstadoEnvio,
   type TamanioPaquete,
   type TipoVehiculo,
 } from '../../generated/prisma/client';
@@ -15,6 +16,7 @@ import { AsignacionService } from '../asignacion/asignacion.service';
 import { ComerciosService } from '../comercios/comercios.service';
 import { generarCodigoSeguimiento } from './codigo-seguimiento.util';
 import { esTransicionValida } from './domain/estado-envio';
+import { ActualizarEnvioDto } from './dto/actualizar-envio.dto';
 import { CrearEnvioDto } from './dto/crear-envio.dto';
 import { ListarEnviosDto } from './dto/listar-envios.dto';
 import { EnviosRepository } from './envios.repository';
@@ -168,6 +170,84 @@ export class EnviosService {
     // abierta): que el motor les ofrezca los envíos que esperan.
     await this.asignacion.reintentarPendientes();
     return cancelado;
+  }
+
+  async actualizar(id: number, dto: ActualizarEnvioDto, operarioId: number) {
+    const envio = await this.enviosRepository.buscarParaActualizar(id);
+    if (!envio) {
+      throw new NotFoundException('El envío no existe');
+    }
+
+    const estadosModificables: EstadoEnvio[] = [
+      'PENDIENTE',
+      'ASIGNADO',
+      'EN_CAMINO_A_RETIRAR',
+    ];
+
+    if (!estadosModificables.includes(envio.estado)) {
+      throw new ConflictException(
+        'No se puede modificar: el paquete ya fue retirado',
+      );
+    }
+
+    const nuevoVehiculo = dto.tamanio
+      ? VEHICULO_MINIMO[dto.tamanio]
+      : undefined;
+    const cambiaVehiculo =
+      nuevoVehiculo !== undefined && nuevoVehiculo !== envio.vehiculoRequerido;
+
+    const avisoDireccion =
+      dto.destinoDireccion !== undefined &&
+      dto.destinoDireccion !== envio.destinoDireccion &&
+      envio.repartidorId !== null;
+
+    const datosActualizar = {
+      destinoDireccion: dto.destinoDireccion,
+      destinatarioNombre: dto.destinatarioNombre,
+      destinatarioApellido: dto.destinatarioApellido,
+      destinatarioDni: dto.destinatarioDni,
+      destinatarioTelefono: dto.destinatarioTelefono,
+      observaciones: dto.observaciones,
+      tamanio: dto.tamanio,
+      ...(cambiaVehiculo ? { vehiculoRequerido: nuevoVehiculo } : {}),
+    };
+
+    const actualizado = await this.enviosRepository.actualizar(
+      id,
+      envio.estado,
+      datosActualizar,
+      operarioId,
+      { cambiaVehiculo, avisoDireccion },
+    );
+
+    if (!actualizado) {
+      throw new ConflictException(
+        'No se puede modificar: el paquete ya fue retirado',
+      );
+    }
+
+    if (cambiaVehiculo) {
+      // Si cambia el vehículo requerido, el envío vuelve a PENDIENTE y se ofrece a la cola del nuevo vehículo.
+      try {
+        await this.asignacion.asignar(envio.id);
+      } catch (error) {
+        this.logger.error(
+          `No se pudo asignar el envío reencolado ${envio.id}`,
+          error,
+        );
+      }
+      // Reintentar pendientes para el repartidor que quedó disponible.
+      try {
+        await this.asignacion.reintentarPendientes();
+      } catch (error) {
+        this.logger.error(
+          'No se pudo reintentar pendientes tras liberar repartidor',
+          error,
+        );
+      }
+    }
+
+    return actualizado;
   }
 
   private finDelDia(fecha: string): Date {

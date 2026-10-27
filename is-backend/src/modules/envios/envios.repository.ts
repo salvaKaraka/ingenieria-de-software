@@ -171,7 +171,174 @@ export class EnviosRepository {
           in: ['ASIGNADO', 'EN_CAMINO_A_RETIRAR', 'RETIRADO', 'EN_DOMICILIO'],
         },
       },
-      include: { comercio: { select: { nombre: true, telefono: true } } },
+      include: {
+        comercio: { select: { nombre: true, telefono: true } },
+        eventos: {
+          where: { tipo: 'NOVEDAD' },
+          orderBy: { creadoEn: 'desc' },
+          take: 1,
+        },
+      },
+    });
+  }
+
+  async buscarParaActualizar(id: number) {
+    return this.prisma.envio.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        estado: true,
+        tamanio: true,
+        vehiculoRequerido: true,
+        destinoDireccion: true,
+        repartidorId: true,
+      },
+    });
+  }
+
+  async actualizar(
+    id: number,
+    estadoEsperado: EstadoEnvio,
+    datos: {
+      destinoDireccion?: string;
+      destinatarioNombre?: string;
+      destinatarioApellido?: string;
+      destinatarioDni?: string;
+      destinatarioTelefono?: string;
+      observaciones?: string;
+      tamanio?: TamanioPaquete;
+      vehiculoRequerido?: TipoVehiculo;
+    },
+    operarioId: number,
+    opciones: {
+      cambiaVehiculo: boolean;
+      avisoDireccion: boolean;
+    },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      // Bloquear ofertas abiertas si cambia el vehículo para evitar deadlocks y carreras
+      const ofertasAbiertas = opciones.cambiaVehiculo
+        ? await tx.$queryRaw<
+            { id: number; repartidorId: number; creadaEn: Date }[]
+          >`
+            SELECT id, repartidor_id AS "repartidorId", creada_en AS "creadaEn"
+            FROM ofertas
+            WHERE envio_id = ${id} AND estado = 'PENDIENTE'
+            FOR UPDATE`
+        : [];
+
+      // Validar que el envío sigue en el estado esperado
+      const envioActual = await tx.envio.findFirst({
+        where: { id, estado: estadoEsperado },
+      });
+      if (!envioActual) {
+        return null;
+      }
+
+      const repartidorAnteriorId = envioActual.repartidorId;
+
+      const dataUpdate: Prisma.EnvioUpdateInput = {};
+      if (datos.destinoDireccion !== undefined)
+        dataUpdate.destinoDireccion = datos.destinoDireccion;
+      if (datos.destinatarioNombre !== undefined)
+        dataUpdate.destinatarioNombre = datos.destinatarioNombre;
+      if (datos.destinatarioApellido !== undefined)
+        dataUpdate.destinatarioApellido = datos.destinatarioApellido;
+      if (datos.destinatarioDni !== undefined)
+        dataUpdate.destinatarioDni = datos.destinatarioDni;
+      if (datos.destinatarioTelefono !== undefined)
+        dataUpdate.destinatarioTelefono = datos.destinatarioTelefono;
+      if (datos.observaciones !== undefined)
+        dataUpdate.observaciones = datos.observaciones;
+      if (datos.tamanio !== undefined) dataUpdate.tamanio = datos.tamanio;
+      if (datos.vehiculoRequerido !== undefined)
+        dataUpdate.vehiculoRequerido = datos.vehiculoRequerido;
+
+      if (opciones.cambiaVehiculo) {
+        dataUpdate.estado = 'PENDIENTE';
+        dataUpdate.repartidor = { disconnect: true };
+      }
+
+      const envioActualizado = await tx.envio.update({
+        where: { id },
+        data: dataUpdate,
+      });
+
+      // Si cambia el vehículo y había ofertas abiertas, vencerlas y devolver repartidores a la cola
+      if (ofertasAbiertas.length > 0) {
+        await tx.oferta.updateMany({
+          where: { id: { in: ofertasAbiertas.map((o) => o.id) } },
+          data: { estado: 'VENCIDA' },
+        });
+        for (const oferta of ofertasAbiertas) {
+          await tx.repartidor.updateMany({
+            where: {
+              id: oferta.repartidorId,
+              estado: 'DISPONIBLE',
+              enColaDesde: null,
+            },
+            data: { enColaDesde: oferta.creadaEn },
+          });
+        }
+      }
+
+      // Si cambia el vehículo y tenía repartidor asignado, queda DISPONIBLE al final de la cola
+      if (opciones.cambiaVehiculo && repartidorAnteriorId !== null) {
+        await tx.repartidor.updateMany({
+          where: { id: repartidorAnteriorId, estado: 'OCUPADO' },
+          data: { estado: 'DISPONIBLE', enColaDesde: new Date() },
+        });
+
+        await tx.eventoEnvio.create({
+          data: {
+            envioId: id,
+            tipo: 'REASIGNACION',
+            estadoAnterior: estadoEsperado,
+            estadoNuevo: 'PENDIENTE',
+            detalle: `Cambio de tamaño a ${datos.tamanio} (vehículo: ${datos.vehiculoRequerido}). Vuelve a la cola.`,
+            actorTipo: 'OPERARIO',
+            actorId: operarioId,
+          },
+        });
+      } else if (opciones.cambiaVehiculo) {
+        await tx.eventoEnvio.create({
+          data: {
+            envioId: id,
+            tipo: 'REASIGNACION',
+            estadoAnterior: estadoEsperado,
+            estadoNuevo: 'PENDIENTE',
+            detalle: `Cambio de tamaño a ${datos.tamanio} (vehículo: ${datos.vehiculoRequerido}).`,
+            actorTipo: 'OPERARIO',
+            actorId: operarioId,
+          },
+        });
+      }
+
+      // Si cambia la dirección con repartidor asignado (y no cambió de vehículo)
+      if (opciones.avisoDireccion && !opciones.cambiaVehiculo) {
+        await tx.eventoEnvio.create({
+          data: {
+            envioId: id,
+            tipo: 'NOVEDAD',
+            detalle: 'La dirección de entrega fue modificada',
+            actorTipo: 'OPERARIO',
+            actorId: operarioId,
+          },
+        });
+      }
+
+      // Registrar modificación en el historial del envío
+      await tx.eventoEnvio.create({
+        data: {
+          envioId: id,
+          tipo: 'NOTA',
+          detalle: 'Datos del envío modificados por el operario',
+          actorTipo: 'OPERARIO',
+          actorId: operarioId,
+        },
+      });
+
+      return envioActualizado;
     });
   }
 

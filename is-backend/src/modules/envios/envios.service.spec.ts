@@ -37,6 +37,8 @@ describe('EnviosService', () => {
     obtenerDetalle: jest.fn(),
     obtenerEstado: jest.fn(),
     cancelar: jest.fn(),
+    buscarParaActualizar: jest.fn(),
+    actualizar: jest.fn(),
   };
 
   const comerciosService = {
@@ -278,6 +280,127 @@ describe('EnviosService', () => {
       await expect(service.cancelar(5, 12)).rejects.toBeInstanceOf(
         ConflictException,
       );
+    });
+  });
+
+  describe('actualizar', () => {
+    it('actualiza un envío en estado PENDIENTE sin cambiar de vehículo', async () => {
+      repository.buscarParaActualizar.mockResolvedValue({
+        id: 5,
+        estado: 'PENDIENTE',
+        tamanio: 'CHICO',
+        vehiculoRequerido: 'MOTO',
+        destinoDireccion: 'Calle 50 123',
+        repartidorId: null,
+      });
+      repository.actualizar.mockResolvedValue({
+        id: 5,
+        destinatarioNombre: 'Carlos',
+      });
+
+      const resultado = await service.actualizar(
+        5,
+        { destinatarioNombre: 'Carlos' },
+        OPERARIO_ID,
+      );
+
+      expect(resultado).toMatchObject({ id: 5, destinatarioNombre: 'Carlos' });
+      expect(repository.actualizar).toHaveBeenCalledWith(
+        5,
+        'PENDIENTE',
+        { destinatarioNombre: 'Carlos' },
+        OPERARIO_ID,
+        { cambiaVehiculo: false, avisoDireccion: false },
+      );
+      expect(asignacion.asignar).not.toHaveBeenCalled();
+      expect(asignacion.reintentarPendientes).not.toHaveBeenCalled();
+    });
+
+    it('al cambiar el tamaño que requiere otro vehículo, resetea a PENDIENTE, libera al repartidor y llama al motor', async () => {
+      repository.buscarParaActualizar.mockResolvedValue({
+        id: 5,
+        estado: 'ASIGNADO',
+        tamanio: 'CHICO',
+        vehiculoRequerido: 'MOTO',
+        destinoDireccion: 'Calle 50 123',
+        repartidorId: 8,
+      });
+      repository.actualizar.mockResolvedValue({
+        id: 5,
+        tamanio: 'GRANDE',
+        vehiculoRequerido: 'CAMION',
+        estado: 'PENDIENTE',
+        repartidorId: null,
+      });
+
+      await service.actualizar(5, { tamanio: 'GRANDE' }, OPERARIO_ID);
+
+      expect(repository.actualizar).toHaveBeenCalledWith(
+        5,
+        'ASIGNADO',
+        { tamanio: 'GRANDE', vehiculoRequerido: 'CAMION' },
+        OPERARIO_ID,
+        { cambiaVehiculo: true, avisoDireccion: false },
+      );
+      expect(asignacion.asignar).toHaveBeenCalledWith(5);
+      expect(asignacion.reintentarPendientes).toHaveBeenCalled();
+    });
+
+    it('al cambiar la dirección de entrega con repartidor asignado, activa avisoDireccion', async () => {
+      repository.buscarParaActualizar.mockResolvedValue({
+        id: 5,
+        estado: 'EN_CAMINO_A_RETIRAR',
+        tamanio: 'CHICO',
+        vehiculoRequerido: 'MOTO',
+        destinoDireccion: 'Calle 50 123',
+        repartidorId: 8,
+      });
+      repository.actualizar.mockResolvedValue({
+        id: 5,
+        destinoDireccion: 'Nueva direccion 456',
+      });
+
+      await service.actualizar(
+        5,
+        { destinoDireccion: 'Nueva direccion 456' },
+        OPERARIO_ID,
+      );
+
+      expect(repository.actualizar).toHaveBeenCalledWith(
+        5,
+        'EN_CAMINO_A_RETIRAR',
+        { destinoDireccion: 'Nueva direccion 456' },
+        OPERARIO_ID,
+        { cambiaVehiculo: false, avisoDireccion: true },
+      );
+    });
+
+    it('rechaza con 409 y mensaje exacto si el paquete ya fue retirado', async () => {
+      repository.buscarParaActualizar.mockResolvedValue({
+        id: 5,
+        estado: 'RETIRADO',
+        tamanio: 'CHICO',
+        vehiculoRequerido: 'MOTO',
+        destinoDireccion: 'Calle 50 123',
+        repartidorId: 8,
+      });
+
+      await expect(
+        service.actualizar(5, { destinatarioNombre: 'Juan' }, OPERARIO_ID),
+      ).rejects.toThrow(
+        new ConflictException(
+          'No se puede modificar: el paquete ya fue retirado',
+        ),
+      );
+      expect(repository.actualizar).not.toHaveBeenCalled();
+    });
+
+    it('rechaza con 404 si el envío no existe', async () => {
+      repository.buscarParaActualizar.mockResolvedValue(null);
+
+      await expect(
+        service.actualizar(99, { destinatarioNombre: 'Juan' }, OPERARIO_ID),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 });

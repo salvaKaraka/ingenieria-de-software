@@ -17,6 +17,11 @@ export class ViajesService {
     if (!envio) return { viaje: null };
 
     // Sin el DNI del destinatario: el repartidor no lo necesita (la evidencia es E-4).
+    const aviso =
+      (envio as { eventos?: { detalle: string | null }[] }).eventos?.find(
+        (e) => e.detalle === 'La dirección de entrega fue modificada',
+      )?.detalle ?? null;
+
     return {
       viaje: {
         envioId: envio.id,
@@ -34,6 +39,7 @@ export class ViajesService {
         observaciones: envio.observaciones,
         requiereFoto: envio.requiereFoto,
         requiereDni: envio.requiereDni,
+        aviso,
       },
     };
   }
