@@ -8,6 +8,7 @@ import { validate } from 'class-validator';
 import { Prisma } from '../../generated/prisma/client';
 import { AsignacionService } from '../asignacion/asignacion.service';
 import { ComerciosService } from '../comercios/comercios.service';
+import { ActualizarEnvioDto } from './dto/actualizar-envio.dto';
 import { CrearEnvioDto } from './dto/crear-envio.dto';
 import { ListarEnviosDto } from './dto/listar-envios.dto';
 import { EnviosRepository } from './envios.repository';
@@ -340,15 +341,25 @@ describe('EnviosService', () => {
   });
 
   describe('actualizar', () => {
+    // Lo que devuelve buscarParaActualizar: un envío chico, pendiente y sin repartidor.
+    const envioEditable = (cambios: object = {}) => ({
+      id: 5,
+      estado: 'PENDIENTE',
+      tamanio: 'CHICO',
+      vehiculoRequerido: 'MOTO',
+      destinoDireccion: 'Calle 50 123',
+      destinatarioNombre: 'Ana',
+      destinatarioApellido: 'Paz',
+      destinatarioDni: '30111222',
+      destinatarioTelefono: '221 555',
+      observaciones: 'Timbre 2',
+      requiereDni: false,
+      repartidorId: null,
+      ...cambios,
+    });
+
     it('actualiza un envío en estado PENDIENTE sin cambiar de vehículo', async () => {
-      repository.buscarParaActualizar.mockResolvedValue({
-        id: 5,
-        estado: 'PENDIENTE',
-        tamanio: 'CHICO',
-        vehiculoRequerido: 'MOTO',
-        destinoDireccion: 'Calle 50 123',
-        repartidorId: null,
-      });
+      repository.buscarParaActualizar.mockResolvedValue(envioEditable());
       repository.actualizar.mockResolvedValue({
         id: 5,
         destinatarioNombre: 'Carlos',
@@ -366,21 +377,89 @@ describe('EnviosService', () => {
         'PENDIENTE',
         { destinatarioNombre: 'Carlos' },
         OPERARIO_ID,
-        { cambiaVehiculo: false, avisoDireccion: false },
+        {
+          cambiaVehiculo: false,
+          avisoDireccion: false,
+          detalle: 'Datos modificados: nombre del destinatario',
+        },
       );
       expect(asignacion.asignar).not.toHaveBeenCalled();
       expect(asignacion.reintentarPendientes).not.toHaveBeenCalled();
     });
 
+    it('registra en el historial solo los datos que cambiaron, sin sus valores', async () => {
+      repository.buscarParaActualizar.mockResolvedValue(envioEditable());
+      repository.actualizar.mockResolvedValue({ id: 5 });
+
+      await service.actualizar(
+        5,
+        {
+          destinatarioNombre: 'Ana',
+          destinatarioDni: '40999888',
+          observaciones: 'Timbre 3',
+        },
+        OPERARIO_ID,
+      );
+
+      expect(repository.actualizar).toHaveBeenCalledWith(
+        5,
+        'PENDIENTE',
+        { destinatarioDni: '40999888', observaciones: 'Timbre 3' },
+        OPERARIO_ID,
+        expect.objectContaining({
+          detalle: 'Datos modificados: DNI del destinatario, observaciones',
+        }),
+      );
+    });
+
+    it('si no cambió nada, no guarda ni deja rastro en el historial', async () => {
+      const envio = envioEditable();
+      repository.buscarParaActualizar.mockResolvedValue(envio);
+
+      const resultado = await service.actualizar(
+        5,
+        { destinatarioNombre: 'Ana', tamanio: 'CHICO' },
+        OPERARIO_ID,
+      );
+
+      expect(resultado).toBe(envio);
+      expect(repository.actualizar).not.toHaveBeenCalled();
+    });
+
+    it('permite borrar las observaciones y el DNI si el comercio no lo exige', async () => {
+      repository.buscarParaActualizar.mockResolvedValue(envioEditable());
+      repository.actualizar.mockResolvedValue({ id: 5 });
+
+      await service.actualizar(
+        5,
+        { observaciones: null, destinatarioDni: null },
+        OPERARIO_ID,
+      );
+
+      expect(repository.actualizar).toHaveBeenCalledWith(
+        5,
+        'PENDIENTE',
+        { observaciones: null, destinatarioDni: null },
+        OPERARIO_ID,
+        expect.anything(),
+      );
+    });
+
+    it('no deja borrar el DNI si el comercio lo exige al entregar', async () => {
+      repository.buscarParaActualizar.mockResolvedValue(
+        envioEditable({ requiereDni: true }),
+      );
+
+      await expect(
+        service.actualizar(5, { destinatarioDni: null }, OPERARIO_ID),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(repository.actualizar).not.toHaveBeenCalled();
+    });
+
     it('al cambiar el tamaño que requiere otro vehículo, resetea a PENDIENTE, libera al repartidor y llama al motor', async () => {
-      repository.buscarParaActualizar.mockResolvedValue({
-        id: 5,
-        estado: 'ASIGNADO',
-        tamanio: 'CHICO',
-        vehiculoRequerido: 'MOTO',
-        destinoDireccion: 'Calle 50 123',
-        repartidorId: 8,
-      });
+      repository.buscarParaActualizar.mockResolvedValue(
+        envioEditable({ estado: 'ASIGNADO', repartidorId: 8 }),
+      );
       repository.actualizar.mockResolvedValue({
         id: 5,
         tamanio: 'GRANDE',
@@ -396,21 +475,20 @@ describe('EnviosService', () => {
         'ASIGNADO',
         { tamanio: 'GRANDE', vehiculoRequerido: 'CAMION' },
         OPERARIO_ID,
-        { cambiaVehiculo: true, avisoDireccion: false },
+        {
+          cambiaVehiculo: true,
+          avisoDireccion: false,
+          detalle: 'Datos modificados: tamaño',
+        },
       );
       expect(asignacion.asignar).toHaveBeenCalledWith(5);
       expect(asignacion.reintentarPendientes).toHaveBeenCalled();
     });
 
     it('al cambiar la dirección de entrega con repartidor asignado, activa avisoDireccion', async () => {
-      repository.buscarParaActualizar.mockResolvedValue({
-        id: 5,
-        estado: 'EN_CAMINO_A_RETIRAR',
-        tamanio: 'CHICO',
-        vehiculoRequerido: 'MOTO',
-        destinoDireccion: 'Calle 50 123',
-        repartidorId: 8,
-      });
+      repository.buscarParaActualizar.mockResolvedValue(
+        envioEditable({ estado: 'EN_CAMINO_A_RETIRAR', repartidorId: 8 }),
+      );
       repository.actualizar.mockResolvedValue({
         id: 5,
         destinoDireccion: 'Nueva direccion 456',
@@ -427,19 +505,18 @@ describe('EnviosService', () => {
         'EN_CAMINO_A_RETIRAR',
         { destinoDireccion: 'Nueva direccion 456' },
         OPERARIO_ID,
-        { cambiaVehiculo: false, avisoDireccion: true },
+        {
+          cambiaVehiculo: false,
+          avisoDireccion: true,
+          detalle: 'Datos modificados: dirección de entrega',
+        },
       );
     });
 
     it('rechaza con 409 y mensaje exacto si el paquete ya fue retirado', async () => {
-      repository.buscarParaActualizar.mockResolvedValue({
-        id: 5,
-        estado: 'RETIRADO',
-        tamanio: 'CHICO',
-        vehiculoRequerido: 'MOTO',
-        destinoDireccion: 'Calle 50 123',
-        repartidorId: 8,
-      });
+      repository.buscarParaActualizar.mockResolvedValue(
+        envioEditable({ estado: 'RETIRADO', repartidorId: 8 }),
+      );
 
       await expect(
         service.actualizar(5, { destinatarioNombre: 'Juan' }, OPERARIO_ID),
@@ -458,6 +535,43 @@ describe('EnviosService', () => {
         service.actualizar(99, { destinatarioNombre: 'Juan' }, OPERARIO_ID),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
+  });
+});
+
+describe('ActualizarEnvioDto', () => {
+  async function camposConError(cuerpo: object) {
+    const errores = await validate(plainToInstance(ActualizarEnvioDto, cuerpo));
+    return errores.map((e) => e.property).sort();
+  }
+
+  it('acepta null para borrar el DNI y las observaciones', async () => {
+    expect(
+      await camposConError({ destinatarioDni: null, observaciones: null }),
+    ).toEqual([]);
+  });
+
+  it('no deja vaciar los datos obligatorios del alta, ni con null', async () => {
+    expect(
+      await camposConError({
+        destinoDireccion: null,
+        destinatarioNombre: '',
+        destinatarioApellido: null,
+        destinatarioTelefono: '',
+        tamanio: null,
+      }),
+    ).toEqual([
+      'destinatarioApellido',
+      'destinatarioNombre',
+      'destinatarioTelefono',
+      'destinoDireccion',
+      'tamanio',
+    ]);
+  });
+
+  it('rechaza un DNI con formato inválido', async () => {
+    expect(await camposConError({ destinatarioDni: '30.111.222' })).toEqual([
+      'destinatarioDni',
+    ]);
   });
 });
 

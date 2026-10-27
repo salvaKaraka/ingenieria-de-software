@@ -150,21 +150,40 @@ export function DetalleEnvioPage() {
 
   const guardarEdicion = async (e: FormEvent) => {
     e.preventDefault()
+    if (!envio) return
+    // DNI y observaciones vacíos se borran (null). Los demás son obligatorios: si quedan
+    // vacíos se mandan igual y el backend explica qué falta.
+    const nuevos = {
+      destinoDireccion: formEdicion.destinoDireccion.trim(),
+      destinatarioNombre: formEdicion.destinatarioNombre.trim(),
+      destinatarioApellido: formEdicion.destinatarioApellido.trim(),
+      destinatarioDni: formEdicion.destinatarioDni.replace(/\D/g, '') || null,
+      destinatarioTelefono: formEdicion.destinatarioTelefono.trim(),
+      tamanio: formEdicion.tamanio,
+      observaciones: formEdicion.observaciones.trim() || null,
+    }
+    const actuales = {
+      destinoDireccion: envio.destinoDireccion,
+      destinatarioNombre: envio.destinatarioNombre ?? '',
+      destinatarioApellido: envio.destinatarioApellido ?? '',
+      destinatarioDni: envio.destinatarioDni,
+      destinatarioTelefono: envio.destinatarioTelefono ?? '',
+      tamanio: envio.tamanio,
+      observaciones: envio.observaciones,
+    }
+    // Solo lo que cambió: un envío viejo con un dato vacío se puede editar sin completarlo.
+    const cambios = Object.fromEntries(
+      Object.entries(nuevos).filter(([campo, valor]) => valor !== actuales[campo as keyof typeof actuales]),
+    )
+    if (Object.keys(cambios).length === 0) {
+      setEditando(false)
+      return
+    }
+
     setGuardandoEdicion(true)
     setErrorEdicion(null)
     try {
-      await api(`/envios/${id}`, {
-        metodo: 'PATCH',
-        datos: {
-          destinoDireccion: formEdicion.destinoDireccion.trim(),
-          destinatarioNombre: formEdicion.destinatarioNombre.trim() || undefined,
-          destinatarioApellido: formEdicion.destinatarioApellido.trim() || undefined,
-          destinatarioDni: formEdicion.destinatarioDni.replace(/\D/g, '') || undefined,
-          destinatarioTelefono: formEdicion.destinatarioTelefono.trim() || undefined,
-          tamanio: formEdicion.tamanio,
-          observaciones: formEdicion.observaciones.trim() || undefined,
-        },
-      })
+      await api(`/envios/${id}`, { metodo: 'PATCH', datos: cambios })
       setEditando(false)
       await cargar()
     } catch (err) {
@@ -301,7 +320,7 @@ export function DetalleEnvioPage() {
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Campo
-              etiqueta="DNI destinatario"
+              etiqueta={envio.requiereDni ? 'DNI destinatario * (el comercio lo exige)' : 'DNI destinatario (opcional)'}
               value={formEdicion.destinatarioDni}
               onChange={(e) => setFormEdicion((prev) => ({ ...prev, destinatarioDni: e.target.value }))}
             />
@@ -322,7 +341,7 @@ export function DetalleEnvioPage() {
             ]}
           />
           <Campo
-            etiqueta="Observaciones"
+            etiqueta="Observaciones (opcional)"
             value={formEdicion.observaciones}
             onChange={(e) => setFormEdicion((prev) => ({ ...prev, observaciones: e.target.value }))}
           />

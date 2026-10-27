@@ -216,6 +216,12 @@ export class EnviosRepository {
         tamanio: true,
         vehiculoRequerido: true,
         destinoDireccion: true,
+        destinatarioNombre: true,
+        destinatarioApellido: true,
+        destinatarioDni: true,
+        destinatarioTelefono: true,
+        observaciones: true,
+        requiereDni: true,
         repartidorId: true,
       },
     });
@@ -228,9 +234,9 @@ export class EnviosRepository {
       destinoDireccion?: string;
       destinatarioNombre?: string;
       destinatarioApellido?: string;
-      destinatarioDni?: string;
+      destinatarioDni?: string | null;
       destinatarioTelefono?: string;
-      observaciones?: string;
+      observaciones?: string | null;
       tamanio?: TamanioPaquete;
       vehiculoRequerido?: TipoVehiculo;
     },
@@ -238,6 +244,7 @@ export class EnviosRepository {
     opciones: {
       cambiaVehiculo: boolean;
       avisoDireccion: boolean;
+      detalle: string;
     },
   ) {
     return this.prisma.$transaction(async (tx) => {
@@ -363,7 +370,7 @@ export class EnviosRepository {
         data: {
           envioId: id,
           tipo: 'NOTA',
-          detalle: 'Datos del envío modificados por el operario',
+          detalle: opciones.detalle,
           actorTipo: 'OPERARIO',
           actorId: operarioId,
         },

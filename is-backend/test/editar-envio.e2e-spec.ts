@@ -140,6 +140,9 @@ describe('Modificación de envíos por el operario (e2e)', () => {
     expect(eventoNota).toBeDefined();
     expect(eventoNota?.actorTipo).toBe('OPERARIO');
     expect(eventoNota?.actorId).toBe(operarioId);
+    expect(eventoNota?.detalle).toBe(
+      'Datos modificados: nombre del destinatario',
+    );
   });
 
   // Escenario 2: Cambio de tamaño con repartidor asignado

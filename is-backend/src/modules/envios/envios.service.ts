@@ -29,6 +29,17 @@ const VEHICULO_MINIMO: Record<TamanioPaquete, TipoVehiculo> = {
   GRANDE: 'CAMION',
 };
 
+// Cómo se nombra cada dato en el historial cuando el operario lo modifica (HU 31).
+const ETIQUETA_CAMPO: Record<keyof ActualizarEnvioDto, string> = {
+  destinoDireccion: 'dirección de entrega',
+  destinatarioNombre: 'nombre del destinatario',
+  destinatarioApellido: 'apellido del destinatario',
+  destinatarioDni: 'DNI del destinatario',
+  destinatarioTelefono: 'teléfono del destinatario',
+  tamanio: 'tamaño',
+  observaciones: 'observaciones',
+};
+
 @Injectable()
 export class EnviosService {
   private readonly logger = new Logger(EnviosService.name);
@@ -212,34 +223,49 @@ export class EnviosService {
       );
     }
 
-    const nuevoVehiculo = dto.tamanio
-      ? VEHICULO_MINIMO[dto.tamanio]
+    // Solo lo que de verdad cambia: así el historial dice qué se modificó y un "Guardar"
+    // sin cambios no deja rastro.
+    const cambios = Object.fromEntries(
+      Object.entries(dto).filter(
+        ([campo, valor]) =>
+          valor !== undefined && valor !== envio[campo as keyof typeof dto],
+      ),
+    ) as Pick<ActualizarEnvioDto, keyof ActualizarEnvioDto>;
+    const camposCambiados = Object.keys(
+      cambios,
+    ) as (keyof ActualizarEnvioDto)[];
+    if (camposCambiados.length === 0) return envio;
+
+    // Al entregar, el repartidor compara contra este DNI (E-4): si el comercio lo exige, no se borra.
+    if (cambios.destinatarioDni === null && envio.requiereDni) {
+      throw new BadRequestException(
+        'Este comercio exige DNI al entregar: no se puede borrar el DNI del destinatario',
+      );
+    }
+
+    const nuevoVehiculo = cambios.tamanio
+      ? VEHICULO_MINIMO[cambios.tamanio]
       : undefined;
     const cambiaVehiculo =
       nuevoVehiculo !== undefined && nuevoVehiculo !== envio.vehiculoRequerido;
 
     const avisoDireccion =
-      dto.destinoDireccion !== undefined &&
-      dto.destinoDireccion !== envio.destinoDireccion &&
-      envio.repartidorId !== null;
-
-    const datosActualizar = {
-      destinoDireccion: dto.destinoDireccion,
-      destinatarioNombre: dto.destinatarioNombre,
-      destinatarioApellido: dto.destinatarioApellido,
-      destinatarioDni: dto.destinatarioDni,
-      destinatarioTelefono: dto.destinatarioTelefono,
-      observaciones: dto.observaciones,
-      tamanio: dto.tamanio,
-      ...(cambiaVehiculo ? { vehiculoRequerido: nuevoVehiculo } : {}),
-    };
+      cambios.destinoDireccion !== undefined && envio.repartidorId !== null;
 
     const actualizado = await this.enviosRepository.actualizar(
       id,
       envio.estado,
-      datosActualizar,
+      {
+        ...cambios,
+        ...(cambiaVehiculo ? { vehiculoRequerido: nuevoVehiculo } : {}),
+      },
       operarioId,
-      { cambiaVehiculo, avisoDireccion },
+      {
+        cambiaVehiculo,
+        avisoDireccion,
+        // Sin los valores: el historial no tiene por qué mostrar el DNI.
+        detalle: `Datos modificados: ${camposCambiados.map((campo) => ETIQUETA_CAMPO[campo]).join(', ')}`,
+      },
     );
 
     // Otro proceso lo cambió entre la lectura y la transacción (p. ej. el repartidor aceptó
