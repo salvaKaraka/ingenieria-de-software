@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { RolUsuario } from '../../generated/prisma/client';
+import { Prisma, RolUsuario } from '../../generated/prisma/client';
 import { AuthService } from '../auth/auth.service';
 import {
   type ActualizarRepartidorDto,
@@ -37,14 +37,16 @@ export class RepartidoresService {
   }
 
   async crear(dto: CrearRepartidorDto): Promise<RepartidorConPin> {
-    const repartidor = await this.repo.crear({
-      nombre: dto.nombre.trim(),
-      apellido: dto.apellido.trim(),
-      telefono: dto.telefono.trim(),
-      email: dto.email.trim().toLowerCase(),
-      direccion: dto.direccion.trim(),
-      vehiculo: dto.vehiculo,
-    });
+    const repartidor = await this.conEmailUnico(() =>
+      this.repo.crear({
+        nombre: dto.nombre.trim(),
+        apellido: dto.apellido.trim(),
+        telefono: dto.telefono.trim(),
+        email: dto.email.trim().toLowerCase(),
+        direccion: dto.direccion.trim(),
+        vehiculo: dto.vehiculo,
+      }),
+    );
 
     // Genera el PIN de acceso y revoca posibles sesiones previas
     const pin = await this.authService.asignarNuevoPin(repartidor.id);
@@ -62,14 +64,34 @@ export class RepartidoresService {
   ): Promise<RepartidorPublico> {
     await this.buscarPorId(id);
 
-    return this.repo.actualizar(id, {
-      ...(dto.nombre !== undefined && { nombre: dto.nombre.trim() }),
-      ...(dto.apellido !== undefined && { apellido: dto.apellido.trim() }),
-      ...(dto.telefono !== undefined && { telefono: dto.telefono.trim() }),
-      ...(dto.email !== undefined && { email: dto.email.trim().toLowerCase() }),
-      ...(dto.direccion !== undefined && { direccion: dto.direccion.trim() }),
-      ...(dto.vehiculo !== undefined && { vehiculo: dto.vehiculo }),
-    });
+    return this.conEmailUnico(() =>
+      this.repo.actualizar(id, {
+        ...(dto.nombre !== undefined && { nombre: dto.nombre.trim() }),
+        ...(dto.apellido !== undefined && { apellido: dto.apellido.trim() }),
+        ...(dto.telefono !== undefined && { telefono: dto.telefono.trim() }),
+        ...(dto.email !== undefined && {
+          email: dto.email.trim().toLowerCase(),
+        }),
+        ...(dto.direccion !== undefined && { direccion: dto.direccion.trim() }),
+        ...(dto.vehiculo !== undefined && { vehiculo: dto.vehiculo }),
+      }),
+    );
+  }
+
+  // El email es único en la base: si ya lo usa otro repartidor, se responde 409 en vez de 500.
+  // Si es uno dado de baja, lo que corresponde es reactivarlo, no crearlo de nuevo.
+  private async conEmailUnico<T>(guardar: () => Promise<T>): Promise<T> {
+    try {
+      return await guardar();
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException('Ya existe un repartidor con ese email');
+      }
+      throw error;
+    }
   }
 
   async darDeBaja(id: number): Promise<void> {

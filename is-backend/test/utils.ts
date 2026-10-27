@@ -7,3 +7,9 @@ export async function vaciarBase(prisma: PrismaService) {
 
   await prisma.$executeRaw`TRUNCATE ofertas, eventos_envio, envios, repartidores, comercios, refresh_tokens, operarios RESTART IDENTITY CASCADE`;
 }
+
+// El email del repartidor es único: cada repartidor de un test necesita el suyo.
+let repartidoresCreados = 0;
+export function emailUnico() {
+  return `r${++repartidoresCreados}@test.com`;
+}

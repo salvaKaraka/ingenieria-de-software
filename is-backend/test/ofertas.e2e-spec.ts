@@ -8,7 +8,7 @@ import { PrismaService } from '../src/database/prisma.service';
 import type { RolUsuario, TipoVehiculo } from '../src/generated/prisma/client';
 import { AsignacionService } from '../src/modules/asignacion/asignacion.service';
 import { OfertasService } from '../src/modules/asignacion/ofertas.service';
-import { vaciarBase } from './utils';
+import { emailUnico, vaciarBase } from './utils';
 
 // Respuestas a las ofertas (D-2) y su vencimiento (D-3), por HTTP y contra una base real.
 describe('Ofertas (e2e)', () => {
@@ -33,7 +33,7 @@ describe('Ofertas (e2e)', () => {
         nombre: 'R',
         apellido: String(llegoEnMinuto),
         telefono: '1',
-        email: 'r@test.com',
+        email: emailUnico(),
         direccion: 'x',
         vehiculo,
         estado: 'DISPONIBLE',

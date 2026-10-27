@@ -8,7 +8,7 @@ import type {
 } from '../src/generated/prisma/client';
 import { OFERTA_SEGUNDOS } from '../src/modules/asignacion/asignacion.constants';
 import { AsignacionService } from '../src/modules/asignacion/asignacion.service';
-import { vaciarBase } from './utils';
+import { emailUnico, vaciarBase } from './utils';
 
 // Motor de asignación contra una base real: las reglas viven en SQL y en los bloqueos de Postgres,
 // así que no se pueden probar con mocks.
@@ -42,7 +42,7 @@ describe('Motor de asignación (e2e)', () => {
         nombre: 'R',
         apellido: `${vehiculo}-${llegoEnMinuto}`,
         telefono: '1',
-        email: 'r@test.com',
+        email: emailUnico(),
         direccion: 'x',
         vehiculo,
         estado,

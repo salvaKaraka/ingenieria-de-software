@@ -11,7 +11,9 @@ describe('SeguimientoService', () => {
     repository = {
       buscarPorCodigo: jest.fn(),
     };
-    service = new SeguimientoService(repository as unknown as SeguimientoRepository);
+    service = new SeguimientoService(
+      repository as unknown as SeguimientoRepository,
+    );
   });
 
   describe('Enmascaramiento de datos sensibles (Épica 2.5)', () => {
@@ -27,15 +29,36 @@ describe('SeguimientoService', () => {
     });
 
     it('enmascara la dirección eliminando la altura numérica y departamento', () => {
-      expect(service.enmascararDireccion('Av. Corrientes 1234, 4to B')).toBe('Av. Corrientes');
-      expect(service.enmascararDireccion('Calle Falsa 123')).toBe('Calle Falsa');
+      expect(service.enmascararDireccion('Av. Corrientes 1234, 4to B')).toBe(
+        'Av. Corrientes',
+      );
+      expect(service.enmascararDireccion('Calle Falsa 123')).toBe(
+        'Calle Falsa',
+      );
       expect(service.enmascararDireccion('San Martín 550')).toBe('San Martín');
     });
 
-    it('maneja direcciones nulas o sin número', () => {
+    it('maneja direcciones nulas', () => {
       expect(service.enmascararDireccion(null)).toBe('Dirección de destino');
-      expect(service.enmascararDireccion('Ruta 2 km 45')).toBe('Ruta');
+      expect(service.enmascararDireccion('')).toBe('Dirección de destino');
     });
+
+    it.each([
+      ['calle x, 1234', 'calle x'],
+      ['Calle 7 1234', 'Calle 7'],
+      ['calle 7, 1234', 'calle 7'],
+      ['Calle 50 n° 200, 4to B', 'Calle 50'],
+      ['Diagonal 74 1520', 'Diagonal 74'],
+      ['Ruta 2 km 45', 'Ruta 2'],
+      ['Belgrano 456 piso 2 B', 'Belgrano'],
+      ['Calle 7', 'Calle 7'],
+      ['Avenida de Mayo', 'Avenida de Mayo'],
+    ])(
+      'conserva el número del nombre de la calle: "%s" -> "%s"',
+      (direccion, esperado) => {
+        expect(service.enmascararDireccion(direccion)).toBe(esperado);
+      },
+    );
   });
 
   describe('Consultar estado del envío (F-3)', () => {
@@ -45,7 +68,9 @@ describe('SeguimientoService', () => {
       await expect(service.consultar('CODIGO-INEXISTENTE')).rejects.toThrow(
         NotFoundException,
       );
-      expect(repository.buscarPorCodigo).toHaveBeenCalledWith('CODIGO-INEXISTENTE');
+      expect(repository.buscarPorCodigo).toHaveBeenCalledWith(
+        'CODIGO-INEXISTENTE',
+      );
     });
 
     it('devuelve los datos enmascarados, línea de tiempo y hora de salida según Supuesto 7', async () => {

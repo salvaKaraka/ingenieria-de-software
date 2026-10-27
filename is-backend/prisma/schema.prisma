@@ -107,7 +107,9 @@ model Repartidor {
   nombre             String
   apellido           String
   telefono           String
-  email              String
+  // Único: dos repartidores con el mismo email casi siempre es un alta duplicada.
+  // Un repartidor que vuelve después de una baja se reactiva, no se crea de nuevo.
+  email              String           @unique
   direccion          String
   vehiculo           TipoVehiculo
   estado             EstadoRepartidor @default(FUERA_DE_JORNADA)

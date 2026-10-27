@@ -120,4 +120,62 @@ export class RepartidoresRepository {
     });
     return count > 0;
   }
+
+  // Jornada (C-3). Cada cambio es un UPDATE condicionado al estado esperado, así una
+  // transición que ya no vale (por ejemplo, el motor le acaba de ofrecer un viaje) no se
+  // aplica. Devuelven false si no se cambió nada.
+
+  async iniciarJornada(id: number): Promise<boolean> {
+    const { count } = await this.prisma.repartidor.updateMany({
+      where: { id, activo: true, estado: 'FUERA_DE_JORNADA' },
+      data: { estado: 'DISPONIBLE', enColaDesde: new Date() },
+    });
+    return count > 0;
+  }
+
+  // enColaDesde no nulo = está en la cola y sin oferta: al ofrecerle un viaje el motor lo
+  // saca de la cola en su misma fila, y Postgres vuelve a verificar esa condición al bloquearla.
+  async pausar(id: number): Promise<boolean> {
+    const { count } = await this.prisma.repartidor.updateMany({
+      where: { id, estado: 'DISPONIBLE', enColaDesde: { not: null } },
+      data: { estado: 'EN_PAUSA', enColaDesde: null },
+    });
+    return count > 0;
+  }
+
+  // Vuelve al final de la cola (C-3).
+  async reanudar(id: number): Promise<boolean> {
+    const { count } = await this.prisma.repartidor.updateMany({
+      where: { id, activo: true, estado: 'EN_PAUSA' },
+      data: { estado: 'DISPONIBLE', enColaDesde: new Date() },
+    });
+    return count > 0;
+  }
+
+  // Termina la jornada (C-3): solo si está DISPONIBLE en la cola (enColaDesde != null) o EN_PAUSA.
+  async terminarJornada(id: number): Promise<boolean> {
+    const { count } = await this.prisma.repartidor.updateMany({
+      where: {
+        id,
+        activo: true,
+        OR: [
+          { estado: 'DISPONIBLE', enColaDesde: { not: null } },
+          { estado: 'EN_PAUSA' },
+        ],
+      },
+      data: { estado: 'FUERA_DE_JORNADA', enColaDesde: null },
+    });
+    return count > 0;
+  }
+
+  // Flota en jornada (C-3): repartidores activos que no están FUERA_DE_JORNADA
+  async obtenerFlota(): Promise<RepartidorPublico[]> {
+    return this.prisma.repartidor.findMany({
+      where: {
+        activo: true,
+        estado: { not: 'FUERA_DE_JORNADA' },
+      },
+      select: SELECT_REPARTIDOR_PUBLICO,
+    });
+  }
 }
