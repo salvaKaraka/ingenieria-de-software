@@ -8,6 +8,18 @@ import type {
 } from '../../generated/prisma/client';
 import type { NombresActores } from './domain/historial';
 
+const ETIQUETA_TAMANIO: Record<TamanioPaquete, string> = {
+  CHICO: 'Chico',
+  MEDIANO: 'Mediano',
+  GRANDE: 'Grande',
+};
+
+const ETIQUETA_VEHICULO: Record<TipoVehiculo, string> = {
+  MOTO: 'Moto',
+  AUTO: 'Auto',
+  CAMION: 'Camión',
+};
+
 export interface FiltrosListado {
   estados?: EstadoEnvio[];
   comercioId?: number;
@@ -326,26 +338,21 @@ export class EnviosRepository {
           where: { id: repartidorAnteriorId, estado: 'OCUPADO' },
           data: { estado: 'DISPONIBLE', enColaDesde: new Date() },
         });
+      }
 
+      if (opciones.cambiaVehiculo && datos.tamanio && datos.vehiculoRequerido) {
+        // Con los nombres que ve el operario, no los del enum (lo lee en el historial).
+        const liberado =
+          repartidorAnteriorId !== null
+            ? ' El repartidor que lo tenía vuelve a la cola.'
+            : '';
         await tx.eventoEnvio.create({
           data: {
             envioId: id,
             tipo: 'REASIGNACION',
             estadoAnterior: estadoEsperado,
             estadoNuevo: 'PENDIENTE',
-            detalle: `Cambio de tamaño a ${datos.tamanio} (vehículo: ${datos.vehiculoRequerido}). Vuelve a la cola.`,
-            actorTipo: 'OPERARIO',
-            actorId: operarioId,
-          },
-        });
-      } else if (opciones.cambiaVehiculo) {
-        await tx.eventoEnvio.create({
-          data: {
-            envioId: id,
-            tipo: 'REASIGNACION',
-            estadoAnterior: estadoEsperado,
-            estadoNuevo: 'PENDIENTE',
-            detalle: `Cambio de tamaño a ${datos.tamanio} (vehículo: ${datos.vehiculoRequerido}).`,
+            detalle: `Cambio de tamaño a ${ETIQUETA_TAMANIO[datos.tamanio]}: ahora requiere ${ETIQUETA_VEHICULO[datos.vehiculoRequerido]} y vuelve a Pendiente.${liberado}`,
             actorTipo: 'OPERARIO',
             actorId: operarioId,
           },
