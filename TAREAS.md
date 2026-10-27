@@ -304,7 +304,7 @@ Decisiones ya tomadas: JWT con **access token corto + refresh token guardado en 
   - [ ] Un repartidor no puede avanzar un envío que no es suyo.
   - [ ] Todo avance queda en `EventoEnvio` con `actorTipo = REPARTIDOR`.
 
-### E-3 · Pantalla del viaje activo
+### E-3 · Pantalla del viaje activo ✅ hecha
 - **Depende de:** E-2, F-1 · **Ruta:** `/repartidor/viaje`
 - **Qué hacer:** datos del viaje en letra grande (dirección de retiro o de entrega según la etapa, destinatario y observaciones) y **un** botón enorme con la próxima acción ("Llegué al comercio", "Paquete retirado", "Llegué al domicilio", "Entregado"), con confirmación. Son 2 toques en total (RNF-10).
 - **Criterios de aceptación:**
@@ -382,7 +382,10 @@ Vista para el operario con las ofertas aceptadas, rechazadas y vencidas por repa
 Ya no hace falta una opción manual: el motor ofrece los paquetes chicos a autos o camiones cuando no hay motos disponibles.
 
 ### E-4 · Evidencia de entrega (foto y DNI)
-Antes de `ENTREGADO`, pedir lo que el envío exige: foto con la cámara (con vista previa y opción de repetirla; riesgo 14) subida a Supabase Storage, DNI del receptor, o ambas. Épica 4.3.
+Antes de `ENTREGADO`, pedir lo que el envío exige: DNI del receptor, foto, o ambas. Épica 4.3.
+- **DNI:** el repartidor lo tipea y el backend lo compara con el `destinatarioDni` del envío (nunca se le manda al celular). Si no coincide, no se entrega. Por eso el alta de envío (B-3) exige el DNI del destinatario cuando el comercio lo pide.
+- **Foto (decisión del grupo, 27/10):** no se sube al sistema; se manda por WhatsApp. La app se lo recuerda y el repartidor tiene que marcar "Ya mandé la foto" antes de confirmar.
+- Lo que se cumplió queda en el `detalle` del evento `ENTREGADO` (sin el número de DNI).
 
 ### E-5 · Novedades en ruta
 Botón "Reportar novedad" con opciones rápidas ("Cliente ausente", "Dirección incorrecta", "Demorado") y un comentario corto. Crea un evento `NOVEDAD`, la novedad aparece en el panel del operario y en el seguimiento (épica 2.6). Épica 4.4.

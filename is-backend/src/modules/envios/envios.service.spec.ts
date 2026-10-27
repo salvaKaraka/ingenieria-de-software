@@ -25,6 +25,9 @@ function crearDto(cambios: Partial<CrearEnvioDto> = {}): CrearEnvioDto {
   return {
     comercioId: 1,
     destinoDireccion: 'Calle 50 n° 200',
+    destinatarioNombre: 'Ana',
+    destinatarioApellido: 'Paz',
+    destinatarioTelefono: '221 555-0000',
     tamanio: 'CHICO',
     ...cambios,
   };
@@ -35,6 +38,7 @@ describe('EnviosService', () => {
     crear: jest.fn(),
     listar: jest.fn(),
     obtenerDetalle: jest.fn(),
+    buscarNombresActores: jest.fn(),
     obtenerEstado: jest.fn(),
     cancelar: jest.fn(),
     buscarParaActualizar: jest.fn(),
@@ -99,6 +103,24 @@ describe('EnviosService', () => {
         service.crear(crearDto(), OPERARIO_ID),
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(repository.crear).not.toHaveBeenCalled();
+    });
+
+    it('exige el DNI del destinatario si el comercio lo pide al entregar', async () => {
+      comerciosService.obtenerPorId.mockResolvedValue({
+        ...comercioMock,
+        requiereDni: true,
+      });
+
+      await expect(service.crear(crearDto(), OPERARIO_ID)).rejects.toThrow(
+        'cargá el DNI del destinatario',
+      );
+      expect(repository.crear).not.toHaveBeenCalled();
+
+      await service.crear(
+        crearDto({ destinatarioDni: '30111222' }),
+        OPERARIO_ID,
+      );
+      expect(datosGuardados()).toMatchObject({ destinatarioDni: '30111222' });
     });
 
     it('usa la dirección del comercio como origen si no viene otra', async () => {
@@ -205,10 +227,44 @@ describe('EnviosService', () => {
     });
   });
 
-  describe('obtenerDetalle (B-4)', () => {
-    it('devuelve el envío con su historial', async () => {
-      repository.obtenerDetalle.mockResolvedValue({ id: 5, eventos: [] });
-      await expect(service.obtenerDetalle(5)).resolves.toMatchObject({ id: 5 });
+  describe('obtenerDetalle (B-4, A-6)', () => {
+    it('devuelve el envío con su historial y el nombre de cada responsable', async () => {
+      repository.obtenerDetalle.mockResolvedValue({
+        id: 5,
+        ofertas: [],
+        eventos: [
+          {
+            id: 1,
+            tipo: 'CREADO',
+            estadoNuevo: 'PENDIENTE',
+            detalle: null,
+            actorTipo: 'OPERARIO',
+            actorId: 3,
+            creadoEn: new Date('2026-10-27T10:00:00Z'),
+          },
+          {
+            id: 2,
+            tipo: 'CAMBIO_ESTADO',
+            estadoNuevo: 'CANCELADO',
+            detalle: null,
+            actorTipo: 'OPERARIO',
+            actorId: 3,
+            creadoEn: new Date('2026-10-27T10:05:00Z'),
+          },
+        ],
+      });
+      repository.buscarNombresActores.mockResolvedValue({
+        operarios: new Map([[3, 'Ana']]),
+        repartidores: new Map(),
+      });
+
+      const detalle = await service.obtenerDetalle(5);
+
+      expect(repository.buscarNombresActores).toHaveBeenCalledWith([3], []);
+      expect(detalle.historial).toMatchObject([
+        { tipo: 'CREADO', actorNombre: 'Ana' },
+        { estadoNuevo: 'CANCELADO', actorNombre: 'Ana' },
+      ]);
     });
 
     it('responde 404 si el envío no existe', async () => {
@@ -445,5 +501,38 @@ describe('ListarEnviosDto', () => {
 
   it('sin parámetros es válido', async () => {
     expect((await validar({})).campos).toEqual([]);
+  });
+});
+
+describe('CrearEnvioDto', () => {
+  async function camposConError(cuerpo: object) {
+    const errores = await validate(plainToInstance(CrearEnvioDto, cuerpo));
+    return errores.map((e) => e.property).sort();
+  }
+
+  it('exige nombre, apellido y teléfono del destinatario', async () => {
+    const campos = await camposConError({
+      comercioId: 1,
+      destinoDireccion: 'Calle 50 n° 200',
+      destinatarioNombre: '',
+      tamanio: 'CHICO',
+    });
+    expect(campos).toEqual([
+      'destinatarioApellido',
+      'destinatarioNombre',
+      'destinatarioTelefono',
+    ]);
+  });
+
+  it('el DNI del destinatario sigue siendo opcional', async () => {
+    const campos = await camposConError({
+      comercioId: 1,
+      destinoDireccion: 'Calle 50 n° 200',
+      destinatarioNombre: 'Ana',
+      destinatarioApellido: 'Paz',
+      destinatarioTelefono: '221 555-0000',
+      tamanio: 'CHICO',
+    });
+    expect(campos).toEqual([]);
   });
 });

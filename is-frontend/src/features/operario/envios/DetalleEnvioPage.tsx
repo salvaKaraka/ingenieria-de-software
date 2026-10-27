@@ -1,18 +1,28 @@
 import { useCallback, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { api, ErrorApi } from '../../../shared/api.ts'
-import { ETIQUETA_ESTADO_ENVIO, type EstadoEnvio, type TamanioPaquete } from '../../../shared/tipos.ts'
+import {
+  ETIQUETA_ESTADO_ENVIO,
+  ETIQUETA_VEHICULO,
+  type EstadoEnvio,
+  type TamanioPaquete,
+  type TipoVehiculo,
+} from '../../../shared/tipos.ts'
 import { Boton, Campo, EtiquetaEstado, Modal, Selector } from '../../../shared/ui/index.ts'
 import { usePolling } from '../../../shared/usePolling.ts'
+import { describirEvidencia } from './evidencia.ts'
 
 // Lo que devuelve GET /api/envios/:id (B-4). Solo los campos que usa esta pantalla.
-interface Evento {
-  id: number
+// Entrada del historial (A-6): un cambio de estado o algo que pasó con una oferta.
+interface EntradaHistorial {
+  clave: string
+  fecha: string
   tipo: string
   estadoNuevo: EstadoEnvio | null
   detalle: string | null
   actorTipo: 'OPERARIO' | 'REPARTIDOR' | 'SISTEMA'
-  creadoEn: string
+  actorNombre: string | null
+  repartidorNombre: string | null
 }
 
 interface DetalleEnvio {
@@ -26,25 +36,37 @@ interface DetalleEnvio {
   destinatarioDni: string | null
   destinatarioTelefono: string | null
   tamanio: TamanioPaquete
+  vehiculoRequerido: TipoVehiculo
+  requiereFoto: boolean
+  requiereDni: boolean
   observaciones: string | null
   comercio: { nombre: string }
   repartidor: { nombre: string; apellido: string } | null
-  eventos: Evento[]
+  historial: EntradaHistorial[]
 }
 
-const ACTOR: Record<Evento['actorTipo'], string> = {
+const ACTOR: Record<EntradaHistorial['actorTipo'], string> = {
   OPERARIO: 'Operario',
   REPARTIDOR: 'Repartidor',
   SISTEMA: 'Sistema',
 }
 
-function describirEvento(evento: Evento): string {
-  if (evento.tipo === 'CREADO') return 'Envío registrado'
-  if (evento.tipo === 'REASIGNACION') return evento.detalle ?? 'Envío reasignado'
-  if (evento.tipo === 'NOVEDAD') return evento.detalle ?? 'Novedad registrada'
-  if (evento.tipo === 'NOTA') return evento.detalle ?? 'Modificación de datos'
-  if (evento.estadoNuevo) return ETIQUETA_ESTADO_ENVIO[evento.estadoNuevo]
-  return evento.detalle ?? evento.tipo
+function describirEntrada(entrada: EntradaHistorial): string {
+  if (entrada.tipo === 'CREADO') return 'Envío registrado'
+  if (entrada.tipo === 'OFERTA_ENVIADA') return `Oferta enviada a ${entrada.repartidorNombre}`
+  if (entrada.tipo === 'OFERTA_RECHAZADA') return 'Oferta rechazada'
+  if (entrada.tipo === 'OFERTA_VENCIDA') return `Oferta vencida por inactividad (${entrada.repartidorNombre})`
+  // Modificaciones del operario (HU 31): el detalle dice qué pasó. Van antes que estadoNuevo
+  // porque la reasignación por cambio de tamaño también lo trae (vuelve a PENDIENTE).
+  if (entrada.tipo === 'REASIGNACION') return entrada.detalle ?? 'Envío reasignado'
+  if (entrada.tipo === 'NOVEDAD') return entrada.detalle ?? 'Novedad registrada'
+  if (entrada.tipo === 'NOTA') return entrada.detalle ?? 'Modificación de datos'
+  if (entrada.estadoNuevo) return ETIQUETA_ESTADO_ENVIO[entrada.estadoNuevo]
+  return entrada.detalle ?? entrada.tipo
+}
+
+function responsable(entrada: EntradaHistorial): string {
+  return [ACTOR[entrada.actorTipo], entrada.actorNombre].filter(Boolean).join(' ')
 }
 
 export function DetalleEnvioPage() {
@@ -137,7 +159,7 @@ export function DetalleEnvioPage() {
           destinoDireccion: formEdicion.destinoDireccion.trim(),
           destinatarioNombre: formEdicion.destinatarioNombre.trim() || undefined,
           destinatarioApellido: formEdicion.destinatarioApellido.trim() || undefined,
-          destinatarioDni: formEdicion.destinatarioDni.trim() || undefined,
+          destinatarioDni: formEdicion.destinatarioDni.replace(/\D/g, '') || undefined,
           destinatarioTelefono: formEdicion.destinatarioTelefono.trim() || undefined,
           tamanio: formEdicion.tamanio,
           observaciones: formEdicion.observaciones.trim() || undefined,
@@ -218,6 +240,14 @@ export function DetalleEnvioPage() {
           <dt className="text-gray-500">Tamaño</dt>
           <dd className="font-medium">{envio.tamanio}</dd>
         </div>
+        <div>
+          <dt className="text-gray-500">Vehículo requerido</dt>
+          <dd className="font-medium">{ETIQUETA_VEHICULO[envio.vehiculoRequerido]}</dd>
+        </div>
+        <div>
+          <dt className="text-gray-500">Evidencia al entregar</dt>
+          <dd className="font-medium">{describirEvidencia(envio)}</dd>
+        </div>
         {envio.observaciones && (
           <div className="sm:col-span-2">
             <dt className="text-gray-500">Observaciones</dt>
@@ -227,16 +257,20 @@ export function DetalleEnvioPage() {
       </dl>
 
       <section className="rounded-lg border border-gray-200 bg-white p-6">
-        <h2 className="mb-4 text-lg font-semibold">Línea de tiempo</h2>
-        {envio.eventos.length === 0 ? (
+        <h2 className="mb-4 text-lg font-semibold">Historial</h2>
+        {envio.historial.length === 0 ? (
           <p className="text-sm text-gray-500">No hay eventos registrados.</p>
         ) : (
           <ol className="space-y-4 border-l-2 border-gray-200 pl-4">
-            {envio.eventos.map((evento) => (
-              <li key={evento.id}>
-                <p className="font-medium">{describirEvento(evento)}</p>
+            {envio.historial.map((entrada) => (
+              <li key={entrada.clave}>
+                <p className="font-medium">{describirEntrada(entrada)}</p>
+                {/* Por ejemplo, la evidencia que se pidió al entregar (E-4). */}
+                {entrada.estadoNuevo && entrada.detalle && (
+                  <p className="text-sm text-gray-600">{entrada.detalle}</p>
+                )}
                 <p className="text-xs text-gray-500">
-                  {new Date(evento.creadoEn).toLocaleString('es-AR')} · {ACTOR[evento.actorTipo]}
+                  {new Date(entrada.fecha).toLocaleString('es-AR')} · {responsable(entrada)}
                 </p>
               </li>
             ))}

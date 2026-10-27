@@ -6,6 +6,7 @@ import type {
   TamanioPaquete,
   TipoVehiculo,
 } from '../../generated/prisma/client';
+import type { NombresActores } from './domain/historial';
 
 export interface FiltrosListado {
   estados?: EstadoEnvio[];
@@ -27,10 +28,10 @@ export class EnviosRepository {
     comercioId: number;
     origenDireccion: string;
     destinoDireccion: string;
-    destinatarioNombre?: string;
-    destinatarioApellido?: string;
+    destinatarioNombre: string;
+    destinatarioApellido: string;
     destinatarioDni?: string;
-    destinatarioTelefono?: string;
+    destinatarioTelefono: string;
     tamanio: TamanioPaquete;
     vehiculoRequerido: TipoVehiculo;
     observaciones?: string;
@@ -154,6 +155,30 @@ export class EnviosRepository {
     });
   }
 
+  // EventoEnvio guarda solo el id del actor (puede ser un operario o un repartidor), así que
+  // los nombres para el historial se buscan aparte.
+  async buscarNombresActores(
+    operarioIds: number[],
+    repartidorIds: number[],
+  ): Promise<NombresActores> {
+    const [operarios, repartidores] = await Promise.all([
+      this.prisma.operario.findMany({
+        where: { id: { in: operarioIds } },
+        select: { id: true, nombre: true },
+      }),
+      this.prisma.repartidor.findMany({
+        where: { id: { in: repartidorIds } },
+        select: { id: true, nombre: true, apellido: true },
+      }),
+    ]);
+    return {
+      operarios: new Map(operarios.map((o) => [o.id, o.nombre])),
+      repartidores: new Map(
+        repartidores.map((r) => [r.id, `${r.nombre} ${r.apellido}`]),
+      ),
+    };
+  }
+
   async obtenerEstado(id: number) {
     return this.prisma.envio.findUnique({
       where: { id },
@@ -227,11 +252,17 @@ export class EnviosRepository {
             FOR UPDATE`
         : [];
 
-      // Validar que el envío sigue en el estado esperado
-      const envioActual = await tx.envio.findFirst({
-        where: { id, estado: estadoEsperado },
-      });
-      if (!envioActual) {
+      // Después se bloquea el envío (mismo orden que cancelar). Sin el bloqueo, si el
+      // repartidor marcaba "Paquete retirado" entre la lectura y el update, un cambio de
+      // tamaño devolvía a PENDIENTE un paquete que ya estaba en la calle.
+      const [envioActual] = await tx.$queryRaw<
+        { estado: EstadoEnvio; repartidorId: number | null }[]
+      >`
+        SELECT estado, repartidor_id AS "repartidorId"
+        FROM envios
+        WHERE id = ${id}
+        FOR UPDATE`;
+      if (!envioActual || envioActual.estado !== estadoEsperado) {
         return null;
       }
 
@@ -350,6 +381,7 @@ export class EnviosRepository {
     estadoAnterior: EstadoEnvio,
     estadoNuevo: EstadoEnvio,
     repartidorId: number,
+    detalle?: string,
   ): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const { count } = await tx.envio.updateMany({
@@ -364,6 +396,7 @@ export class EnviosRepository {
           tipo: 'CAMBIO_ESTADO',
           estadoAnterior,
           estadoNuevo,
+          detalle,
           actorTipo: 'REPARTIDOR',
           actorId: repartidorId,
         },

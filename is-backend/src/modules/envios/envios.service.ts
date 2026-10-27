@@ -16,6 +16,7 @@ import { AsignacionService } from '../asignacion/asignacion.service';
 import { ComerciosService } from '../comercios/comercios.service';
 import { generarCodigoSeguimiento } from './codigo-seguimiento.util';
 import { esTransicionValida } from './domain/estado-envio';
+import { armarHistorial } from './domain/historial';
 import { ActualizarEnvioDto } from './dto/actualizar-envio.dto';
 import { CrearEnvioDto } from './dto/crear-envio.dto';
 import { ListarEnviosDto } from './dto/listar-envios.dto';
@@ -43,6 +44,12 @@ export class EnviosService {
     const comercio = await this.comerciosService.obtenerPorId(dto.comercioId);
     if (!comercio.activo) {
       throw new BadRequestException('El comercio está dado de baja');
+    }
+    // Al entregar, el repartidor compara contra este DNI (E-4): sin él no habría cómo verificar.
+    if (comercio.requiereDni && !dto.destinatarioDni) {
+      throw new BadRequestException(
+        'Este comercio exige DNI al entregar: cargá el DNI del destinatario',
+      );
     }
 
     const envio = await this.guardarConCodigoUnico(dto, operarioId, {
@@ -137,7 +144,22 @@ export class EnviosService {
     if (!envio) {
       throw new NotFoundException('El envío no existe');
     }
-    return envio;
+
+    const idsDe = (tipo: 'OPERARIO' | 'REPARTIDOR') => [
+      ...new Set(
+        envio.eventos
+          .filter((e) => e.actorTipo === tipo && e.actorId !== null)
+          .map((e) => e.actorId as number),
+      ),
+    ];
+    const nombres = await this.enviosRepository.buscarNombresActores(
+      idsDe('OPERARIO'),
+      idsDe('REPARTIDOR'),
+    );
+    return {
+      ...envio,
+      historial: armarHistorial(envio.eventos, envio.ofertas, nombres),
+    };
   }
 
   async cancelar(id: number, operarioId: number) {
@@ -220,9 +242,11 @@ export class EnviosService {
       { cambiaVehiculo, avisoDireccion },
     );
 
+    // Otro proceso lo cambió entre la lectura y la transacción (p. ej. el repartidor aceptó
+    // la oferta o retiró el paquete): los datos calculados arriba ya no valen.
     if (!actualizado) {
       throw new ConflictException(
-        'No se puede modificar: el paquete ya fue retirado',
+        'El envío cambió de estado, intente nuevamente',
       );
     }
 
