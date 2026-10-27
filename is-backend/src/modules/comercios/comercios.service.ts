@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ComerciosRepository } from './comercios.repository';
 import { CrearComercioDto } from './dto/crear-comercio.dto';
 import { ActualizarComercioDto } from './dto/actualizar-comercio.dto';
@@ -20,12 +24,25 @@ export class ComerciosService {
   }
 
   async crear(dto: CrearComercioDto) {
+    await this.validarNombreLibre(dto.nombre);
     return this.comerciosRepository.crear(dto);
   }
 
   async actualizar(id: number, dto: ActualizarComercioDto) {
     await this.obtenerPorId(id); // Valida que exista
+    if (dto.nombre !== undefined) {
+      await this.validarNombreLibre(dto.nombre, id);
+    }
     return this.comerciosRepository.actualizar(id, dto);
+  }
+
+  // Sin distinguir mayúsculas: "Panadería Sol" y "panadería sol" son el mismo comercio.
+  // idPropio permite que al editar un comercio se guarde su propio nombre sin cambios.
+  private async validarNombreLibre(nombre: string, idPropio?: number) {
+    const existente = await this.comerciosRepository.buscarPorNombre(nombre);
+    if (existente && existente.id !== idPropio) {
+      throw new ConflictException('El comercio ya se encuentra registrado');
+    }
   }
 
   async eliminarLogico(id: number) {
