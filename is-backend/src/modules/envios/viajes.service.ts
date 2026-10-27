@@ -27,6 +27,12 @@ export class ViajesService {
       await this.enviosRepository.buscarViajeActivoPorRepartidor(repartidorId);
     if (!envio) return { viaje: null };
 
+    // Si el operario cambió la dirección con el viaje en curso (HU 31), se le avisa.
+    const aviso =
+      envio.eventos.find(
+        (e) => e.detalle === 'La dirección de entrega fue modificada',
+      )?.detalle ?? null;
+
     // Sin el DNI del destinatario: el repartidor no lo necesita (la evidencia es E-4).
     return {
       viaje: {
@@ -45,6 +51,7 @@ export class ViajesService {
         observaciones: envio.observaciones,
         requiereFoto: envio.requiereFoto,
         requiereDni: envio.requiereDni,
+        aviso,
       },
     };
   }

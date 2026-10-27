@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { api, ErrorApi } from '../../../shared/api.ts'
 import {
@@ -8,7 +8,7 @@ import {
   type TamanioPaquete,
   type TipoVehiculo,
 } from '../../../shared/tipos.ts'
-import { Boton, EtiquetaEstado, Modal } from '../../../shared/ui/index.ts'
+import { Boton, Campo, EtiquetaEstado, Modal, Selector } from '../../../shared/ui/index.ts'
 import { usePolling } from '../../../shared/usePolling.ts'
 import { describirEvidencia } from './evidencia.ts'
 
@@ -33,6 +33,8 @@ interface DetalleEnvio {
   destinoDireccion: string
   destinatarioNombre: string | null
   destinatarioApellido: string | null
+  destinatarioDni: string | null
+  destinatarioTelefono: string | null
   tamanio: TamanioPaquete
   vehiculoRequerido: TipoVehiculo
   requiereFoto: boolean
@@ -54,6 +56,11 @@ function describirEntrada(entrada: EntradaHistorial): string {
   if (entrada.tipo === 'OFERTA_ENVIADA') return `Oferta enviada a ${entrada.repartidorNombre}`
   if (entrada.tipo === 'OFERTA_RECHAZADA') return 'Oferta rechazada'
   if (entrada.tipo === 'OFERTA_VENCIDA') return `Oferta vencida por inactividad (${entrada.repartidorNombre})`
+  // Modificaciones del operario (HU 31): el detalle dice qué pasó. Van antes que estadoNuevo
+  // porque la reasignación por cambio de tamaño también lo trae (vuelve a PENDIENTE).
+  if (entrada.tipo === 'REASIGNACION') return entrada.detalle ?? 'Envío reasignado'
+  if (entrada.tipo === 'NOVEDAD') return entrada.detalle ?? 'Novedad registrada'
+  if (entrada.tipo === 'NOTA') return entrada.detalle ?? 'Modificación de datos'
   if (entrada.estadoNuevo) return ETIQUETA_ESTADO_ENVIO[entrada.estadoNuevo]
   return entrada.detalle ?? entrada.tipo
 }
@@ -71,6 +78,27 @@ export function DetalleEnvioPage() {
   const [cancelando, setCancelando] = useState(false)
   const [errorCancelacion, setErrorCancelacion] = useState<string | null>(null)
   const [copiado, setCopiado] = useState(false)
+
+  const [editando, setEditando] = useState(false)
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false)
+  const [errorEdicion, setErrorEdicion] = useState<string | null>(null)
+  const [formEdicion, setFormEdicion] = useState<{
+    destinoDireccion: string
+    destinatarioNombre: string
+    destinatarioApellido: string
+    destinatarioDni: string
+    destinatarioTelefono: string
+    tamanio: TamanioPaquete
+    observaciones: string
+  }>({
+    destinoDireccion: '',
+    destinatarioNombre: '',
+    destinatarioApellido: '',
+    destinatarioDni: '',
+    destinatarioTelefono: '',
+    tamanio: 'CHICO',
+    observaciones: '',
+  })
 
   const cargar = useCallback(async () => {
     try {
@@ -105,12 +133,74 @@ export function DetalleEnvioPage() {
     setTimeout(() => setCopiado(false), 2000)
   }
 
+  const abrirModalEdicion = () => {
+    if (!envio) return
+    setFormEdicion({
+      destinoDireccion: envio.destinoDireccion,
+      destinatarioNombre: envio.destinatarioNombre ?? '',
+      destinatarioApellido: envio.destinatarioApellido ?? '',
+      destinatarioDni: envio.destinatarioDni ?? '',
+      destinatarioTelefono: envio.destinatarioTelefono ?? '',
+      tamanio: envio.tamanio,
+      observaciones: envio.observaciones ?? '',
+    })
+    setErrorEdicion(null)
+    setEditando(true)
+  }
+
+  const guardarEdicion = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!envio) return
+    // DNI y observaciones vacíos se borran (null). Los demás son obligatorios: si quedan
+    // vacíos se mandan igual y el backend explica qué falta.
+    const nuevos = {
+      destinoDireccion: formEdicion.destinoDireccion.trim(),
+      destinatarioNombre: formEdicion.destinatarioNombre.trim(),
+      destinatarioApellido: formEdicion.destinatarioApellido.trim(),
+      destinatarioDni: formEdicion.destinatarioDni.replace(/\D/g, '') || null,
+      destinatarioTelefono: formEdicion.destinatarioTelefono.trim(),
+      tamanio: formEdicion.tamanio,
+      observaciones: formEdicion.observaciones.trim() || null,
+    }
+    const actuales = {
+      destinoDireccion: envio.destinoDireccion,
+      destinatarioNombre: envio.destinatarioNombre ?? '',
+      destinatarioApellido: envio.destinatarioApellido ?? '',
+      destinatarioDni: envio.destinatarioDni,
+      destinatarioTelefono: envio.destinatarioTelefono ?? '',
+      tamanio: envio.tamanio,
+      observaciones: envio.observaciones,
+    }
+    // Solo lo que cambió: un envío viejo con un dato vacío se puede editar sin completarlo.
+    const cambios = Object.fromEntries(
+      Object.entries(nuevos).filter(([campo, valor]) => valor !== actuales[campo as keyof typeof actuales]),
+    )
+    if (Object.keys(cambios).length === 0) {
+      setEditando(false)
+      return
+    }
+
+    setGuardandoEdicion(true)
+    setErrorEdicion(null)
+    try {
+      await api(`/envios/${id}`, { metodo: 'PATCH', datos: cambios })
+      setEditando(false)
+      await cargar()
+    } catch (err) {
+      setErrorEdicion(err instanceof ErrorApi ? err.message : 'No se pudo modificar el envío.')
+    } finally {
+      setGuardandoEdicion(false)
+    }
+  }
+
   if (!envio) {
     return <p className="text-gray-500">{error ?? 'Cargando detalle...'}</p>
   }
 
   const destinatario = [envio.destinatarioNombre, envio.destinatarioApellido].filter(Boolean).join(' ')
   const sePuedeCancelar = envio.estado !== 'ENTREGADO' && envio.estado !== 'CANCELADO'
+  const sePuedeModificar =
+    envio.estado === 'PENDIENTE' || envio.estado === 'ASIGNADO' || envio.estado === 'EN_CAMINO_A_RETIRAR'
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -123,10 +213,15 @@ export function DetalleEnvioPage() {
           <h1 className="font-mono text-2xl font-bold">{envio.codigoSeguimiento}</h1>
           <EtiquetaEstado estado={envio.estado} />
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Boton variante="secundario" onClick={copiarLink}>
             {copiado ? '¡Link copiado!' : 'Copiar link de seguimiento'}
           </Boton>
+          {sePuedeModificar && (
+            <Boton variante="secundario" onClick={abrirModalEdicion}>
+              Modificar datos
+            </Boton>
+          )}
           {sePuedeCancelar && (
             <Boton variante="peligro" onClick={() => setConfirmandoCancelacion(true)}>
               Cancelar envío
@@ -202,6 +297,67 @@ export function DetalleEnvioPage() {
         )}
       </section>
 
+      {/* Modal de edición */}
+      <Modal abierto={editando} onCerrar={() => setEditando(false)} titulo="Modificar datos del envío">
+        <form onSubmit={guardarEdicion} className="space-y-4">
+          <Campo
+            etiqueta="Dirección de destino"
+            value={formEdicion.destinoDireccion}
+            onChange={(e) => setFormEdicion((prev) => ({ ...prev, destinoDireccion: e.target.value }))}
+            required
+          />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Campo
+              etiqueta="Nombre destinatario"
+              value={formEdicion.destinatarioNombre}
+              onChange={(e) => setFormEdicion((prev) => ({ ...prev, destinatarioNombre: e.target.value }))}
+            />
+            <Campo
+              etiqueta="Apellido destinatario"
+              value={formEdicion.destinatarioApellido}
+              onChange={(e) => setFormEdicion((prev) => ({ ...prev, destinatarioApellido: e.target.value }))}
+            />
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Campo
+              etiqueta={envio.requiereDni ? 'DNI destinatario * (el comercio lo exige)' : 'DNI destinatario (opcional)'}
+              value={formEdicion.destinatarioDni}
+              onChange={(e) => setFormEdicion((prev) => ({ ...prev, destinatarioDni: e.target.value }))}
+            />
+            <Campo
+              etiqueta="Teléfono destinatario"
+              value={formEdicion.destinatarioTelefono}
+              onChange={(e) => setFormEdicion((prev) => ({ ...prev, destinatarioTelefono: e.target.value }))}
+            />
+          </div>
+          <Selector
+            etiqueta="Tamaño del paquete"
+            value={formEdicion.tamanio}
+            onChange={(e) => setFormEdicion((prev) => ({ ...prev, tamanio: e.target.value as TamanioPaquete }))}
+            opciones={[
+              { valor: 'CHICO', etiqueta: 'Chico (Moto)' },
+              { valor: 'MEDIANO', etiqueta: 'Mediano (Auto)' },
+              { valor: 'GRANDE', etiqueta: 'Grande (Camión)' },
+            ]}
+          />
+          <Campo
+            etiqueta="Observaciones (opcional)"
+            value={formEdicion.observaciones}
+            onChange={(e) => setFormEdicion((prev) => ({ ...prev, observaciones: e.target.value }))}
+          />
+          {errorEdicion && <p className="rounded-md bg-red-50 p-3 text-sm text-red-600">{errorEdicion}</p>}
+          <div className="flex justify-end gap-2 pt-2">
+            <Boton type="button" variante="secundario" onClick={() => setEditando(false)}>
+              Cancelar
+            </Boton>
+            <Boton type="submit" variante="primario" disabled={guardandoEdicion}>
+              {guardandoEdicion ? 'Guardando...' : 'Guardar'}
+            </Boton>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal de cancelación */}
       <Modal
         abierto={confirmandoCancelacion}
         onCerrar={() => setConfirmandoCancelacion(false)}

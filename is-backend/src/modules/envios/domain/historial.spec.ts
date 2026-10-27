@@ -150,6 +150,47 @@ describe('Historial del envío (A-6)', () => {
     expect(historial[1].actorNombre).toBe('Ana');
   });
 
+  it('una oferta cerrada porque el cambio de tamaño pidió otro vehículo no figura como vencida', () => {
+    const historial = armarHistorial(
+      [
+        evento({
+          tipo: 'REASIGNACION',
+          estadoNuevo: 'PENDIENTE',
+          actorTipo: 'OPERARIO',
+          actorId: 3,
+          creadoEn: hora('10:02'),
+        }),
+      ],
+      [
+        {
+          id: 4,
+          estado: 'VENCIDA',
+          creadaEn: hora('10:01'),
+          expiraEn: hora('10:06'),
+          respondidaEn: null,
+          repartidor: juan,
+        },
+        // La oferta al nuevo vehículo sí venció por inactividad.
+        {
+          id: 5,
+          estado: 'VENCIDA',
+          creadaEn: hora('10:03'),
+          expiraEn: hora('10:08'),
+          respondidaEn: null,
+          repartidor: juan,
+        },
+      ],
+      nombres,
+    );
+
+    expect(historial.map((e) => e.tipo)).toEqual([
+      'OFERTA_ENVIADA',
+      'REASIGNACION',
+      'OFERTA_ENVIADA',
+      'OFERTA_VENCIDA',
+    ]);
+  });
+
   it('si no encuentra al actor, deja el nombre vacío', () => {
     const [entrada] = armarHistorial(
       [evento({ actorTipo: 'OPERARIO', actorId: 99 })],

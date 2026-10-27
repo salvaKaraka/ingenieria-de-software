@@ -25,6 +25,7 @@ describe('ViajesService', () => {
     observaciones: null,
     requiereFoto: false,
     requiereDni: true,
+    eventos: [] as { detalle: string | null }[],
   });
 
   beforeEach(() => {
@@ -53,6 +54,23 @@ describe('ViajesService', () => {
       siguienteEstado: 'EN_CAMINO_A_RETIRAR',
     });
     expect(JSON.stringify(viaje)).not.toContain('30111222');
+  });
+
+  it('avisa al repartidor si el operario cambió la dirección de entrega', async () => {
+    repository.buscarViajeActivoPorRepartidor.mockResolvedValue({
+      ...envioEn('EN_CAMINO_A_RETIRAR'),
+      eventos: [{ detalle: 'La dirección de entrega fue modificada' }],
+    });
+    const { viaje } = await service.obtenerViajeActual(1);
+    expect(viaje?.aviso).toBe('La dirección de entrega fue modificada');
+  });
+
+  it('sin novedades del operario no muestra aviso', async () => {
+    repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
+      envioEn('ASIGNADO'),
+    );
+    const { viaje } = await service.obtenerViajeActual(1);
+    expect(viaje?.aviso).toBeNull();
   });
 
   it('avanza un paso y no dispara el motor si todavía no entregó', async () => {

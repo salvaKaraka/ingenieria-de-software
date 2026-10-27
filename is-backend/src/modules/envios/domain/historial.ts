@@ -74,11 +74,15 @@ export function armarHistorial(
     repartidorNombre: null,
   }));
 
-  // Cancelar un envío cierra sus ofertas abiertas como VENCIDA antes de tiempo: esas no
-  // vencieron por inactividad del repartidor y no se muestran como tales.
-  const cancelado = eventos.find(
-    (evento) => evento.estadoNuevo === 'CANCELADO',
-  )?.creadoEn;
+  // Cancelar un envío o cambiarle el tamaño a otro vehículo (HU 31) cierra sus ofertas
+  // abiertas como VENCIDA antes de tiempo: esas no vencieron por inactividad del repartidor
+  // y no se muestran como tales.
+  const cierres = eventos
+    .filter(
+      (evento) =>
+        evento.estadoNuevo === 'CANCELADO' || evento.tipo === 'REASIGNACION',
+    )
+    .map((evento) => evento.creadoEn);
 
   for (const oferta of ofertas) {
     const repartidorNombre = `${oferta.repartidor.nombre} ${oferta.repartidor.apellido}`;
@@ -108,8 +112,10 @@ export function armarHistorial(
       });
     }
 
-    const cerradaPorCancelacion = cancelado && cancelado < oferta.expiraEn;
-    if (oferta.estado === 'VENCIDA' && !cerradaPorCancelacion) {
+    const cerradaAntes = cierres.some(
+      (cierre) => cierre >= oferta.creadaEn && cierre < oferta.expiraEn,
+    );
+    if (oferta.estado === 'VENCIDA' && !cerradaAntes) {
       entradas.push({
         ...base,
         clave: `oferta-${oferta.id}-vencida`,
