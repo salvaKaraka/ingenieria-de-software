@@ -15,6 +15,7 @@ import { AsignacionService } from '../asignacion/asignacion.service';
 import { ComerciosService } from '../comercios/comercios.service';
 import { generarCodigoSeguimiento } from './codigo-seguimiento.util';
 import { esTransicionValida } from './domain/estado-envio';
+import { armarHistorial } from './domain/historial';
 import { CrearEnvioDto } from './dto/crear-envio.dto';
 import { ListarEnviosDto } from './dto/listar-envios.dto';
 import { EnviosRepository } from './envios.repository';
@@ -141,7 +142,22 @@ export class EnviosService {
     if (!envio) {
       throw new NotFoundException('El envío no existe');
     }
-    return envio;
+
+    const idsDe = (tipo: 'OPERARIO' | 'REPARTIDOR') => [
+      ...new Set(
+        envio.eventos
+          .filter((e) => e.actorTipo === tipo && e.actorId !== null)
+          .map((e) => e.actorId as number),
+      ),
+    ];
+    const nombres = await this.enviosRepository.buscarNombresActores(
+      idsDe('OPERARIO'),
+      idsDe('REPARTIDOR'),
+    );
+    return {
+      ...envio,
+      historial: armarHistorial(envio.eventos, envio.ofertas, nombres),
+    };
   }
 
   async cancelar(id: number, operarioId: number) {

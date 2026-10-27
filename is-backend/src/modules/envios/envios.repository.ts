@@ -6,6 +6,7 @@ import type {
   TamanioPaquete,
   TipoVehiculo,
 } from '../../generated/prisma/client';
+import type { NombresActores } from './domain/historial';
 
 export interface FiltrosListado {
   estados?: EstadoEnvio[];
@@ -152,6 +153,30 @@ export class EnviosRepository {
         eventos: { orderBy: [{ creadoEn: 'asc' }, { id: 'asc' }] },
       },
     });
+  }
+
+  // EventoEnvio guarda solo el id del actor (puede ser un operario o un repartidor), así que
+  // los nombres para el historial se buscan aparte.
+  async buscarNombresActores(
+    operarioIds: number[],
+    repartidorIds: number[],
+  ): Promise<NombresActores> {
+    const [operarios, repartidores] = await Promise.all([
+      this.prisma.operario.findMany({
+        where: { id: { in: operarioIds } },
+        select: { id: true, nombre: true },
+      }),
+      this.prisma.repartidor.findMany({
+        where: { id: { in: repartidorIds } },
+        select: { id: true, nombre: true, apellido: true },
+      }),
+    ]);
+    return {
+      operarios: new Map(operarios.map((o) => [o.id, o.nombre])),
+      repartidores: new Map(
+        repartidores.map((r) => [r.id, `${r.nombre} ${r.apellido}`]),
+      ),
+    };
   }
 
   async obtenerEstado(id: number) {
