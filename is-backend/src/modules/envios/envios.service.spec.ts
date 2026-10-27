@@ -99,6 +99,24 @@ describe('EnviosService', () => {
       expect(repository.crear).not.toHaveBeenCalled();
     });
 
+    it('exige el DNI del destinatario si el comercio lo pide al entregar', async () => {
+      comerciosService.obtenerPorId.mockResolvedValue({
+        ...comercioMock,
+        requiereDni: true,
+      });
+
+      await expect(service.crear(crearDto(), OPERARIO_ID)).rejects.toThrow(
+        'cargá el DNI del destinatario',
+      );
+      expect(repository.crear).not.toHaveBeenCalled();
+
+      await service.crear(
+        crearDto({ destinatarioDni: '30111222' }),
+        OPERARIO_ID,
+      );
+      expect(datosGuardados()).toMatchObject({ destinatarioDni: '30111222' });
+    });
+
     it('usa la dirección del comercio como origen si no viene otra', async () => {
       await service.crear(crearDto(), OPERARIO_ID);
       expect(datosGuardados()).toMatchObject({

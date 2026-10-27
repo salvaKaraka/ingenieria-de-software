@@ -42,6 +42,12 @@ export class EnviosService {
     if (!comercio.activo) {
       throw new BadRequestException('El comercio está dado de baja');
     }
+    // Al entregar, el repartidor compara contra este DNI (E-4): sin él no habría cómo verificar.
+    if (comercio.requiereDni && !dto.destinatarioDni) {
+      throw new BadRequestException(
+        'Este comercio exige DNI al entregar: cargá el DNI del destinatario',
+      );
+    }
 
     const envio = await this.guardarConCodigoUnico(dto, operarioId, {
       origenDireccion: dto.origenDireccion ?? comercio.direccion,

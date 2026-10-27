@@ -38,6 +38,7 @@ describe('Viaje del repartidor (e2e)', () => {
   async function crearEnvio(
     estado: EstadoEnvio,
     repartidorId: number | null = null,
+    exige = { requiereFoto: false, requiereDni: false },
   ) {
     const envio = await prisma.envio.create({
       data: {
@@ -49,8 +50,7 @@ describe('Viaje del repartidor (e2e)', () => {
         destinatarioDni: '30111222',
         tamanio: 'CHICO',
         vehiculoRequerido: 'MOTO',
-        requiereFoto: false,
-        requiereDni: false,
+        ...exige,
         estado,
         repartidorId,
       },
@@ -58,10 +58,11 @@ describe('Viaje del repartidor (e2e)', () => {
     return envio.id;
   }
 
-  const avanzar = async (repartidorId: number) =>
+  const avanzar = async (repartidorId: number, evidencia: object = {}) =>
     request(app.getHttpServer())
       .post('/api/repartidor/viajes/actual/avanzar')
-      .set('Cookie', await cookieDe(repartidorId));
+      .set('Cookie', await cookieDe(repartidorId))
+      .send(evidencia);
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -140,6 +141,38 @@ describe('Viaje del repartidor (e2e)', () => {
       where: { envioId: esperando, estado: 'PENDIENTE' },
     });
     expect(oferta?.repartidorId).toBe(repartidor);
+  });
+
+  it('no entrega sin la evidencia que exige el comercio y la deja en el historial (E-4)', async () => {
+    const repartidor = await crearRepartidor('OCUPADO');
+    const envioId = await crearEnvio('EN_DOMICILIO', repartidor, {
+      requiereFoto: true,
+      requiereDni: true,
+    });
+
+    expect((await avanzar(repartidor)).status).toBe(400);
+    const distinto = await avanzar(repartidor, {
+      dni: '99888777',
+      fotoEnviada: true,
+    });
+    expect(distinto.status).toBe(400);
+    expect(distinto.body.message).toBe(
+      'El DNI no coincide con el del destinatario',
+    );
+
+    const res = await avanzar(repartidor, {
+      dni: '30111222',
+      fotoEnviada: true,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.estado).toBe('ENTREGADO');
+
+    const evento = await prisma.eventoEnvio.findFirstOrThrow({
+      where: { envioId, estadoNuevo: 'ENTREGADO' },
+    });
+    expect(evento.detalle).toBe(
+      'Evidencia: DNI verificado, foto enviada por WhatsApp',
+    );
   });
 
   it('un repartidor no puede avanzar el envío de otro', async () => {

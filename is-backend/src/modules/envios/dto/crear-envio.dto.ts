@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
   Min,
 } from 'class-validator';
 import { TamanioPaquete } from '../../../generated/prisma/client';
@@ -31,8 +32,10 @@ export class CrearEnvioDto {
   @IsOptional()
   destinatarioApellido?: string;
 
-  @IsString()
+  // Solo dígitos: el front saca los puntos, así se compara igual que el que tipea el repartidor.
+  // Opcional acá; el service lo exige si el comercio pide DNI al entregar.
   @IsOptional()
+  @Matches(/^\d{7,8}$/, { message: 'El DNI debe tener 7 u 8 dígitos' })
   destinatarioDni?: string;
 
   @IsString()
