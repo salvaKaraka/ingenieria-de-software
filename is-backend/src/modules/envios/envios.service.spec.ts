@@ -38,6 +38,7 @@ describe('EnviosService', () => {
     crear: jest.fn(),
     listar: jest.fn(),
     obtenerDetalle: jest.fn(),
+    buscarNombresActores: jest.fn(),
     obtenerEstado: jest.fn(),
     cancelar: jest.fn(),
   };
@@ -224,10 +225,44 @@ describe('EnviosService', () => {
     });
   });
 
-  describe('obtenerDetalle (B-4)', () => {
-    it('devuelve el envío con su historial', async () => {
-      repository.obtenerDetalle.mockResolvedValue({ id: 5, eventos: [] });
-      await expect(service.obtenerDetalle(5)).resolves.toMatchObject({ id: 5 });
+  describe('obtenerDetalle (B-4, A-6)', () => {
+    it('devuelve el envío con su historial y el nombre de cada responsable', async () => {
+      repository.obtenerDetalle.mockResolvedValue({
+        id: 5,
+        ofertas: [],
+        eventos: [
+          {
+            id: 1,
+            tipo: 'CREADO',
+            estadoNuevo: 'PENDIENTE',
+            detalle: null,
+            actorTipo: 'OPERARIO',
+            actorId: 3,
+            creadoEn: new Date('2026-10-27T10:00:00Z'),
+          },
+          {
+            id: 2,
+            tipo: 'CAMBIO_ESTADO',
+            estadoNuevo: 'CANCELADO',
+            detalle: null,
+            actorTipo: 'OPERARIO',
+            actorId: 3,
+            creadoEn: new Date('2026-10-27T10:05:00Z'),
+          },
+        ],
+      });
+      repository.buscarNombresActores.mockResolvedValue({
+        operarios: new Map([[3, 'Ana']]),
+        repartidores: new Map(),
+      });
+
+      const detalle = await service.obtenerDetalle(5);
+
+      expect(repository.buscarNombresActores).toHaveBeenCalledWith([3], []);
+      expect(detalle.historial).toMatchObject([
+        { tipo: 'CREADO', actorNombre: 'Ana' },
+        { estadoNuevo: 'CANCELADO', actorNombre: 'Ana' },
+      ]);
     });
 
     it('responde 404 si el envío no existe', async () => {
