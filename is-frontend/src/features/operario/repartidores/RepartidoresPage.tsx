@@ -88,6 +88,28 @@ export function RepartidoresPage() {
     }
   }
 
+  // Única forma de que vuelva un repartidor dado de baja: su DNI y email siguen ocupados.
+  // Recibe un PIN nuevo, que se muestra una sola vez como en el alta.
+  async function handleReactivar(repartidor: Repartidor) {
+    const confirmado = window.confirm(
+      `¿Reactivar a ${repartidor.nombre} ${repartidor.apellido}? Se le va a generar un PIN nuevo.`,
+    )
+    if (!confirmado) return
+
+    try {
+      const res = await api<{ pin: string }>(`/repartidores/${repartidor.id}/reactivar`, {
+        metodo: 'POST',
+      })
+      setPinGenerado({
+        pin: res.pin,
+        nombre: `${repartidor.nombre} ${repartidor.apellido}`,
+      })
+      await cargar()
+    } catch (err) {
+      alert(err instanceof ErrorApi ? err.mensajes[0] || 'Error al reactivar.' : 'Ocurrió un error inesperado al reactivar.')
+    }
+  }
+
   function handleGuardado(pinNuevo?: string) {
     cargar()
     if (pinNuevo) {
@@ -184,6 +206,18 @@ export function RepartidoresPage() {
           >
             Editar
           </button>
+          {!r.activo && (
+            <>
+              <span className="text-gray-300">|</span>
+              <button
+                type="button"
+                onClick={() => handleReactivar(r)}
+                className="text-xs font-medium text-green-600 hover:text-green-800 hover:underline"
+              >
+                Reactivar
+              </button>
+            </>
+          )}
           {r.activo && (
             <>
               <span className="text-gray-300">|</span>

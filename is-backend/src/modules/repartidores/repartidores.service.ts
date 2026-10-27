@@ -154,4 +154,24 @@ export class RepartidoresService {
     const nuevoPin = await this.authService.asignarNuevoPin(id);
     return { pin: nuevoPin };
   }
+
+  // Vuelve a habilitar a un repartidor dado de baja: es la única forma de que regrese, porque
+  // su DNI y su email siguen ocupados y no se lo puede dar de alta otra vez.
+  async reactivar(id: number): Promise<RepartidorConPin> {
+    const repartidor = await this.buscarPorId(id);
+    if (repartidor.activo) {
+      throw new ConflictException('El repartidor ya está activo');
+    }
+
+    // UPDATE condicionado: si dos operarios reactivan a la vez, solo uno genera PIN.
+    const reactivado = await this.repo.reactivarSiEstaInactivo(id);
+    if (!reactivado) {
+      throw new ConflictException('El repartidor ya está activo');
+    }
+
+    // PIN nuevo: el anterior pudo quedar anotado en cualquier lado durante la baja.
+    // Si esto fallara, queda activo sin PIN conocido y se resuelve con "Resetear PIN".
+    const pin = await this.authService.asignarNuevoPin(id);
+    return { ...repartidor, activo: true, pin };
+  }
 }
