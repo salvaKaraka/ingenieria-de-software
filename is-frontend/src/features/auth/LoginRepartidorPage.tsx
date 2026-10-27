@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router'
+import { ErrorApi } from '../../shared/api.ts'
 import { mensajeDeErrorDeLogin, rutaPrevia } from './mensajeDeError.ts'
 import { RUTA_INICIO, useSesion } from './sesion.ts'
 
@@ -24,7 +25,8 @@ export function LoginRepartidorPage() {
       await loginRepartidor(pinCompleto)
       navegar(rutaPrevia(ubicacion.state) ?? RUTA_INICIO.REPARTIDOR, { replace: true })
     } catch (e) {
-      setError(mensajeDeErrorDeLogin(e))
+      // Acá el único dato es el PIN, así que decir cuál falló no revela nada extra.
+      setError(e instanceof ErrorApi && e.status === 401 ? 'PIN incorrecto' : mensajeDeErrorDeLogin(e))
       setPin('')
     } finally {
       setEnviando(false)
