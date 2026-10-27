@@ -45,6 +45,7 @@ describe('RepartidoresService', () => {
       tieneViajeActivo: jest.fn(),
       tieneOfertaPendiente: jest.fn(),
       darDeBajaSiEstaLibre: jest.fn(),
+      reactivarSiEstaInactivo: jest.fn(),
     } as unknown as jest.Mocked<RepartidoresRepository>;
 
     authService = {
@@ -287,6 +288,47 @@ describe('RepartidoresService', () => {
 
       expect(resultado).toEqual({ pin: '9876' });
       expect(authService.asignarNuevoPin).toHaveBeenCalledWith(1);
+    });
+  });
+
+  describe('reactivar', () => {
+    const dadoDeBaja = { ...repartidorEjemplo, activo: false };
+
+    it('lanza NotFoundException si el repartidor no existe', async () => {
+      repo.buscarPorId.mockResolvedValue(null);
+
+      await expect(servicio.reactivar(999)).rejects.toThrow(NotFoundException);
+    });
+
+    it('rechaza (409) reactivar a un repartidor que ya está activo y no le cambia el PIN', async () => {
+      repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
+
+      await expect(servicio.reactivar(1)).rejects.toThrow(
+        new ConflictException('El repartidor ya está activo'),
+      );
+      expect(repo.reactivarSiEstaInactivo).not.toHaveBeenCalled();
+      expect(authService.asignarNuevoPin).not.toHaveBeenCalled();
+    });
+
+    it('si otro operario lo reactivó mientras tanto, responde 409 y no genera otro PIN', async () => {
+      repo.buscarPorId.mockResolvedValue(dadoDeBaja);
+      repo.reactivarSiEstaInactivo.mockResolvedValue(false);
+
+      await expect(servicio.reactivar(1)).rejects.toThrow(ConflictException);
+      expect(authService.asignarNuevoPin).not.toHaveBeenCalled();
+    });
+
+    it('lo vuelve a activar y le genera un PIN nuevo que devuelve una sola vez', async () => {
+      repo.buscarPorId.mockResolvedValue(dadoDeBaja);
+      repo.reactivarSiEstaInactivo.mockResolvedValue(true);
+      authService.asignarNuevoPin.mockResolvedValue('5555');
+
+      const resultado = await servicio.reactivar(1);
+
+      expect(repo.reactivarSiEstaInactivo).toHaveBeenCalledWith(1);
+      expect(authService.asignarNuevoPin).toHaveBeenCalledWith(1);
+      expect(resultado).toMatchObject({ id: 1, activo: true, pin: '5555' });
+      expect(resultado.dni).toBe('•••••456');
     });
   });
 });

@@ -123,6 +123,21 @@ export class RepartidoresRepository {
     return count > 0;
   }
 
+  // Reactivación: vuelve fuera de jornada y con la cuenta de viajes seguidos en cero.
+  // Devuelve false si ya estaba activo (por ejemplo, otro operario lo reactivó antes).
+  async reactivarSiEstaInactivo(id: number): Promise<boolean> {
+    const { count } = await this.prisma.repartidor.updateMany({
+      where: { id, activo: false },
+      data: {
+        activo: true,
+        estado: 'FUERA_DE_JORNADA',
+        enColaDesde: null,
+        viajesConsecutivos: 0,
+      },
+    });
+    return count > 0;
+  }
+
   // Jornada (C-3). Cada cambio es un UPDATE condicionado al estado esperado, así una
   // transición que ya no vale (por ejemplo, el motor le acaba de ofrecer un viaje) no se
   // aplica. Devuelven false si no se cambió nada.
