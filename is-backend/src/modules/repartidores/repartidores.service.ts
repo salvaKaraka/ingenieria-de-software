@@ -17,6 +17,13 @@ import {
 
 export type RepartidorConPin = RepartidorPublico & { pin: string };
 
+// El DNI completo nunca sale de la API: al operario le alcanza con los últimos dígitos
+// para reconocer a la persona (regla de datos sensibles del AGENTS.md).
+function ocultarDni(repartidor: RepartidorPublico): RepartidorPublico {
+  if (!repartidor.dni) return repartidor;
+  return { ...repartidor, dni: `•••••${repartidor.dni.slice(-3)}` };
+}
+
 @Injectable()
 export class RepartidoresService {
   constructor(
@@ -24,8 +31,9 @@ export class RepartidoresService {
     private readonly authService: AuthService,
   ) {}
 
-  listar(filtros?: FiltroRepartidoresDto): Promise<RepartidorPublico[]> {
-    return this.repo.listar(filtros);
+  async listar(filtros?: FiltroRepartidoresDto): Promise<RepartidorPublico[]> {
+    const repartidores = await this.repo.listar(filtros);
+    return repartidores.map(ocultarDni);
   }
 
   async buscarPorId(id: number): Promise<RepartidorPublico> {
@@ -33,14 +41,15 @@ export class RepartidoresService {
     if (!repartidor) {
       throw new NotFoundException(`Repartidor #${id} no encontrado`);
     }
-    return repartidor;
+    return ocultarDni(repartidor);
   }
 
   async crear(dto: CrearRepartidorDto): Promise<RepartidorConPin> {
-    const repartidor = await this.conEmailUnico(() =>
+    const repartidor = await this.conDatosUnicos(() =>
       this.repo.crear({
         nombre: dto.nombre.trim(),
         apellido: dto.apellido.trim(),
+        dni: dto.dni,
         telefono: dto.telefono.trim(),
         email: dto.email.trim().toLowerCase(),
         direccion: dto.direccion.trim(),
@@ -53,7 +62,7 @@ export class RepartidoresService {
 
     // El PIN solo se devuelve esta única vez para que el operario se lo entregue al repartidor
     return {
-      ...repartidor,
+      ...ocultarDni(repartidor),
       pin,
     };
   }
@@ -64,10 +73,11 @@ export class RepartidoresService {
   ): Promise<RepartidorPublico> {
     await this.buscarPorId(id);
 
-    return this.conEmailUnico(() =>
+    const repartidor = await this.conDatosUnicos(() =>
       this.repo.actualizar(id, {
         ...(dto.nombre !== undefined && { nombre: dto.nombre.trim() }),
         ...(dto.apellido !== undefined && { apellido: dto.apellido.trim() }),
+        ...(dto.dni !== undefined && { dni: dto.dni }),
         ...(dto.telefono !== undefined && { telefono: dto.telefono.trim() }),
         ...(dto.email !== undefined && {
           email: dto.email.trim().toLowerCase(),
@@ -76,11 +86,13 @@ export class RepartidoresService {
         ...(dto.vehiculo !== undefined && { vehiculo: dto.vehiculo }),
       }),
     );
+    return ocultarDni(repartidor);
   }
 
-  // El email es único en la base: si ya lo usa otro repartidor, se responde 409 en vez de 500.
-  // Si es uno dado de baja, lo que corresponde es reactivarlo, no crearlo de nuevo.
-  private async conEmailUnico<T>(guardar: () => Promise<T>): Promise<T> {
+  // DNI y email son únicos en la base: si ya los usa otro repartidor, se responde 409 en vez
+  // de 500. Si es uno dado de baja, lo que corresponde es reactivarlo, no crearlo de nuevo.
+  // Lo chequea la base (no un SELECT previo) para que dos altas simultáneas no pasen las dos.
+  private async conDatosUnicos<T>(guardar: () => Promise<T>): Promise<T> {
     try {
       return await guardar();
     } catch (error) {
@@ -88,6 +100,13 @@ export class RepartidoresService {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
+        // El detalle trae el índice violado (repartidores_dni_key o repartidores_email_key);
+        // su forma cambia según el driver de Prisma, por eso se busca en el texto.
+        if (JSON.stringify(error.meta ?? {}).includes('dni')) {
+          throw new ConflictException(
+            'El repartidor ya se encuentra registrado',
+          );
+        }
         throw new ConflictException('Ya existe un repartidor con ese email');
       }
       throw error;

@@ -124,7 +124,10 @@ export function RepartidoresPage() {
           <p className="font-semibold text-gray-900">
             {r.nombre} {r.apellido}
           </p>
-          <p className="text-xs text-gray-500">{r.email}</p>
+          <p className="text-xs text-gray-500">
+            {r.dni && `DNI ${r.dni} · `}
+            {r.email}
+          </p>
         </div>
       ),
     },

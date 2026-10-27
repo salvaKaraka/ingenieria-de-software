@@ -3,11 +3,13 @@ import { PrismaService } from '../../database/prisma.service';
 import { EstadoEnvio, type Prisma } from '../../generated/prisma/client';
 import type { FiltroRepartidoresDto } from './dto/filtro-repartidores.dto';
 
-// Proyección segura: pinHmac se excluye a nivel de base de datos para no exponerlo jamás
+// Proyección segura: pinHmac se excluye a nivel de base de datos para no exponerlo jamás.
+// El DNI se lee para que el service lo enmascare antes de responder.
 export const SELECT_REPARTIDOR_PUBLICO = {
   id: true,
   nombre: true,
   apellido: true,
+  dni: true,
   telefono: true,
   email: true,
   direccion: true,

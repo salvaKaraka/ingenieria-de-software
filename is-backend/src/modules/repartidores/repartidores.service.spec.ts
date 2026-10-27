@@ -21,6 +21,7 @@ describe('RepartidoresService', () => {
     id: 1,
     nombre: 'Carlos',
     apellido: 'Gómez',
+    dni: '30123456',
     telefono: '1122334455',
     email: 'carlos@repartos.com',
     direccion: 'Av. Siempre Viva 123',
@@ -32,6 +33,8 @@ describe('RepartidoresService', () => {
     creadoEn: new Date('2026-01-01T10:00:00Z'),
     actualizadoEn: new Date('2026-01-01T10:00:00Z'),
   };
+  // Lo que ve el operario: el DNI nunca sale completo de la API.
+  const repartidorVisible = { ...repartidorEjemplo, dni: '•••••456' };
 
   beforeEach(() => {
     repo = {
@@ -58,7 +61,7 @@ describe('RepartidoresService', () => {
 
       const resultado = await servicio.listar();
 
-      expect(resultado).toEqual([repartidorEjemplo]);
+      expect(resultado).toEqual([repartidorVisible]);
       expect(repo.listar).toHaveBeenCalledTimes(1);
     });
   });
@@ -69,7 +72,7 @@ describe('RepartidoresService', () => {
 
       const resultado = await servicio.buscarPorId(1);
 
-      expect(resultado).toEqual(repartidorEjemplo);
+      expect(resultado).toEqual(repartidorVisible);
       expect(repo.buscarPorId).toHaveBeenCalledWith(1);
     });
 
@@ -90,6 +93,7 @@ describe('RepartidoresService', () => {
       const dto = {
         nombre: '  Carlos ',
         apellido: ' Gómez  ',
+        dni: '30123456',
         telefono: ' 1122334455 ',
         email: ' Carlos@Repartos.COM ',
         direccion: '  Av. Siempre Viva 123  ',
@@ -101,6 +105,7 @@ describe('RepartidoresService', () => {
       expect(repo.crear).toHaveBeenCalledWith({
         nombre: 'Carlos',
         apellido: 'Gómez',
+        dni: '30123456',
         telefono: '1122334455',
         email: 'carlos@repartos.com',
         direccion: 'Av. Siempre Viva 123',
@@ -108,38 +113,68 @@ describe('RepartidoresService', () => {
       });
       expect(authService.asignarNuevoPin).toHaveBeenCalledWith(1);
       expect(resultado).toEqual({
-        ...repartidorEjemplo,
+        ...repartidorVisible,
         pin: '4321',
       });
     });
   });
 
-  describe('email único', () => {
-    const emailRepetido = () =>
+  describe('DNI y email únicos', () => {
+    // Así informa Prisma (con el adapter de pg) qué índice único se violó.
+    const repetido = (indice: string) =>
       new Prisma.PrismaClientKnownRequestError('duplicado', {
         code: 'P2002',
         clientVersion: 'test',
+        meta: {
+          modelName: 'Repartidor',
+          driverAdapterError: {
+            cause: {
+              kind: 'UniqueConstraintViolation',
+              constraint: { index: indice },
+            },
+          },
+        },
       });
+    const altaNueva = {
+      nombre: 'Ana',
+      apellido: 'Paz',
+      dni: '28111222',
+      telefono: '221 555-0000',
+      email: 'ana@repartos.com',
+      direccion: 'Calle 7 1234',
+      vehiculo: TipoVehiculo.MOTO,
+    };
+
+    it('al crear con un DNI que ya existe responde 409 "El repartidor ya se encuentra registrado" y no genera PIN', async () => {
+      repo.crear.mockRejectedValue(repetido('repartidores_dni_key'));
+
+      await expect(servicio.crear(altaNueva)).rejects.toThrow(
+        new ConflictException('El repartidor ya se encuentra registrado'),
+      );
+      expect(authService.asignarNuevoPin).not.toHaveBeenCalled();
+    });
 
     it('al crear con un email que ya existe responde 409 y no genera PIN', async () => {
-      repo.crear.mockRejectedValue(emailRepetido());
+      repo.crear.mockRejectedValue(repetido('repartidores_email_key'));
 
-      await expect(
-        servicio.crear({
-          nombre: 'Ana',
-          apellido: 'Paz',
-          telefono: '221 555-0000',
-          email: 'ana@repartos.com',
-          direccion: 'Calle 7 1234',
-          vehiculo: TipoVehiculo.MOTO,
-        }),
-      ).rejects.toThrow(ConflictException);
+      await expect(servicio.crear(altaNueva)).rejects.toThrow(
+        new ConflictException('Ya existe un repartidor con ese email'),
+      );
       expect(authService.asignarNuevoPin).not.toHaveBeenCalled();
+    });
+
+    it('al editar con el DNI de otro repartidor responde 409', async () => {
+      repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
+      repo.actualizar.mockRejectedValue(repetido('repartidores_dni_key'));
+
+      await expect(servicio.actualizar(1, { dni: '28111222' })).rejects.toThrow(
+        new ConflictException('El repartidor ya se encuentra registrado'),
+      );
     });
 
     it('al editar con un email de otro repartidor responde 409', async () => {
       repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
-      repo.actualizar.mockRejectedValue(emailRepetido());
+      repo.actualizar.mockRejectedValue(repetido('repartidores_email_key'));
 
       await expect(
         servicio.actualizar(1, { email: 'otro@repartos.com' }),
