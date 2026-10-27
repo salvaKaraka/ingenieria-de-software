@@ -161,70 +161,58 @@ export class EnviosRepository {
     });
   }
 
-  // Método para buscar el viaje activo del repartidor
+  // Viaje activo del repartidor (E-2): como mucho hay uno, porque el motor solo le ofrece
+  // envíos mientras está DISPONIBLE y al aceptar pasa a OCUPADO.
   async buscarViajeActivoPorRepartidor(repartidorId: number) {
     return this.prisma.envio.findFirst({
       where: {
-        repartidorId: repartidorId,
+        repartidorId,
         estado: {
           in: ['ASIGNADO', 'EN_CAMINO_A_RETIRAR', 'RETIRADO', 'EN_DOMICILIO'],
         },
       },
-      include: {
-        comercio: true, // Necesario para obtener el nombre y teléfono del comercio en el contrato
-      },
+      include: { comercio: { select: { nombre: true, telefono: true } } },
     });
   }
 
-  // Método transaccional para avanzar el estado y liberar al repartidor si llega a ENTREGADO
-  async avanzarEstadoEnvioTransaccional(
+  // Avanza el viaje un paso (E-2). Solo si el envío sigue en el estado que leyó el service y
+  // sigue siendo de este repartidor: si en el medio el operario lo canceló, no toca nada y
+  // devuelve false. Al entregar, el repartidor vuelve al final de la cola en la misma transacción.
+  async avanzarViaje(
     envioId: number,
-    estadoActual: string,
-    nuevoEstado: string,
-    siguienteEstadoNuevo: string | null,
+    estadoAnterior: EstadoEnvio,
+    estadoNuevo: EstadoEnvio,
     repartidorId: number,
-    esEntregado: boolean,
-  ) {
+  ): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
-      // UPDATE condicionado para prevenir condiciones de carrera (si otro proceso cambió el estado, fallará)
-      const envioActualizado = await tx.envio.updateMany({
-        where: { id: envioId, estado: estadoActual as any },
-        data: {
-          estado: nuevoEstado as any,
-          siguienteEstado: siguienteEstadoNuevo as any,
-        },
+      const { count } = await tx.envio.updateMany({
+        where: { id: envioId, estado: estadoAnterior, repartidorId },
+        data: { estado: estadoNuevo },
       });
+      if (count === 0) return false;
 
-      if (envioActualizado.count === 0) {
-        throw new Error('CONCURRENCY_ERROR');
-      }
-
-      // Registrar el evento del cambio de estado con actor REPARTIDOR
       await tx.eventoEnvio.create({
         data: {
-          envioId: envioId,
+          envioId,
           tipo: 'CAMBIO_ESTADO',
-          estadoNuevo: nuevoEstado as any,
+          estadoAnterior,
+          estadoNuevo,
           actorTipo: 'REPARTIDOR',
           actorId: repartidorId,
         },
       });
 
-      // Si el paquete fue entregado, actualizar al repartidor a DISPONIBLE al final de la cola
-      if (esEntregado) {
-        await tx.repartidor.update({
-          where: { id: repartidorId },
+      if (estadoNuevo === 'ENTREGADO') {
+        await tx.repartidor.updateMany({
+          where: { id: repartidorId, estado: 'OCUPADO' },
           data: {
             estado: 'DISPONIBLE',
             enColaDesde: new Date(),
-            viajesConsecutivos: {
-              increment: 1,
-            },
+            viajesConsecutivos: { increment: 1 },
           },
         });
       }
-
-      return { estado: nuevoEstado, siguienteEstado: siguienteEstadoNuevo };
+      return true;
     });
   }
 

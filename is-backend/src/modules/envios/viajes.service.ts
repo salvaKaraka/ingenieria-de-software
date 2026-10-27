@@ -1,8 +1,9 @@
-import { Injectable, ConflictException } from '@nestjs/common';
-import { EnviosRepository } from './envios.repository';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { AsignacionService } from '../asignacion/asignacion.service';
-import { esTransicionValida } from './domain/estado-envio';
+import { esTransicionValida, siguienteEstado } from './domain/estado-envio';
+import { EnviosRepository } from './envios.repository';
 
+// Viaje activo del repartidor logueado (E-2): verlo y avanzarlo un paso por vez.
 @Injectable()
 export class ViajesService {
   constructor(
@@ -10,35 +11,19 @@ export class ViajesService {
     private readonly asignacionService: AsignacionService,
   ) {}
 
-  private obtenerSiguienteEstado(estadoActual: string): string | null {
-    const flujo: Record<string, string> = {
-      ASIGNADO: 'EN_CAMINO_A_RETIRAR',
-      EN_CAMINO_A_RETIRAR: 'RETIRADO',
-      RETIRADO: 'EN_DOMICILIO',
-      EN_DOMICILIO: 'ENTREGADO',
-    };
-    return flujo[estadoActual] || null;
-  }
-
   async obtenerViajeActual(repartidorId: number) {
-    const envio = await this.enviosRepository.buscarViajeActivoPorRepartidor(repartidorId);
+    const envio =
+      await this.enviosRepository.buscarViajeActivoPorRepartidor(repartidorId);
+    if (!envio) return { viaje: null };
 
-    if (!envio) {
-      return { viaje: null };
-    }
-
-    const siguienteEstadoCalculado = this.obtenerSiguienteEstado(envio.estado);
-
+    // Sin el DNI del destinatario: el repartidor no lo necesita (la evidencia es E-4).
     return {
       viaje: {
         envioId: envio.id,
         codigoSeguimiento: envio.codigoSeguimiento,
         estado: envio.estado,
-        siguienteEstado: siguienteEstadoCalculado,
-        comercio: {
-          nombre: envio.comercio.nombre,
-          telefono: envio.comercio.telefono,
-        },
+        siguienteEstado: siguienteEstado(envio.estado),
+        comercio: envio.comercio,
         origenDireccion: envio.origenDireccion,
         destinoDireccion: envio.destinoDireccion,
         destinatario: {
@@ -54,46 +39,34 @@ export class ViajesService {
   }
 
   async avanzarViajeActual(repartidorId: number) {
-    const envio = await this.enviosRepository.buscarViajeActivoPorRepartidor(repartidorId);
-
+    const envio =
+      await this.enviosRepository.buscarViajeActivoPorRepartidor(repartidorId);
     if (!envio) {
-      throw new ConflictException('No tienes ningún viaje activo en este momento.');
+      throw new ConflictException('No tenés ningún viaje activo');
     }
 
-    const estadoActual = envio.estado;
-    const siguienteEstado = this.obtenerSiguienteEstado(estadoActual);
-
-    if (!siguienteEstado) {
-      throw new ConflictException('El envío ya no tiene un estado siguiente válido.');
+    const nuevo = siguienteEstado(envio.estado);
+    if (!nuevo || !esTransicionValida(envio.estado, nuevo, 'REPARTIDOR')) {
+      throw new ConflictException('El viaje no se puede avanzar desde acá');
     }
 
-    // Validar transición con la regla de E-1 (forzando tipo any para evitar conflictos de TS)
-    const esValida = esTransicionValida(estadoActual as any, siguienteEstado as any, 'REPARTIDOR');
-    if (!esValida) {
-      throw new ConflictException('Transición de estado no permitida para el repartidor.');
-    }
-
-    const esEntregado = siguienteEstado === 'ENTREGADO';
-    const siguienteDelSiguiente = esEntregado ? null : this.obtenerSiguienteEstado(siguienteEstado);
-
-    try {
-      const resultado = await this.enviosRepository.avanzarEstadoEnvioTransaccional(
-        envio.id,
-        estadoActual,
-        siguienteEstado,
-        siguienteDelSiguiente,
-        repartidorId,
-        esEntregado,
+    const avanzado = await this.enviosRepository.avanzarViaje(
+      envio.id,
+      envio.estado,
+      nuevo,
+      repartidorId,
+    );
+    if (!avanzado) {
+      throw new ConflictException(
+        'El envío cambió mientras lo avanzabas (puede que lo hayan cancelado)',
       );
-
-      // Si se entregó, reintentar pendientes en la cola de asignación
-      if (esEntregado) {
-        await this.asignacionService.reintentarPendientes();
-      }
-
-      return resultado;
-    } catch (error) {
-      throw new ConflictException('El estado del envío cambió concurrentemente o no se pudo procesar.');
     }
+
+    // Recién después de confirmar la entrega: el repartidor volvió a la cola y el motor
+    // le puede ofrecer el siguiente envío.
+    if (nuevo === 'ENTREGADO') {
+      await this.asignacionService.reintentarPendientes();
+    }
+    return { estado: nuevo, siguienteEstado: siguienteEstado(nuevo) };
   }
 }
