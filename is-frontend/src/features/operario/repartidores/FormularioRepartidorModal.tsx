@@ -26,6 +26,8 @@ function FormularioContenido({
 
   const [nombre, setNombre] = useState(repartidorAEditar?.nombre ?? '')
   const [apellido, setApellido] = useState(repartidorAEditar?.apellido ?? '')
+  // Al editar arranca vacío: la API solo manda el DNI enmascarado. Vacío = no se cambia.
+  const [dni, setDni] = useState('')
   const [telefono, setTelefono] = useState(repartidorAEditar?.telefono ?? '')
   const [email, setEmail] = useState(repartidorAEditar?.email ?? '')
   const [direccion, setDireccion] = useState(repartidorAEditar?.direccion ?? '')
@@ -41,9 +43,12 @@ function FormularioContenido({
     setEnviando(true)
     setErrorGeneral(null)
 
+    // Solo dígitos: "12.345.678" y "12345678" son el mismo DNI.
+    const dniNormalizado = dni.replace(/\D/g, '')
     const datos = {
       nombre: nombre.trim(),
       apellido: apellido.trim(),
+      ...(dniNormalizado && { dni: dniNormalizado }),
       telefono: telefono.trim(),
       email: email.trim(),
       direccion: direccion.trim(),
@@ -100,6 +105,15 @@ function FormularioContenido({
           placeholder="Ej: Pérez"
         />
       </div>
+
+      <Campo
+        etiqueta={esEdicion ? 'DNI (completalo solo para corregirlo)' : 'DNI'}
+        required={!esEdicion}
+        inputMode="numeric"
+        value={dni}
+        onChange={(e) => setDni(e.target.value)}
+        placeholder={esEdicion ? `Actual: ${repartidorAEditar?.dni ?? 'sin cargar'}` : 'Ej: 30.123.456'}
+      />
 
       <Campo
         etiqueta="Teléfono"

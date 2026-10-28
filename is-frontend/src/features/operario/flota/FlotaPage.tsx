@@ -1,10 +1,11 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useState, type ReactNode } from 'react'
 import { api, ErrorApi } from '../../../shared/api.ts'
 import type { TipoVehiculo } from '../../../shared/tipos.ts'
 import { usePolling } from '../../../shared/usePolling.ts'
 import {
   COLOR_ESTADO_REPARTIDOR,
   ETIQUETA_ESTADO_REPARTIDOR,
+  type EstadoRepartidor,
   type Repartidor,
 } from '../repartidores/tipos.ts'
 
@@ -16,6 +17,16 @@ const VEHICULOS: { tipo: TipoVehiculo; titulo: string; icono: string }[] = [
   { tipo: 'CAMION', titulo: 'Camiones', icono: '🚚' },
 ]
 
+// Orden del resto de la flota (los que no están en la cola): primero lo que requiere
+// atención del operario.
+const PRIORIDAD: Record<EstadoRepartidor, number> = {
+  EMERGENCIA: 0,
+  OCUPADO: 1,
+  DISPONIBLE: 2, // fuera de la cola = tiene una oferta sin responder
+  EN_PAUSA: 3,
+  FUERA_DE_JORNADA: 4,
+}
+
 function horaCorta(fechaIso: string): string {
   try {
     return new Date(fechaIso).toLocaleTimeString([], {
@@ -25,6 +36,37 @@ function horaCorta(fechaIso: string): string {
   } catch {
     return ''
   }
+}
+
+function TarjetaRepartidor({ repartidor: r, children }: { repartidor: Repartidor; children?: ReactNode }) {
+  const enEmergencia = r.estado === 'EMERGENCIA'
+  // "Disponible" fuera de la cola = el motor ya le ofreció un viaje y está por responder.
+  const conOferta = r.estado === 'DISPONIBLE' && r.enColaDesde === null
+  return (
+    <div
+      className={`flex flex-col gap-2 rounded-lg border bg-white p-3 shadow-xs ${
+        enEmergencia ? 'border-2 border-red-500 bg-red-50' : 'border-gray-200'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="font-semibold text-gray-900">
+            {enEmergencia && '🚨 '}
+            {r.nombre} {r.apellido}
+          </p>
+          <p className="text-xs text-gray-500">{r.telefono}</p>
+        </div>
+        <span
+          className={`inline-block shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+            conOferta ? 'bg-yellow-100 text-yellow-800' : COLOR_ESTADO_REPARTIDOR[r.estado]
+          }`}
+        >
+          {conOferta ? 'Con oferta' : ETIQUETA_ESTADO_REPARTIDOR[r.estado]}
+        </span>
+      </div>
+      {children}
+    </div>
+  )
 }
 
 export function FlotaPage() {
@@ -57,8 +99,7 @@ export function FlotaPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Flota en jornada</h1>
         <p className="text-sm text-gray-600">
-          Supervisión de colas FIFO y estado operativo de repartidores activos.
-          Se actualiza cada 15 segundos.
+          Una cola por vehículo, en el orden en que el motor ofrece los viajes. Se actualiza cada 15 segundos.
         </p>
       </div>
 
@@ -76,87 +117,67 @@ export function FlotaPage() {
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
           {VEHICULOS.map(({ tipo, titulo, icono }) => {
             const repartidores = flota?.[tipo] ?? []
+            // El backend ya los manda con la cola primero, en orden FIFO.
             const enCola = repartidores.filter((r) => r.enColaDesde !== null)
+            const resto = repartidores
+              .filter((r) => r.enColaDesde === null)
+              .sort((a, b) => PRIORIDAD[a.estado] - PRIORIDAD[b.estado])
 
             return (
               <section
                 key={tipo}
-                className="flex flex-col rounded-xl border border-gray-200 bg-gray-50/50 p-4 shadow-xs"
+                className="flex flex-col gap-4 rounded-xl border border-gray-200 bg-gray-50/50 p-4 shadow-xs"
               >
                 {/* Cabecera de la columna */}
-                <div className="mb-4 flex items-center justify-between border-b border-gray-200 pb-3">
+                <div className="flex items-center justify-between border-b border-gray-200 pb-3">
                   <div className="flex items-center gap-2">
                     <span className="text-2xl" role="img" aria-label={titulo}>
                       {icono}
                     </span>
                     <h2 className="text-lg font-bold text-gray-900">{titulo}</h2>
                   </div>
-                  <div className="flex gap-1 text-xs">
-                    <span className="rounded-full bg-blue-100 px-2.5 py-0.5 font-semibold text-blue-800">
-                      {enCola.length} en cola
-                    </span>
-                    <span className="rounded-full bg-gray-200 px-2.5 py-0.5 font-medium text-gray-700">
-                      {repartidores.length} total
-                    </span>
-                  </div>
+                  <span className="rounded-full bg-gray-200 px-2.5 py-0.5 text-xs font-medium text-gray-700">
+                    {repartidores.length} en jornada
+                  </span>
                 </div>
 
-                {/* Lista de repartidores */}
-                {repartidores.length === 0 ? (
-                  <p className="py-8 text-center text-sm text-gray-400">
-                    No hay {titulo.toLowerCase()} en jornada
-                  </p>
-                ) : (
-                  <div className="flex flex-col gap-3">
-                    {repartidores.map((r, index) => {
-                      const estaEnCola = r.enColaDesde !== null
-
-                      return (
-                        <div
-                          key={r.id}
-                          className="flex flex-col gap-2 rounded-lg border border-gray-200 bg-white p-3 shadow-xs transition hover:border-gray-300"
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <p className="font-semibold text-gray-900">
-                                {r.nombre} {r.apellido}
-                              </p>
-                              <p className="text-xs text-gray-500">{r.telefono}</p>
-                            </div>
-                            <span
-                              className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${COLOR_ESTADO_REPARTIDOR[r.estado]}`}
-                            >
-                              {ETIQUETA_ESTADO_REPARTIDOR[r.estado]}
+                {/* Cola FIFO: a quién le toca el próximo viaje de este vehículo */}
+                <div className="flex flex-col gap-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-blue-800">
+                    Cola ({enCola.length})
+                  </h3>
+                  {enCola.length === 0 ? (
+                    <p className="rounded-lg border border-dashed border-gray-300 py-4 text-center text-sm text-gray-500">
+                      No hay repartidores disponibles
+                    </p>
+                  ) : (
+                    enCola.map((r, index) => (
+                      <TarjetaRepartidor key={r.id} repartidor={r}>
+                        <div className="flex items-center justify-between border-t border-gray-100 pt-2 text-xs">
+                          <div className="flex items-center gap-1.5 font-medium text-blue-700">
+                            <span className="rounded-md bg-blue-50 px-1.5 py-0.5 font-bold">#{index + 1}</span>
+                            <span>desde {horaCorta(r.enColaDesde!)}</span>
+                          </div>
+                          {r.viajesConsecutivos > 0 && (
+                            <span className="text-gray-500" title="Viajes consecutivos completados">
+                              {r.viajesConsecutivos} {r.viajesConsecutivos === 1 ? 'viaje seguido' : 'viajes seguidos'}
                             </span>
-                          </div>
-
-                          <div className="flex items-center justify-between border-t border-gray-100 pt-2 text-xs">
-                            {estaEnCola ? (
-                              <div className="flex items-center gap-1.5 font-medium text-blue-700">
-                                <span className="rounded-md bg-blue-50 px-1.5 py-0.5 font-bold">
-                                  #{index + 1}
-                                </span>
-                                <span>desde {horaCorta(r.enColaDesde!)}</span>
-                              </div>
-                            ) : (
-                              <span className="text-gray-400">
-                                Fuera de cola (en viaje / oferta)
-                              </span>
-                            )}
-
-                            {r.viajesConsecutivos > 0 && (
-                              <span
-                                className="text-gray-500"
-                                title="Viajes consecutivos completados"
-                              >
-                                {r.viajesConsecutivos}{' '}
-                                {r.viajesConsecutivos === 1 ? 'viaje' : 'viajes'}
-                              </span>
-                            )}
-                          </div>
+                          )}
                         </div>
-                      )
-                    })}
+                      </TarjetaRepartidor>
+                    ))
+                  )}
+                </div>
+
+                {/* El resto de la flota de este vehículo: emergencias primero */}
+                {resto.length > 0 && (
+                  <div className="flex flex-col gap-3">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                      Fuera de la cola ({resto.length})
+                    </h3>
+                    {resto.map((r) => (
+                      <TarjetaRepartidor key={r.id} repartidor={r} />
+                    ))}
                   </div>
                 )}
               </section>

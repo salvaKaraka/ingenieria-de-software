@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -14,6 +15,7 @@ import {
   UsuarioActual,
   type UsuarioAutenticado,
 } from '../../common/auth';
+import { ActualizarEnvioDto } from './dto/actualizar-envio.dto';
 import { CrearEnvioDto } from './dto/crear-envio.dto';
 import { ListarEnviosDto } from './dto/listar-envios.dto';
 import { EnviosService } from './envios.service';
@@ -39,6 +41,15 @@ export class EnviosController {
   @Get(':id')
   async obtener(@Param('id', ParseIntPipe) id: number) {
     return this.enviosService.obtenerDetalle(id);
+  }
+
+  @Patch(':id')
+  async actualizar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ActualizarEnvioDto,
+    @UsuarioActual() usuario: UsuarioAutenticado,
+  ) {
+    return this.enviosService.actualizar(id, dto, usuario.id);
   }
 
   // Es una acción, no crea un recurso: por eso responde 200 y no 201.

@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
   Min,
 } from 'class-validator';
 import { TamanioPaquete } from '../../../generated/prisma/client';
@@ -23,21 +24,24 @@ export class CrearEnvioDto {
   @IsNotEmpty({ message: 'La dirección de origen no puede estar vacía' })
   origenDireccion?: string;
 
+  // Obligatorios: el repartidor necesita saber a quién entregar y poder llamarlo.
   @IsString()
-  @IsOptional()
-  destinatarioNombre?: string;
+  @IsNotEmpty({ message: 'El nombre del destinatario es obligatorio' })
+  destinatarioNombre: string;
 
   @IsString()
-  @IsOptional()
-  destinatarioApellido?: string;
+  @IsNotEmpty({ message: 'El apellido del destinatario es obligatorio' })
+  destinatarioApellido: string;
 
-  @IsString()
+  // Solo dígitos: el front saca los puntos, así se compara igual que el que tipea el repartidor.
+  // Opcional acá; el service lo exige si el comercio pide DNI al entregar.
   @IsOptional()
+  @Matches(/^\d{7,8}$/, { message: 'El DNI debe tener 7 u 8 dígitos' })
   destinatarioDni?: string;
 
   @IsString()
-  @IsOptional()
-  destinatarioTelefono?: string;
+  @IsNotEmpty({ message: 'El teléfono del destinatario es obligatorio' })
+  destinatarioTelefono: string;
 
   @IsEnum(TamanioPaquete, {
     message: 'El tamaño debe ser CHICO, MEDIANO o GRANDE',
