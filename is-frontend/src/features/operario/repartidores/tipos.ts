@@ -30,6 +30,8 @@ export type Repartidor = {
   id: number
   nombre: string
   apellido: string
+  // Enmascarado por la API (•••••678): el DNI completo nunca llega al front
+  dni: string | null
   telefono: string
   email: string
   direccion: string

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import {
   Prisma,
+  type EstadoEnvio,
   type TamanioPaquete,
   type TipoVehiculo,
 } from '../../generated/prisma/client';
@@ -15,6 +16,8 @@ import { AsignacionService } from '../asignacion/asignacion.service';
 import { ComerciosService } from '../comercios/comercios.service';
 import { generarCodigoSeguimiento } from './codigo-seguimiento.util';
 import { esTransicionValida } from './domain/estado-envio';
+import { armarHistorial } from './domain/historial';
+import { ActualizarEnvioDto } from './dto/actualizar-envio.dto';
 import { CrearEnvioDto } from './dto/crear-envio.dto';
 import { ListarEnviosDto } from './dto/listar-envios.dto';
 import { EnviosRepository } from './envios.repository';
@@ -24,6 +27,58 @@ const VEHICULO_MINIMO: Record<TamanioPaquete, TipoVehiculo> = {
   CHICO: 'MOTO',
   MEDIANO: 'AUTO',
   GRANDE: 'CAMION',
+};
+
+const ZONA_HORARIA_OPERATIVA = 'America/Argentina/Buenos_Aires';
+const FORMATEADOR_OPERATIVO = new Intl.DateTimeFormat('en-US', {
+  timeZone: ZONA_HORARIA_OPERATIVA,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+});
+
+function convertirMedianocheArgentinaAUTC(fecha: string): Date {
+  const [anio, mes, dia] = fecha.split('-').map(Number);
+  const medianocheComoUTC = Date.UTC(anio, mes - 1, dia);
+  let instanteUTC = medianocheComoUTC;
+
+  // Recalcular el desfase en el instante resultante contempla cambios horarios de la zona.
+  for (let intento = 0; intento < 3; intento++) {
+    const partes = new Map(
+      FORMATEADOR_OPERATIVO.formatToParts(new Date(instanteUTC)).map(
+        (parte) => [parte.type, parte.value],
+      ),
+    );
+    const fechaLocalComoUTC = Date.UTC(
+      Number(partes.get('year')),
+      Number(partes.get('month')) - 1,
+      Number(partes.get('day')),
+      Number(partes.get('hour')),
+      Number(partes.get('minute')),
+      Number(partes.get('second')),
+    );
+    const desfase = fechaLocalComoUTC - instanteUTC;
+    const siguienteInstanteUTC = medianocheComoUTC - desfase;
+    if (siguienteInstanteUTC === instanteUTC) break;
+    instanteUTC = siguienteInstanteUTC;
+  }
+
+  return new Date(instanteUTC);
+}
+
+// Cómo se nombra cada dato en el historial cuando el operario lo modifica (HU 31).
+const ETIQUETA_CAMPO: Record<keyof ActualizarEnvioDto, string> = {
+  destinoDireccion: 'dirección de entrega',
+  destinatarioNombre: 'nombre del destinatario',
+  destinatarioApellido: 'apellido del destinatario',
+  destinatarioDni: 'DNI del destinatario',
+  destinatarioTelefono: 'teléfono del destinatario',
+  tamanio: 'tamaño',
+  observaciones: 'observaciones',
 };
 
 @Injectable()
@@ -41,6 +96,12 @@ export class EnviosService {
     const comercio = await this.comerciosService.obtenerPorId(dto.comercioId);
     if (!comercio.activo) {
       throw new BadRequestException('El comercio está dado de baja');
+    }
+    // Al entregar, el repartidor compara contra este DNI (E-4): sin él no habría cómo verificar.
+    if (comercio.requiereDni && !dto.destinatarioDni) {
+      throw new BadRequestException(
+        'Este comercio exige DNI al entregar: cargá el DNI del destinatario',
+      );
     }
 
     const envio = await this.guardarConCodigoUnico(dto, operarioId, {
@@ -104,7 +165,7 @@ export class EnviosService {
   async listar(filtros: ListarEnviosDto) {
     const pagina = filtros.pagina ?? 1;
     const limite = filtros.limite ?? 20;
-    const desde = filtros.desde ? new Date(filtros.desde) : undefined;
+    const desde = filtros.desde ? this.inicioDelDia(filtros.desde) : undefined;
     const hasta = filtros.hasta ? this.finDelDia(filtros.hasta) : undefined;
 
     if (desde && hasta && desde > hasta) {
@@ -135,7 +196,22 @@ export class EnviosService {
     if (!envio) {
       throw new NotFoundException('El envío no existe');
     }
-    return envio;
+
+    const idsDe = (tipo: 'OPERARIO' | 'REPARTIDOR') => [
+      ...new Set(
+        envio.eventos
+          .filter((e) => e.actorTipo === tipo && e.actorId !== null)
+          .map((e) => e.actorId as number),
+      ),
+    ];
+    const nombres = await this.enviosRepository.buscarNombresActores(
+      idsDe('OPERARIO'),
+      idsDe('REPARTIDOR'),
+    );
+    return {
+      ...envio,
+      historial: armarHistorial(envio.eventos, envio.ofertas, nombres),
+    };
   }
 
   async cancelar(id: number, operarioId: number) {
@@ -170,9 +246,116 @@ export class EnviosService {
     return cancelado;
   }
 
+  async actualizar(id: number, dto: ActualizarEnvioDto, operarioId: number) {
+    const envio = await this.enviosRepository.buscarParaActualizar(id);
+    if (!envio) {
+      throw new NotFoundException('El envío no existe');
+    }
+
+    const estadosModificables: EstadoEnvio[] = [
+      'PENDIENTE',
+      'ASIGNADO',
+      'EN_CAMINO_A_RETIRAR',
+    ];
+
+    if (!estadosModificables.includes(envio.estado)) {
+      throw new ConflictException(
+        'No se puede modificar: el paquete ya fue retirado',
+      );
+    }
+
+    // Solo lo que de verdad cambia: así el historial dice qué se modificó y un "Guardar"
+    // sin cambios no deja rastro.
+    const cambios = Object.fromEntries(
+      Object.entries(dto).filter(
+        ([campo, valor]) =>
+          valor !== undefined && valor !== envio[campo as keyof typeof dto],
+      ),
+    ) as Pick<ActualizarEnvioDto, keyof ActualizarEnvioDto>;
+    const camposCambiados = Object.keys(
+      cambios,
+    ) as (keyof ActualizarEnvioDto)[];
+    if (camposCambiados.length === 0) return envio;
+
+    // Al entregar, el repartidor compara contra este DNI (E-4): si el comercio lo exige, no se borra.
+    if (cambios.destinatarioDni === null && envio.requiereDni) {
+      throw new BadRequestException(
+        'Este comercio exige DNI al entregar: no se puede borrar el DNI del destinatario',
+      );
+    }
+
+    const nuevoVehiculo = cambios.tamanio
+      ? VEHICULO_MINIMO[cambios.tamanio]
+      : undefined;
+    const cambiaVehiculo =
+      nuevoVehiculo !== undefined && nuevoVehiculo !== envio.vehiculoRequerido;
+
+    const avisoDireccion =
+      cambios.destinoDireccion !== undefined && envio.repartidorId !== null;
+
+    const actualizado = await this.enviosRepository.actualizar(
+      id,
+      envio.estado,
+      {
+        ...cambios,
+        ...(cambiaVehiculo ? { vehiculoRequerido: nuevoVehiculo } : {}),
+      },
+      operarioId,
+      {
+        cambiaVehiculo,
+        avisoDireccion,
+        // Sin los valores: el historial no tiene por qué mostrar el DNI.
+        detalle: `Datos modificados: ${camposCambiados.map((campo) => ETIQUETA_CAMPO[campo]).join(', ')}`,
+      },
+    );
+
+    // Otro proceso lo cambió entre la lectura y la transacción (p. ej. el repartidor aceptó
+    // la oferta o retiró el paquete): los datos calculados arriba ya no valen.
+    if (!actualizado) {
+      throw new ConflictException(
+        'El envío cambió de estado, intente nuevamente',
+      );
+    }
+
+    if (cambiaVehiculo) {
+      // Si cambia el vehículo requerido, el envío vuelve a PENDIENTE y se ofrece a la cola del nuevo vehículo.
+      try {
+        await this.asignacion.asignar(envio.id);
+      } catch (error) {
+        this.logger.error(
+          `No se pudo asignar el envío reencolado ${envio.id}`,
+          error,
+        );
+      }
+      // Reintentar pendientes para el repartidor que quedó disponible.
+      try {
+        await this.asignacion.reintentarPendientes();
+      } catch (error) {
+        this.logger.error(
+          'No se pudo reintentar pendientes tras liberar repartidor',
+          error,
+        );
+      }
+    }
+
+    return actualizado;
+  }
+
   private finDelDia(fecha: string): Date {
+    if (fecha.length !== 10) return new Date(fecha);
+
+    const [anio, mes, dia] = fecha.split('-').map(Number);
+    const diaSiguiente = new Date(Date.UTC(anio, mes - 1, dia + 1))
+      .toISOString()
+      .slice(0, 10);
+    return new Date(
+      convertirMedianocheArgentinaAUTC(diaSiguiente).getTime() - 1,
+    );
+  }
+
+  private inicioDelDia(fecha: string): Date {
     return fecha.length === 10
-      ? new Date(`${fecha}T23:59:59.999Z`)
+      ? convertirMedianocheArgentinaAUTC(fecha)
       : new Date(fecha);
   }
 }

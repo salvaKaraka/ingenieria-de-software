@@ -10,7 +10,11 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { Roles } from '../../common/auth';
+import {
+  Roles,
+  UsuarioActual,
+  type UsuarioAutenticado,
+} from '../../common/auth';
 import {
   ActualizarRepartidorDto,
   AprobarCierreDto,
@@ -64,6 +68,13 @@ export class RepartidoresController {
     return this.repartidoresService.resetearPin(id);
   }
 
+  // Devuelve el PIN nuevo una única vez, igual que el alta.
+  @Post(':id/reactivar')
+  @HttpCode(200)
+  reactivar(@Param('id', ParseIntPipe) id: number) {
+    return this.repartidoresService.reactivar(id);
+  }
+
   @Get(':id/rendicion')
   rendicion(@Param('id', ParseIntPipe) id: number) {
     return this.jornadaService.rendicion(id);
@@ -74,7 +85,8 @@ export class RepartidoresController {
   aprobarCierre(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: AprobarCierreDto,
+    @UsuarioActual() operario: UsuarioAutenticado,
   ) {
-    return this.jornadaService.aprobarCierre(id, dto);
+    return this.jornadaService.aprobarCierre(id, dto, operario.id);
   }
 }

@@ -2,12 +2,10 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
-  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { RolUsuario } from '../../generated/prisma/client';
-import { AsignacionService } from '../asignacion/asignacion.service';
 import {
   REFRESH_OPERARIO_SEGUNDOS,
   REFRESH_REPARTIDOR_SEGUNDOS,
@@ -26,7 +24,6 @@ export class AuthService {
     private readonly repo: AuthRepository,
     private readonly hashing: HashingService,
     private readonly jwt: JwtService,
-    @Optional() private readonly asignacion?: AsignacionService,
   ) {}
 
   async loginOperario(usuario: string, password: string): Promise<Sesion> {
@@ -54,15 +51,6 @@ export class AuthService {
     );
     if (!repartidor || !repartidor.activo)
       throw new UnauthorizedException(CREDENCIALES_INVALIDAS);
-
-    // Escenario 3: Nueva jornada tras el cierre. Si tenía "Jornada finalizada" (FUERA_DE_JORNADA),
-    // el sistema lo deja "Disponible" al final de la cola de su vehículo.
-    if (repartidor.estado === 'FUERA_DE_JORNADA') {
-      await this.repo.activarJornada(repartidor.id);
-      if (this.asignacion) {
-        await this.asignacion.reintentarPendientes();
-      }
-    }
 
     return this.iniciarSesion({
       id: repartidor.id,

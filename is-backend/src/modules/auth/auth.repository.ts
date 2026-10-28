@@ -27,14 +27,6 @@ export class AuthRepository {
     return this.prisma.repartidor.findUnique({ where: { pinHmac } });
   }
 
-  // Si el repartidor estaba con jornada finalizada, al ingresar con PIN inicia jornada (G-1 Escenario 3)
-  async activarJornada(id: number) {
-    return this.prisma.repartidor.updateMany({
-      where: { id, activo: true, estado: 'FUERA_DE_JORNADA' },
-      data: { estado: 'DISPONIBLE', enColaDesde: new Date(), viajesConsecutivos: 0 },
-    });
-  }
-
   buscarRepartidorPorId(id: number) {
     return this.prisma.repartidor.findUnique({ where: { id } });
   }

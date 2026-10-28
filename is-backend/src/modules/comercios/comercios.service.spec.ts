@@ -1,6 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ComerciosRepository } from './comercios.repository';
 import { ComerciosService } from './comercios.service';
@@ -11,9 +11,11 @@ describe('ComerciosService', () => {
   const repository = {
     buscarTodos: jest.fn(),
     buscarPorId: jest.fn(),
+    buscarPorNombre: jest.fn(),
     crear: jest.fn(),
     actualizar: jest.fn(),
     eliminarLogico: jest.fn(),
+    contarEnviosEnCurso: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -46,6 +48,49 @@ describe('ComerciosService', () => {
     });
   });
 
+  const nuevo = {
+    nombre: 'Panadería Sol',
+    telefono: '221 555-0000',
+    email: 'sol@mail.com',
+    direccion: 'Calle 7 123',
+    requiereFoto: true,
+    requiereDni: true,
+  };
+
+  it('registra un comercio con un nombre que no existe', async () => {
+    repository.buscarPorNombre.mockResolvedValue(null);
+    repository.crear.mockResolvedValue({ id: 1, ...nuevo });
+    await expect(service.crear(nuevo)).resolves.toMatchObject({
+      requiereFoto: true,
+      requiereDni: true,
+    });
+    expect(repository.buscarPorNombre).toHaveBeenCalledWith('Panadería Sol');
+  });
+
+  it('rechaza el alta de un comercio con un nombre ya registrado', async () => {
+    repository.buscarPorNombre.mockResolvedValue({ id: 5, activo: false });
+    await expect(service.crear(nuevo)).rejects.toThrow(
+      new ConflictException('El comercio ya se encuentra registrado'),
+    );
+    expect(repository.crear).not.toHaveBeenCalled();
+  });
+
+  it('rechaza renombrar un comercio con el nombre de otro', async () => {
+    repository.buscarPorId.mockResolvedValue({ id: 1, activo: true });
+    repository.buscarPorNombre.mockResolvedValue({ id: 2, activo: true });
+    await expect(
+      service.actualizar(1, { nombre: 'Panadería Sol' }),
+    ).rejects.toThrow(ConflictException);
+    expect(repository.actualizar).not.toHaveBeenCalled();
+  });
+
+  it('permite editar un comercio sin cambiarle el nombre', async () => {
+    repository.buscarPorId.mockResolvedValue({ id: 1, activo: true });
+    repository.buscarPorNombre.mockResolvedValue({ id: 1, activo: true });
+    await service.actualizar(1, { nombre: 'Panadería Sol', telefono: '221' });
+    expect(repository.actualizar).toHaveBeenCalled();
+  });
+
   it('no actualiza un comercio inexistente', async () => {
     repository.buscarPorId.mockResolvedValue(null);
     await expect(service.actualizar(99, { nombre: 'Nuevo' })).rejects.toThrow(
@@ -56,8 +101,18 @@ describe('ComerciosService', () => {
 
   it('la baja lógica llama a eliminarLogico en vez de borrar', async () => {
     repository.buscarPorId.mockResolvedValue({ id: 1, activo: true });
+    repository.contarEnviosEnCurso.mockResolvedValue(0);
     await service.eliminarLogico(1);
     expect(repository.eliminarLogico).toHaveBeenCalledWith(1);
+  });
+
+  it('no da de baja un comercio con envíos en curso', async () => {
+    repository.buscarPorId.mockResolvedValue({ id: 1, activo: true });
+    repository.contarEnviosEnCurso.mockResolvedValue(2);
+    await expect(service.eliminarLogico(1)).rejects.toThrow(
+      new ConflictException('El comercio tiene envíos en curso'),
+    );
+    expect(repository.eliminarLogico).not.toHaveBeenCalled();
   });
 
   it('no da de baja un comercio inexistente', async () => {
@@ -88,5 +143,11 @@ describe('ActualizarComercioDto', () => {
 
   it('rechaza un email inválido', async () => {
     expect(await errores({ email: 'a@b' })).toEqual(['email']);
+  });
+
+  it('recorta los espacios del nombre y rechaza uno en blanco', async () => {
+    const dto = plainToInstance(ActualizarComercioDto, { nombre: '  Sol  ' });
+    expect(dto.nombre).toBe('Sol');
+    expect(await errores({ nombre: '   ' })).toEqual(['nombre']);
   });
 });

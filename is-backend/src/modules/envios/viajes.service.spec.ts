@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import type { AsignacionService } from '../asignacion/asignacion.service';
 import type { EnviosRepository } from './envios.repository';
 import { ViajesService } from './viajes.service';
@@ -7,7 +7,6 @@ describe('ViajesService', () => {
   const repository = {
     buscarViajeActivoPorRepartidor: jest.fn(),
     avanzarViaje: jest.fn(),
-    buscarRepartidor: jest.fn(),
   };
   const asignacion = { reintentarPendientes: jest.fn() };
   let service: ViajesService;
@@ -26,6 +25,7 @@ describe('ViajesService', () => {
     observaciones: null,
     requiereFoto: false,
     requiereDni: true,
+    eventos: [] as { detalle: string | null }[],
   });
 
   beforeEach(() => {
@@ -56,6 +56,23 @@ describe('ViajesService', () => {
     expect(JSON.stringify(viaje)).not.toContain('30111222');
   });
 
+  it('avisa al repartidor si el operario cambió la dirección de entrega', async () => {
+    repository.buscarViajeActivoPorRepartidor.mockResolvedValue({
+      ...envioEn('EN_CAMINO_A_RETIRAR'),
+      eventos: [{ detalle: 'La dirección de entrega fue modificada' }],
+    });
+    const { viaje } = await service.obtenerViajeActual(1);
+    expect(viaje?.aviso).toBe('La dirección de entrega fue modificada');
+  });
+
+  it('sin novedades del operario no muestra aviso', async () => {
+    repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
+      envioEn('ASIGNADO'),
+    );
+    const { viaje } = await service.obtenerViajeActual(1);
+    expect(viaje?.aviso).toBeNull();
+  });
+
   it('avanza un paso y no dispara el motor si todavía no entregó', async () => {
     repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
       envioEn('RETIRADO'),
@@ -71,6 +88,7 @@ describe('ViajesService', () => {
       'RETIRADO',
       'EN_DOMICILIO',
       1,
+      undefined,
     );
     expect(asignacion.reintentarPendientes).not.toHaveBeenCalled();
   });
@@ -80,30 +98,98 @@ describe('ViajesService', () => {
       envioEn('EN_DOMICILIO'),
     );
     repository.avanzarViaje.mockResolvedValue(true);
-    repository.buscarRepartidor.mockResolvedValue({ estado: 'DISPONIBLE' });
 
-    await expect(service.avanzarViajeActual(1)).resolves.toEqual({
+    await expect(
+      service.avanzarViajeActual(1, { dni: '30111222' }),
+    ).resolves.toEqual({
       estado: 'ENTREGADO',
       siguienteEstado: null,
     });
     expect(asignacion.reintentarPendientes).toHaveBeenCalled();
   });
 
-  it('al entregar con cierre solicitado, el motor no reintenta envíos pendientes', async () => {
-    repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
-      envioEn('EN_DOMICILIO'),
-    );
-    repository.avanzarViaje.mockResolvedValue(true);
-    repository.buscarRepartidor.mockResolvedValue({
-      estado: 'ESPERANDO_VALIDACION_CIERRE',
-      cierreSolicitado: true,
+  describe('evidencia de entrega (E-4)', () => {
+    const entregando = (cambios: object) =>
+      repository.buscarViajeActivoPorRepartidor.mockResolvedValue({
+        ...envioEn('EN_DOMICILIO'),
+        ...cambios,
+      });
+
+    it('no entrega sin el DNI de quien recibe', async () => {
+      entregando({ requiereDni: true });
+      await expect(service.avanzarViajeActual(1, {})).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(repository.avanzarViaje).not.toHaveBeenCalled();
     });
 
-    await expect(service.avanzarViajeActual(1)).resolves.toEqual({
-      estado: 'ENTREGADO',
-      siguienteEstado: null,
+    it('no entrega si el DNI no coincide con el del destinatario', async () => {
+      entregando({ requiereDni: true });
+      await expect(
+        service.avanzarViajeActual(1, { dni: '99888777' }),
+      ).rejects.toThrow('El DNI no coincide con el del destinatario');
+      expect(repository.avanzarViaje).not.toHaveBeenCalled();
     });
-    expect(asignacion.reintentarPendientes).not.toHaveBeenCalled();
+
+    it('compara sin los puntos con los que se haya cargado el DNI', async () => {
+      entregando({ requiereDni: true, destinatarioDni: '30.111.222' });
+      repository.avanzarViaje.mockResolvedValue(true);
+      await service.avanzarViajeActual(1, { dni: '30111222' });
+      expect(repository.avanzarViaje).toHaveBeenCalledWith(
+        5,
+        'EN_DOMICILIO',
+        'ENTREGADO',
+        1,
+        'Evidencia: DNI verificado',
+      );
+    });
+
+    it('un envío viejo sin DNI cargado se entrega igual, avisando que no se verificó', async () => {
+      entregando({ requiereDni: true, destinatarioDni: null });
+      repository.avanzarViaje.mockResolvedValue(true);
+      await service.avanzarViajeActual(1, { dni: '30111222' });
+      expect(repository.avanzarViaje.mock.calls[0][4]).toContain(
+        'DNI sin verificar',
+      );
+    });
+
+    it('no entrega sin confirmar que mandó la foto por WhatsApp', async () => {
+      entregando({ requiereDni: false, requiereFoto: true });
+      await expect(
+        service.avanzarViajeActual(1, { fotoEnviada: false }),
+      ).rejects.toThrow('Confirmá que mandaste la foto por WhatsApp');
+    });
+
+    it('con DNI y foto deja las dos cosas en el historial, sin el número de DNI', async () => {
+      entregando({ requiereDni: true, requiereFoto: true });
+      repository.avanzarViaje.mockResolvedValue(true);
+      await service.avanzarViajeActual(1, {
+        dni: '30111222',
+        fotoEnviada: true,
+      });
+      const detalle = repository.avanzarViaje.mock.calls[0][4] as string;
+      expect(detalle).toBe(
+        'Evidencia: DNI verificado, foto enviada por WhatsApp',
+      );
+      expect(detalle).not.toContain('30111222');
+    });
+
+    it('si el comercio no exige nada, entrega sin evidencia', async () => {
+      entregando({ requiereDni: false, requiereFoto: false });
+      repository.avanzarViaje.mockResolvedValue(true);
+      await service.avanzarViajeActual(1);
+      expect(repository.avanzarViaje.mock.calls[0][4]).toBeUndefined();
+    });
+
+    it('en los pasos anteriores a la entrega no pide evidencia', async () => {
+      repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
+        envioEn('RETIRADO'),
+      );
+      repository.avanzarViaje.mockResolvedValue(true);
+      await expect(service.avanzarViajeActual(1)).resolves.toMatchObject({
+        estado: 'EN_DOMICILIO',
+      });
+    });
   });
 
   it('sin viaje activo, avanzar responde 409', async () => {

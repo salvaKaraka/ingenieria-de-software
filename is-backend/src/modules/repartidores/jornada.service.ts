@@ -3,7 +3,6 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
-  Optional,
 } from '@nestjs/common';
 import {
   type EstadoRepartidor,
@@ -18,7 +17,7 @@ import {
   type RepartidorPublico,
 } from './repartidores.repository';
 
-type Accion = 'iniciar' | 'pausar' | 'reanudar' | 'terminar';
+type Accion = 'iniciar' | 'pausar' | 'reanudar' | 'terminar' | 'cerrar';
 
 // Por qué no se pudo hacer cada acción, según el estado en que está el repartidor.
 const MOTIVO: Record<Accion, Partial<Record<EstadoRepartidor, string>>> = {
@@ -50,7 +49,16 @@ const MOTIVO: Record<Accion, Partial<Record<EstadoRepartidor, string>>> = {
       'Tenés una oferta pendiente: respondela antes de terminar la jornada',
     ESPERANDO_VALIDACION_CIERRE: 'El operario debe validar el cierre',
   },
+  cerrar: {
+    FUERA_DE_JORNADA: 'No estás en jornada',
+    DISPONIBLE:
+      'Tenés una oferta pendiente: respondela antes de cerrar la jornada',
+    EMERGENCIA: 'No podés cerrar la jornada durante una emergencia',
+  },
 };
+
+const MENSAJE_FINALIZA_VIAJE =
+  'Finalizá tu viaje en curso para completar el cierre';
 
 // Jornada del repartidor logueado (C-3 / G-1): entrar y salir de la cola FIFO del motor,
 // y solicitud / validación de cierre de jornada.
@@ -59,80 +67,56 @@ export class JornadaService {
   constructor(
     private readonly repo: RepartidoresRepository,
     private readonly asignacion: AsignacionService,
-    @Optional() private readonly authService?: AuthService,
+    private readonly authService: AuthService,
   ) {}
 
-  async estado(repartidorId: number): Promise<{
-    estado: EstadoRepartidor;
-    cierreSolicitado: boolean;
-    paquetesADevolver: Awaited<
-      ReturnType<RepartidoresRepository['obtenerPaquetesADevolver']>
-    >;
-  }> {
+  async estado(repartidorId: number) {
     const repartidor = await this.repo.buscarPorId(repartidorId);
     if (!repartidor) throw new NotFoundException('El repartidor no existe');
-
-    const paquetesADevolver =
-      repartidor.estado === 'ESPERANDO_VALIDACION_CIERRE'
-        ? await this.repo.obtenerPaquetesADevolver(repartidorId)
-        : [];
 
     return {
       estado: repartidor.estado,
       cierreSolicitado: repartidor.cierreSolicitado,
-      paquetesADevolver,
+      paquetesADevolver:
+        repartidor.estado === 'ESPERANDO_VALIDACION_CIERRE'
+          ? await this.repo.obtenerPaquetesADevolver(repartidorId)
+          : [],
     };
   }
 
-  // Solicitud de cierre de jornada por el repartidor (G-1)
+  // G-1: el repartidor pide cerrar la jornada. Sin viaje sale de la cola en el momento y
+  // queda esperando que el operario valide la rendición; con un viaje en curso queda anotado
+  // y el cierre se completa al terminar ese viaje (ver EnviosRepository.liberarRepartidor).
   async solicitarCierre(repartidorId: number) {
     const repartidor = await this.repo.buscarPorId(repartidorId);
     if (!repartidor) throw new NotFoundException('El repartidor no existe');
 
-    if (repartidor.estado === 'FUERA_DE_JORNADA') {
-      throw new ConflictException('No estás en jornada');
-    }
-
     if (repartidor.estado === 'ESPERANDO_VALIDACION_CIERRE') {
-      const paquetesADevolver =
-        await this.repo.obtenerPaquetesADevolver(repartidorId);
-      return {
-        estado: 'ESPERANDO_VALIDACION_CIERRE' as const,
-        paquetesADevolver,
-        mensaje: 'Esperando validación de cierre por parte del operario',
-      };
+      return this.esperandoValidacion(repartidorId);
     }
 
-    // Escenario 2: con viaje activo, debe finalizarlo primero
-    const tieneViaje = await this.repo.tieneViajeActivo(repartidorId);
-    if (tieneViaje || repartidor.estado === 'OCUPADO') {
-      await this.repo.marcarCierrePendiente(repartidorId);
-      return {
-        estado: 'OCUPADO' as const,
-        cierrePendiente: true,
-        mensaje: 'Finalizá tu viaje en curso para completar el cierre',
-      };
+    if (repartidor.estado === 'OCUPADO') {
+      if (await this.repo.marcarCierrePendiente(repartidorId)) {
+        return {
+          estado: 'OCUPADO' as const,
+          cierrePendiente: true,
+          mensaje: MENSAJE_FINALIZA_VIAJE,
+        };
+      }
+    } else if (await this.repo.solicitarCierreInmediato(repartidorId)) {
+      return this.esperandoValidacion(repartidorId);
     }
 
-    // Escenario 1 y 3: sin viajes en curso
-    const paquetesADevolver =
-      await this.repo.obtenerPaquetesADevolver(repartidorId);
-    const actualizado = await this.repo.solicitarCierreInmediato(repartidorId);
-    if (!actualizado) {
-      throw new ConflictException('No se pudo solicitar el cierre de jornada');
-    }
-
-    return {
-      estado: 'ESPERANDO_VALIDACION_CIERRE' as const,
-      paquetesADevolver,
-      mensaje: 'Solicitud enviada al operario',
-    };
+    // El estado cambió entre la lectura y el UPDATE (por ejemplo, le llegó una oferta).
+    throw await this.conflicto(repartidorId, 'cerrar');
   }
 
-  async obtenerPaquetesDevolucion(repartidorId: number) {
-    const repartidor = await this.repo.buscarPorId(repartidorId);
-    if (!repartidor) throw new NotFoundException('El repartidor no existe');
-    return this.repo.obtenerPaquetesADevolver(repartidorId);
+  private async esperandoValidacion(repartidorId: number) {
+    return {
+      estado: 'ESPERANDO_VALIDACION_CIERRE' as const,
+      paquetesADevolver: await this.repo.obtenerPaquetesADevolver(repartidorId),
+      mensaje: 'Solicitud enviada al operario',
+    };
   }
 
   async iniciar(repartidorId: number) {
@@ -166,33 +150,34 @@ export class JornadaService {
     return { estado: 'FUERA_DE_JORNADA' as const };
   }
 
-  // Rendición de paquetes del repartidor (G-1)
+  // Lo que el operario revisa antes de aprobar el cierre (G-1).
   async rendicion(repartidorId: number) {
     const repartidor = await this.repo.buscarPorId(repartidorId);
     if (!repartidor) throw new NotFoundException('El repartidor no existe');
-    const { viajesTomados, paquetesEntregados, paquetesADevolver } =
-      await this.repo.obtenerRendicion(repartidorId);
     return {
       repartidorId,
-      viajesTomados,
-      paquetesEntregados,
-      paquetesPendientes: Math.max(0, viajesTomados - paquetesEntregados),
-      paquetesADevolver,
+      estado: repartidor.estado,
+      paquetesADevolver: await this.repo.obtenerPaquetesADevolver(repartidorId),
     };
   }
 
-  // Aprobación de cierre de turno por el operario (G-1)
-  async aprobarCierre(repartidorId: number, dto?: AprobarCierreDto) {
+  // G-1: el operario aprueba el cierre cuando recibió en la base todos los paquetes que el
+  // repartidor tenía que devolver. Los cuenta el sistema: el operario solo dice cuántos recibió.
+  async aprobarCierre(
+    repartidorId: number,
+    dto: AprobarCierreDto,
+    operarioId: number,
+  ) {
     const repartidor = await this.repo.buscarPorId(repartidorId);
     if (!repartidor) throw new NotFoundException('El repartidor no existe');
+    if (repartidor.estado !== 'ESPERANDO_VALIDACION_CIERRE') {
+      throw new ConflictException(
+        'El repartidor no solicitó el cierre de jornada',
+      );
+    }
 
-    const dbRendicion = await this.repo.obtenerRendicion(repartidorId);
-    const viajesTomados = dto?.viajesTomados ?? dbRendicion.viajesTomados;
-    const paquetesEntregados =
-      dto?.paquetesEntregados ?? dbRendicion.paquetesEntregados;
-    const paquetesDevueltos = dto?.paquetesDevueltos ?? 0;
-
-    const faltantes = viajesTomados - (paquetesEntregados + paquetesDevueltos);
+    const aDevolver = await this.repo.obtenerPaquetesADevolver(repartidorId);
+    const faltantes = aDevolver.length - dto.paquetesDevueltos;
     if (faltantes > 0) {
       throw new BadRequestException(
         `Faltan rendir ${faltantes} ${faltantes === 1 ? 'paquete' : 'paquetes'}`,
@@ -200,22 +185,27 @@ export class JornadaService {
     }
     if (faltantes < 0) {
       throw new BadRequestException(
-        'La cantidad de paquetes rendidos supera los viajes tomados',
+        `El repartidor tenía que devolver ${aDevolver.length} ${aDevolver.length === 1 ? 'paquete' : 'paquetes'}`,
       );
     }
 
-    const actualizado = await this.repo.aprobarCierre(repartidorId);
-    if (!actualizado) {
-      throw new ConflictException('No se pudo cerrar el turno del repartidor');
+    const aprobado = await this.repo.aprobarCierre(
+      repartidorId,
+      aDevolver.map((paquete) => paquete.id),
+      operarioId,
+    );
+    if (!aprobado) {
+      throw new ConflictException(
+        'El repartidor no solicitó el cierre de jornada',
+      );
     }
 
-    if (this.authService) {
-      await this.authService.cerrarSesiones(RolUsuario.REPARTIDOR, repartidorId);
-    }
+    // Termina su sesión: la próxima vez entra con el PIN e inicia una jornada nueva.
+    await this.authService.cerrarSesiones(RolUsuario.REPARTIDOR, repartidorId);
 
     return {
       repartidorId,
-      estado: 'FUERA_DE_JORNADA',
+      estado: 'FUERA_DE_JORNADA' as const,
       mensaje: 'Cierre de turno aprobado',
     };
   }

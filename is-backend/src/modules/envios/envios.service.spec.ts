@@ -8,6 +8,7 @@ import { validate } from 'class-validator';
 import { Prisma } from '../../generated/prisma/client';
 import { AsignacionService } from '../asignacion/asignacion.service';
 import { ComerciosService } from '../comercios/comercios.service';
+import { ActualizarEnvioDto } from './dto/actualizar-envio.dto';
 import { CrearEnvioDto } from './dto/crear-envio.dto';
 import { ListarEnviosDto } from './dto/listar-envios.dto';
 import { EnviosRepository } from './envios.repository';
@@ -25,6 +26,9 @@ function crearDto(cambios: Partial<CrearEnvioDto> = {}): CrearEnvioDto {
   return {
     comercioId: 1,
     destinoDireccion: 'Calle 50 n° 200',
+    destinatarioNombre: 'Ana',
+    destinatarioApellido: 'Paz',
+    destinatarioTelefono: '221 555-0000',
     tamanio: 'CHICO',
     ...cambios,
   };
@@ -35,8 +39,11 @@ describe('EnviosService', () => {
     crear: jest.fn(),
     listar: jest.fn(),
     obtenerDetalle: jest.fn(),
+    buscarNombresActores: jest.fn(),
     obtenerEstado: jest.fn(),
     cancelar: jest.fn(),
+    buscarParaActualizar: jest.fn(),
+    actualizar: jest.fn(),
   };
 
   const comerciosService = {
@@ -56,8 +63,10 @@ describe('EnviosService', () => {
     return repository.crear.mock.calls[llamada][0] as Record<string, unknown>;
   }
 
-  function filtrosAlRepository(): Record<string, unknown> {
-    return repository.listar.mock.calls[0][0] as Record<string, unknown>;
+  function filtrosAlRepository(
+    llamada = repository.listar.mock.calls.length - 1,
+  ): Record<string, unknown> {
+    return repository.listar.mock.calls[llamada][0] as Record<string, unknown>;
   }
 
   beforeEach(() => {
@@ -97,6 +106,24 @@ describe('EnviosService', () => {
         service.crear(crearDto(), OPERARIO_ID),
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(repository.crear).not.toHaveBeenCalled();
+    });
+
+    it('exige el DNI del destinatario si el comercio lo pide al entregar', async () => {
+      comerciosService.obtenerPorId.mockResolvedValue({
+        ...comercioMock,
+        requiereDni: true,
+      });
+
+      await expect(service.crear(crearDto(), OPERARIO_ID)).rejects.toThrow(
+        'cargá el DNI del destinatario',
+      );
+      expect(repository.crear).not.toHaveBeenCalled();
+
+      await service.crear(
+        crearDto({ destinatarioDni: '30111222' }),
+        OPERARIO_ID,
+      );
+      expect(datosGuardados()).toMatchObject({ destinatarioDni: '30111222' });
     });
 
     it('usa la dirección del comercio como origen si no viene otra', async () => {
@@ -189,10 +216,40 @@ describe('EnviosService', () => {
       expect(filtrosAlRepository().q).toBeUndefined();
     });
 
-    it('"hasta" sin hora incluye el día completo', async () => {
+    it('interpreta los límites de fecha como el día local de Argentina', async () => {
+      await service.listar({ desde: '2026-10-21', hasta: '2026-10-21' });
+      expect(filtrosAlRepository()).toMatchObject({
+        desde: new Date('2026-10-21T03:00:00.000Z'),
+        hasta: new Date('2026-10-22T02:59:59.999Z'),
+      });
+    });
+
+    it('permite combinar estado, comercio, texto y fecha', async () => {
+      await service.listar({
+        estado: ['ENTREGADO'],
+        comercioId: 4,
+        q: ' ABC123 ',
+        desde: '2026-10-21',
+        hasta: '2026-10-21',
+      });
+      expect(filtrosAlRepository()).toMatchObject({
+        estados: ['ENTREGADO'],
+        comercioId: 4,
+        q: 'ABC123',
+        desde: new Date('2026-10-21T03:00:00.000Z'),
+        hasta: new Date('2026-10-22T02:59:59.999Z'),
+      });
+    });
+
+    it('respeta los límites con hora y las fechas de calendario', async () => {
+      await service.listar({ hasta: '2026-10-21T12:30:00.000Z' });
+      expect((filtrosAlRepository().hasta as Date).toISOString()).toBe(
+        '2026-10-21T12:30:00.000Z',
+      );
+
       await service.listar({ hasta: '2026-10-21' });
       const hasta = filtrosAlRepository().hasta as Date;
-      expect(hasta.toISOString()).toBe('2026-10-21T23:59:59.999Z');
+      expect(hasta.toISOString()).toBe('2026-10-22T02:59:59.999Z');
     });
 
     it('rechaza "desde" posterior a "hasta" (400)', async () => {
@@ -203,10 +260,44 @@ describe('EnviosService', () => {
     });
   });
 
-  describe('obtenerDetalle (B-4)', () => {
-    it('devuelve el envío con su historial', async () => {
-      repository.obtenerDetalle.mockResolvedValue({ id: 5, eventos: [] });
-      await expect(service.obtenerDetalle(5)).resolves.toMatchObject({ id: 5 });
+  describe('obtenerDetalle (B-4, A-6)', () => {
+    it('devuelve el envío con su historial y el nombre de cada responsable', async () => {
+      repository.obtenerDetalle.mockResolvedValue({
+        id: 5,
+        ofertas: [],
+        eventos: [
+          {
+            id: 1,
+            tipo: 'CREADO',
+            estadoNuevo: 'PENDIENTE',
+            detalle: null,
+            actorTipo: 'OPERARIO',
+            actorId: 3,
+            creadoEn: new Date('2026-10-27T10:00:00Z'),
+          },
+          {
+            id: 2,
+            tipo: 'CAMBIO_ESTADO',
+            estadoNuevo: 'CANCELADO',
+            detalle: null,
+            actorTipo: 'OPERARIO',
+            actorId: 3,
+            creadoEn: new Date('2026-10-27T10:05:00Z'),
+          },
+        ],
+      });
+      repository.buscarNombresActores.mockResolvedValue({
+        operarios: new Map([[3, 'Ana']]),
+        repartidores: new Map(),
+      });
+
+      const detalle = await service.obtenerDetalle(5);
+
+      expect(repository.buscarNombresActores).toHaveBeenCalledWith([3], []);
+      expect(detalle.historial).toMatchObject([
+        { tipo: 'CREADO', actorNombre: 'Ana' },
+        { estadoNuevo: 'CANCELADO', actorNombre: 'Ana' },
+      ]);
     });
 
     it('responde 404 si el envío no existe', async () => {
@@ -280,6 +371,240 @@ describe('EnviosService', () => {
       );
     });
   });
+
+  describe('actualizar', () => {
+    // Lo que devuelve buscarParaActualizar: un envío chico, pendiente y sin repartidor.
+    const envioEditable = (cambios: object = {}) => ({
+      id: 5,
+      estado: 'PENDIENTE',
+      tamanio: 'CHICO',
+      vehiculoRequerido: 'MOTO',
+      destinoDireccion: 'Calle 50 123',
+      destinatarioNombre: 'Ana',
+      destinatarioApellido: 'Paz',
+      destinatarioDni: '30111222',
+      destinatarioTelefono: '221 555',
+      observaciones: 'Timbre 2',
+      requiereDni: false,
+      repartidorId: null,
+      ...cambios,
+    });
+
+    it('actualiza un envío en estado PENDIENTE sin cambiar de vehículo', async () => {
+      repository.buscarParaActualizar.mockResolvedValue(envioEditable());
+      repository.actualizar.mockResolvedValue({
+        id: 5,
+        destinatarioNombre: 'Carlos',
+      });
+
+      const resultado = await service.actualizar(
+        5,
+        { destinatarioNombre: 'Carlos' },
+        OPERARIO_ID,
+      );
+
+      expect(resultado).toMatchObject({ id: 5, destinatarioNombre: 'Carlos' });
+      expect(repository.actualizar).toHaveBeenCalledWith(
+        5,
+        'PENDIENTE',
+        { destinatarioNombre: 'Carlos' },
+        OPERARIO_ID,
+        {
+          cambiaVehiculo: false,
+          avisoDireccion: false,
+          detalle: 'Datos modificados: nombre del destinatario',
+        },
+      );
+      expect(asignacion.asignar).not.toHaveBeenCalled();
+      expect(asignacion.reintentarPendientes).not.toHaveBeenCalled();
+    });
+
+    it('registra en el historial solo los datos que cambiaron, sin sus valores', async () => {
+      repository.buscarParaActualizar.mockResolvedValue(envioEditable());
+      repository.actualizar.mockResolvedValue({ id: 5 });
+
+      await service.actualizar(
+        5,
+        {
+          destinatarioNombre: 'Ana',
+          destinatarioDni: '40999888',
+          observaciones: 'Timbre 3',
+        },
+        OPERARIO_ID,
+      );
+
+      expect(repository.actualizar).toHaveBeenCalledWith(
+        5,
+        'PENDIENTE',
+        { destinatarioDni: '40999888', observaciones: 'Timbre 3' },
+        OPERARIO_ID,
+        expect.objectContaining({
+          detalle: 'Datos modificados: DNI del destinatario, observaciones',
+        }),
+      );
+    });
+
+    it('si no cambió nada, no guarda ni deja rastro en el historial', async () => {
+      const envio = envioEditable();
+      repository.buscarParaActualizar.mockResolvedValue(envio);
+
+      const resultado = await service.actualizar(
+        5,
+        { destinatarioNombre: 'Ana', tamanio: 'CHICO' },
+        OPERARIO_ID,
+      );
+
+      expect(resultado).toBe(envio);
+      expect(repository.actualizar).not.toHaveBeenCalled();
+    });
+
+    it('permite borrar las observaciones y el DNI si el comercio no lo exige', async () => {
+      repository.buscarParaActualizar.mockResolvedValue(envioEditable());
+      repository.actualizar.mockResolvedValue({ id: 5 });
+
+      await service.actualizar(
+        5,
+        { observaciones: null, destinatarioDni: null },
+        OPERARIO_ID,
+      );
+
+      expect(repository.actualizar).toHaveBeenCalledWith(
+        5,
+        'PENDIENTE',
+        { observaciones: null, destinatarioDni: null },
+        OPERARIO_ID,
+        expect.anything(),
+      );
+    });
+
+    it('no deja borrar el DNI si el comercio lo exige al entregar', async () => {
+      repository.buscarParaActualizar.mockResolvedValue(
+        envioEditable({ requiereDni: true }),
+      );
+
+      await expect(
+        service.actualizar(5, { destinatarioDni: null }, OPERARIO_ID),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(repository.actualizar).not.toHaveBeenCalled();
+    });
+
+    it('al cambiar el tamaño que requiere otro vehículo, resetea a PENDIENTE, libera al repartidor y llama al motor', async () => {
+      repository.buscarParaActualizar.mockResolvedValue(
+        envioEditable({ estado: 'ASIGNADO', repartidorId: 8 }),
+      );
+      repository.actualizar.mockResolvedValue({
+        id: 5,
+        tamanio: 'GRANDE',
+        vehiculoRequerido: 'CAMION',
+        estado: 'PENDIENTE',
+        repartidorId: null,
+      });
+
+      await service.actualizar(5, { tamanio: 'GRANDE' }, OPERARIO_ID);
+
+      expect(repository.actualizar).toHaveBeenCalledWith(
+        5,
+        'ASIGNADO',
+        { tamanio: 'GRANDE', vehiculoRequerido: 'CAMION' },
+        OPERARIO_ID,
+        {
+          cambiaVehiculo: true,
+          avisoDireccion: false,
+          detalle: 'Datos modificados: tamaño',
+        },
+      );
+      expect(asignacion.asignar).toHaveBeenCalledWith(5);
+      expect(asignacion.reintentarPendientes).toHaveBeenCalled();
+    });
+
+    it('al cambiar la dirección de entrega con repartidor asignado, activa avisoDireccion', async () => {
+      repository.buscarParaActualizar.mockResolvedValue(
+        envioEditable({ estado: 'EN_CAMINO_A_RETIRAR', repartidorId: 8 }),
+      );
+      repository.actualizar.mockResolvedValue({
+        id: 5,
+        destinoDireccion: 'Nueva direccion 456',
+      });
+
+      await service.actualizar(
+        5,
+        { destinoDireccion: 'Nueva direccion 456' },
+        OPERARIO_ID,
+      );
+
+      expect(repository.actualizar).toHaveBeenCalledWith(
+        5,
+        'EN_CAMINO_A_RETIRAR',
+        { destinoDireccion: 'Nueva direccion 456' },
+        OPERARIO_ID,
+        {
+          cambiaVehiculo: false,
+          avisoDireccion: true,
+          detalle: 'Datos modificados: dirección de entrega',
+        },
+      );
+    });
+
+    it('rechaza con 409 y mensaje exacto si el paquete ya fue retirado', async () => {
+      repository.buscarParaActualizar.mockResolvedValue(
+        envioEditable({ estado: 'RETIRADO', repartidorId: 8 }),
+      );
+
+      await expect(
+        service.actualizar(5, { destinatarioNombre: 'Juan' }, OPERARIO_ID),
+      ).rejects.toThrow(
+        new ConflictException(
+          'No se puede modificar: el paquete ya fue retirado',
+        ),
+      );
+      expect(repository.actualizar).not.toHaveBeenCalled();
+    });
+
+    it('rechaza con 404 si el envío no existe', async () => {
+      repository.buscarParaActualizar.mockResolvedValue(null);
+
+      await expect(
+        service.actualizar(99, { destinatarioNombre: 'Juan' }, OPERARIO_ID),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+});
+
+describe('ActualizarEnvioDto', () => {
+  async function camposConError(cuerpo: object) {
+    const errores = await validate(plainToInstance(ActualizarEnvioDto, cuerpo));
+    return errores.map((e) => e.property).sort();
+  }
+
+  it('acepta null para borrar el DNI y las observaciones', async () => {
+    expect(
+      await camposConError({ destinatarioDni: null, observaciones: null }),
+    ).toEqual([]);
+  });
+
+  it('no deja vaciar los datos obligatorios del alta, ni con null', async () => {
+    expect(
+      await camposConError({
+        destinoDireccion: null,
+        destinatarioNombre: '',
+        destinatarioApellido: null,
+        destinatarioTelefono: '',
+        tamanio: null,
+      }),
+    ).toEqual([
+      'destinatarioApellido',
+      'destinatarioNombre',
+      'destinatarioTelefono',
+      'destinoDireccion',
+      'tamanio',
+    ]);
+  });
+
+  it('rechaza un DNI con formato inválido', async () => {
+    expect(await camposConError({ destinatarioDni: '30.111.222' })).toEqual([
+      'destinatarioDni',
+    ]);
+  });
 });
 
 describe('ListarEnviosDto', () => {
@@ -322,5 +647,38 @@ describe('ListarEnviosDto', () => {
 
   it('sin parámetros es válido', async () => {
     expect((await validar({})).campos).toEqual([]);
+  });
+});
+
+describe('CrearEnvioDto', () => {
+  async function camposConError(cuerpo: object) {
+    const errores = await validate(plainToInstance(CrearEnvioDto, cuerpo));
+    return errores.map((e) => e.property).sort();
+  }
+
+  it('exige nombre, apellido y teléfono del destinatario', async () => {
+    const campos = await camposConError({
+      comercioId: 1,
+      destinoDireccion: 'Calle 50 n° 200',
+      destinatarioNombre: '',
+      tamanio: 'CHICO',
+    });
+    expect(campos).toEqual([
+      'destinatarioApellido',
+      'destinatarioNombre',
+      'destinatarioTelefono',
+    ]);
+  });
+
+  it('el DNI del destinatario sigue siendo opcional', async () => {
+    const campos = await camposConError({
+      comercioId: 1,
+      destinoDireccion: 'Calle 50 n° 200',
+      destinatarioNombre: 'Ana',
+      destinatarioApellido: 'Paz',
+      destinatarioTelefono: '221 555-0000',
+      tamanio: 'CHICO',
+    });
+    expect(campos).toEqual([]);
   });
 });

@@ -39,7 +39,6 @@ describe('AuthService', () => {
       existePinHmac: jest.fn().mockResolvedValue(false),
       guardarPinHmac: jest.fn(),
       crearRefreshToken: jest.fn(),
-      activarJornada: jest.fn().mockResolvedValue(true),
       buscarRefreshTokenPorHash: jest.fn(),
       revocarRefreshToken: jest.fn(),
       revocarTodos: jest.fn(),
@@ -124,24 +123,6 @@ describe('AuthService', () => {
       await expect(servicio.loginRepartidor('0000')).rejects.toBeInstanceOf(
         UnauthorizedException,
       );
-    });
-
-    it('Escenario 3: si el repartidor tenía jornada finalizada (FUERA_DE_JORNADA), pasa a DISPONIBLE al ingresar con PIN', async () => {
-      repo.buscarRepartidorPorPinHmac.mockResolvedValue({
-        id: 7,
-        nombre: 'Juan',
-        apellido: 'Pérez',
-        estado: 'FUERA_DE_JORNADA',
-        activo: true,
-      } as never);
-      const asignacionMock = { reintentarPendientes: jest.fn().mockResolvedValue(0) };
-      const serv = new AuthService(repo, hashing, jwt, asignacionMock as never);
-
-      const sesion = await serv.loginRepartidor('0427');
-
-      expect(repo.activarJornada).toHaveBeenCalledWith(7);
-      expect(asignacionMock.reintentarPendientes).toHaveBeenCalled();
-      expect(sesion.usuario.id).toBe(7);
     });
   });
 

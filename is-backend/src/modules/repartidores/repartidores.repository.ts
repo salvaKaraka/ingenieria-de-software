@@ -3,11 +3,13 @@ import { PrismaService } from '../../database/prisma.service';
 import { EstadoEnvio, type Prisma } from '../../generated/prisma/client';
 import type { FiltroRepartidoresDto } from './dto/filtro-repartidores.dto';
 
-// Proyección segura: pinHmac se excluye a nivel de base de datos para no exponerlo jamás
+// Proyección segura: pinHmac se excluye a nivel de base de datos para no exponerlo jamás.
+// El DNI se lee para que el service lo enmascare antes de responder.
 export const SELECT_REPARTIDOR_PUBLICO = {
   id: true,
   nombre: true,
   apellido: true,
+  dni: true,
   telefono: true,
   email: true,
   direccion: true,
@@ -122,6 +124,43 @@ export class RepartidoresRepository {
     return count > 0;
   }
 
+  // Reactivación: vuelve fuera de jornada y con la cuenta de viajes seguidos en cero.
+  // Devuelve false si ya estaba activo (por ejemplo, otro operario lo reactivó antes).
+  async reactivarSiEstaInactivo(id: number): Promise<boolean> {
+    const { count } = await this.prisma.repartidor.updateMany({
+      where: { id, activo: false },
+      data: {
+        activo: true,
+        estado: 'FUERA_DE_JORNADA',
+        enColaDesde: null,
+        viajesConsecutivos: 0,
+      },
+    });
+    return count > 0;
+  }
+
+  // Cambio de vehículo junto con el resto de los datos editados. Igual que la baja, el UPDATE
+  // vuelve a exigir que esté libre: en la cola sin oferta (enColaDesde no nulo), en pausa o
+  // fuera de jornada. Si estaba en la cola, pasa al final de la cola del vehículo nuevo.
+  // Las dos sentencias aplican a estados distintos, así que a lo sumo una cambia la fila.
+  // Devuelve false si no se pudo cambiar.
+  async cambiarVehiculoSiEstaLibre(
+    id: number,
+    datos: Prisma.RepartidorUpdateManyMutationInput,
+  ): Promise<boolean> {
+    const enCola = await this.prisma.repartidor.updateMany({
+      where: { id, estado: 'DISPONIBLE', enColaDesde: { not: null } },
+      data: { ...datos, enColaDesde: new Date() },
+    });
+    if (enCola.count > 0) return true;
+
+    const fueraDeCola = await this.prisma.repartidor.updateMany({
+      where: { id, estado: { in: ['FUERA_DE_JORNADA', 'EN_PAUSA'] } },
+      data: datos,
+    });
+    return fueraDeCola.count > 0;
+  }
+
   // Jornada (C-3). Cada cambio es un UPDATE condicionado al estado esperado, así una
   // transición que ya no vale (por ejemplo, el motor le acaba de ofrecer un viaje) no se
   // aplica. Devuelven false si no se cambió nada.
@@ -184,42 +223,26 @@ export class RepartidoresRepository {
     });
   }
 
-  // Rendición de paquetes para cierre de turno (G-1)
-  async obtenerRendicion(repartidorId: number) {
-    const [viajesTomados, paquetesEntregados, paquetesADevolver] =
-      await Promise.all([
-        this.prisma.envio.count({
-          where: { repartidorId },
-        }),
-        this.prisma.envio.count({
-          where: { repartidorId, estado: EstadoEnvio.ENTREGADO },
-        }),
-        this.obtenerPaquetesADevolver(repartidorId),
-      ]);
-
-    return {
-      viajesTomados,
-      paquetesEntregados,
-      paquetesADevolver,
-    };
-  }
-
-  // Marca que el repartidor solicitó el cierre mientras estaba en viaje
+  // G-1: con un viaje en curso solo queda anotado; el cierre se completa al terminar el viaje.
   async marcarCierrePendiente(id: number): Promise<boolean> {
     const { count } = await this.prisma.repartidor.updateMany({
-      where: { id, activo: true },
+      where: { id, activo: true, estado: 'OCUPADO' },
       data: { cierreSolicitado: true },
     });
     return count > 0;
   }
 
-  // Cierre inmediato cuando el repartidor no tiene viajes activos
+  // G-1: sin viaje, sale de la cola y espera la validación del operario. Disponible solo si
+  // está en la cola: fuera de ella tiene una oferta sin responder (mismo criterio que pausar).
   async solicitarCierreInmediato(id: number): Promise<boolean> {
     const { count } = await this.prisma.repartidor.updateMany({
       where: {
         id,
         activo: true,
-        OR: [{ estado: 'DISPONIBLE' }, { estado: 'EN_PAUSA' }],
+        OR: [
+          { estado: 'DISPONIBLE', enColaDesde: { not: null } },
+          { estado: 'EN_PAUSA' },
+        ],
       },
       data: {
         estado: 'ESPERANDO_VALIDACION_CIERRE',
@@ -230,54 +253,63 @@ export class RepartidoresRepository {
     return count > 0;
   }
 
-  // Lista de paquetes asignados que no fueron entregados y tienen reporte de novedad
+  // Paquetes que el repartidor tiene que devolver en la base: los que retiró del comercio y
+  // le cancelaron antes de entregarlos, y que todavía no devolvió. Cuando existan las
+  // novedades en ruta (E-5) se suman acá los que no pudo entregar.
   async obtenerPaquetesADevolver(repartidorId: number) {
     const envios = await this.prisma.envio.findMany({
       where: {
         repartidorId,
-        estado: { not: EstadoEnvio.ENTREGADO },
-        eventos: {
-          some: {
-            tipo: 'NOVEDAD',
-          },
-        },
+        estado: 'CANCELADO',
+        AND: [
+          { eventos: { some: { estadoNuevo: 'RETIRADO' } } },
+          { eventos: { none: { tipo: 'DEVOLUCION' } } },
+        ],
       },
-      include: {
-        comercio: {
-          select: { nombre: true, direccion: true },
-        },
-        eventos: {
-          where: { tipo: 'NOVEDAD' },
-          orderBy: { creadoEn: 'desc' },
-          take: 1,
-        },
+      orderBy: { id: 'asc' },
+      select: {
+        id: true,
+        codigoSeguimiento: true,
+        destinoDireccion: true,
+        comercio: { select: { nombre: true, direccion: true } },
       },
     });
 
     return envios.map((envio) => ({
-      id: envio.id,
-      codigoSeguimiento: envio.codigoSeguimiento,
-      destinoDireccion: envio.destinoDireccion,
-      comercio: {
-        nombre: envio.comercio.nombre,
-        direccion: envio.comercio.direccion,
-      },
-      motivo: envio.eventos[0]?.detalle ?? 'Novedad en ruta',
-      estado: envio.estado,
+      ...envio,
+      motivo: 'Cancelado después del retiro',
     }));
   }
 
-  // Aprobación de cierre de turno por el operario (G-1)
-  async aprobarCierre(id: number): Promise<boolean> {
-    const { count } = await this.prisma.repartidor.updateMany({
-      where: { id, activo: true },
-      data: {
-        estado: 'FUERA_DE_JORNADA',
-        enColaDesde: null,
-        cierreSolicitado: false,
-        viajesConsecutivos: 0,
-      },
+  // G-1: cierra la jornada y deja en el historial de cada paquete que volvió a la base. Solo
+  // si sigue esperando la validación (otro operario pudo haberla aprobado en el medio).
+  async aprobarCierre(
+    id: number,
+    envioIdsDevueltos: number[],
+    operarioId: number,
+  ): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.repartidor.updateMany({
+        where: { id, estado: 'ESPERANDO_VALIDACION_CIERRE' },
+        data: {
+          estado: 'FUERA_DE_JORNADA',
+          enColaDesde: null,
+          cierreSolicitado: false,
+          viajesConsecutivos: 0,
+        },
+      });
+      if (count === 0) return false;
+
+      await tx.eventoEnvio.createMany({
+        data: envioIdsDevueltos.map((envioId) => ({
+          envioId,
+          tipo: 'DEVOLUCION' as const,
+          detalle: 'Paquete devuelto en la base',
+          actorTipo: 'OPERARIO' as const,
+          actorId: operarioId,
+        })),
+      });
+      return true;
     });
-    return count > 0;
   }
 }

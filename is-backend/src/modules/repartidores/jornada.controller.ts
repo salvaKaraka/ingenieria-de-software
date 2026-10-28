@@ -47,9 +47,4 @@ export class JornadaController {
   solicitarCierre(@UsuarioActual() usuario: UsuarioAutenticado) {
     return this.jornada.solicitarCierre(usuario.id);
   }
-
-  @Get('paquetes-devolucion')
-  paquetesDevolucion(@UsuarioActual() usuario: UsuarioAutenticado) {
-    return this.jornada.obtenerPaquetesDevolucion(usuario.id);
-  }
 }

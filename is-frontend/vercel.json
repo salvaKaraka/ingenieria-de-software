@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:ruta*",
-      "destination": "https://REEMPLAZAR-CON-LA-URL-DE-RAILWAY/api/:ruta*"
+      "destination": "https://ingenieria-de-software-aod5.onrender.com/api/:ruta*"
     },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
