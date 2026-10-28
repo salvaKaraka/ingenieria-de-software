@@ -7,6 +7,7 @@ describe('ViajesService', () => {
   const repository = {
     buscarViajeActivoPorRepartidor: jest.fn(),
     avanzarViaje: jest.fn(),
+    buscarRepartidor: jest.fn(),
   };
   const asignacion = { reintentarPendientes: jest.fn() };
   let service: ViajesService;
@@ -79,12 +80,30 @@ describe('ViajesService', () => {
       envioEn('EN_DOMICILIO'),
     );
     repository.avanzarViaje.mockResolvedValue(true);
+    repository.buscarRepartidor.mockResolvedValue({ estado: 'DISPONIBLE' });
 
     await expect(service.avanzarViajeActual(1)).resolves.toEqual({
       estado: 'ENTREGADO',
       siguienteEstado: null,
     });
     expect(asignacion.reintentarPendientes).toHaveBeenCalled();
+  });
+
+  it('al entregar con cierre solicitado, el motor no reintenta envíos pendientes', async () => {
+    repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
+      envioEn('EN_DOMICILIO'),
+    );
+    repository.avanzarViaje.mockResolvedValue(true);
+    repository.buscarRepartidor.mockResolvedValue({
+      estado: 'ESPERANDO_VALIDACION_CIERRE',
+      cierreSolicitado: true,
+    });
+
+    await expect(service.avanzarViajeActual(1)).resolves.toEqual({
+      estado: 'ENTREGADO',
+      siguienteEstado: null,
+    });
+    expect(asignacion.reintentarPendientes).not.toHaveBeenCalled();
   });
 
   it('sin viaje activo, avanzar responde 409', async () => {

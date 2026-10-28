@@ -161,6 +161,13 @@ export class EnviosRepository {
     });
   }
 
+  async buscarRepartidor(id: number) {
+    return this.prisma.repartidor.findUnique({
+      where: { id },
+      select: { id: true, estado: true, cierreSolicitado: true },
+    });
+  }
+
   // Viaje activo del repartidor (E-2): como mucho hay uno, porque el motor solo le ofrece
   // envíos mientras está DISPONIBLE y al aceptar pasa a OCUPADO.
   async buscarViajeActivoPorRepartidor(repartidorId: number) {
@@ -203,14 +210,29 @@ export class EnviosRepository {
       });
 
       if (estadoNuevo === 'ENTREGADO') {
-        await tx.repartidor.updateMany({
-          where: { id: repartidorId, estado: 'OCUPADO' },
-          data: {
-            estado: 'DISPONIBLE',
-            enColaDesde: new Date(),
-            viajesConsecutivos: { increment: 1 },
-          },
+        const rep = await tx.repartidor.findUnique({
+          where: { id: repartidorId },
+          select: { cierreSolicitado: true },
         });
+
+        if (rep?.cierreSolicitado) {
+          await tx.repartidor.updateMany({
+            where: { id: repartidorId, estado: 'OCUPADO' },
+            data: {
+              estado: 'ESPERANDO_VALIDACION_CIERRE',
+              enColaDesde: null,
+            },
+          });
+        } else {
+          await tx.repartidor.updateMany({
+            where: { id: repartidorId, estado: 'OCUPADO' },
+            data: {
+              estado: 'DISPONIBLE',
+              enColaDesde: new Date(),
+              viajesConsecutivos: { increment: 1 },
+            },
+          });
+        }
       }
       return true;
     });

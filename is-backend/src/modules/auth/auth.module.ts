@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
+import { AsignacionModule } from '../asignacion/asignacion.module';
 import { ACCESS_TOKEN_SEGUNDOS } from './auth.constants';
 import { AuthController } from './auth.controller';
 import { AuthRepository } from './auth.repository';
@@ -12,6 +13,7 @@ import { HashingService } from './hashing.service';
 
 @Module({
   imports: [
+    AsignacionModule,
     // El JWT se firma con JWT_SECRET: quien no la tenga no puede fabricar ni modificar tokens.
     JwtModule.registerAsync({
       inject: [ConfigService],

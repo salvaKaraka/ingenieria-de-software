@@ -3,6 +3,7 @@ import { api, ErrorApi } from '../../../shared/api.ts'
 import { ETIQUETA_VEHICULO } from '../../../shared/tipos.ts'
 import { Boton, Campo, Tabla, type Columna } from '../../../shared/ui/index.ts'
 import { usePolling } from '../../../shared/usePolling.ts'
+import { AprobarCierreModal } from './AprobarCierreModal.tsx'
 import { BajaRepartidorModal } from './BajaRepartidorModal.tsx'
 import { FormularioRepartidorModal } from './FormularioRepartidorModal.tsx'
 import { PinGeneradoModal } from './PinGeneradoModal.tsx'
@@ -21,6 +22,7 @@ export function RepartidoresPage() {
   // Modales
   const [modalFormularioAbierto, setModalFormularioAbierto] = useState(false)
   const [modalBajaAbierto, setModalBajaAbierto] = useState(false)
+  const [repartidorParaCierre, setRepartidorParaCierre] = useState<Repartidor | null>(null)
   const [repartidorSeleccionado, setRepartidorSeleccionado] =
     useState<Repartidor | null>(null)
 
@@ -199,6 +201,18 @@ export function RepartidoresPage() {
               >
                 Dar de baja
               </button>
+              {r.estado !== 'FUERA_DE_JORNADA' && (
+                <>
+                  <span className="text-gray-300">|</span>
+                  <button
+                    type="button"
+                    onClick={() => setRepartidorParaCierre(r)}
+                    className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline"
+                  >
+                    Aprobar cierre
+                  </button>
+                </>
+              )}
             </>
           )}
         </div>
@@ -278,6 +292,14 @@ export function RepartidoresPage() {
         onCerrar={() => setPinGenerado(null)}
         pin={pinGenerado?.pin ?? null}
         nombreRepartidor={pinGenerado?.nombre ?? 'Repartidor'}
+      />
+
+      {/* Modal de Aprobación de Cierre de Turno */}
+      <AprobarCierreModal
+        abierto={repartidorParaCierre !== null}
+        onCerrar={() => setRepartidorParaCierre(null)}
+        onAprobado={cargar}
+        repartidor={repartidorParaCierre}
       />
     </div>
   )

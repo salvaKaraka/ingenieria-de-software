@@ -1,7 +1,9 @@
 import { useCallback, useState } from 'react'
 import { api, ErrorApi } from '../../../shared/api.ts'
 import type { TipoVehiculo } from '../../../shared/tipos.ts'
+import { Boton } from '../../../shared/ui/index.ts'
 import { usePolling } from '../../../shared/usePolling.ts'
+import { AprobarCierreModal } from '../repartidores/AprobarCierreModal.tsx'
 import {
   COLOR_ESTADO_REPARTIDOR,
   ETIQUETA_ESTADO_REPARTIDOR,
@@ -31,6 +33,7 @@ export function FlotaPage() {
   const [flota, setFlota] = useState<Flota | null>(null)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [repartidorParaCierre, setRepartidorParaCierre] = useState<Repartidor | null>(null)
 
   const cargar = useCallback(async () => {
     try {
@@ -154,6 +157,15 @@ export function FlotaPage() {
                               </span>
                             )}
                           </div>
+
+                          <div className="flex justify-end border-t border-gray-100 pt-2">
+                            <Boton
+                              variante="secundario"
+                              onClick={() => setRepartidorParaCierre(r)}
+                            >
+                              Aprobar cierre
+                            </Boton>
+                          </div>
                         </div>
                       )
                     })}
@@ -164,6 +176,13 @@ export function FlotaPage() {
           })}
         </div>
       )}
+
+      <AprobarCierreModal
+        abierto={repartidorParaCierre !== null}
+        onCerrar={() => setRepartidorParaCierre(null)}
+        onAprobado={() => void cargar()}
+        repartidor={repartidorParaCierre}
+      />
     </div>
   )
 }

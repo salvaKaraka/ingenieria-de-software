@@ -62,10 +62,13 @@ export class ViajesService {
       );
     }
 
-    // Recién después de confirmar la entrega: el repartidor volvió a la cola y el motor
-    // le puede ofrecer el siguiente envío.
+    // Recién después de confirmar la entrega: si el repartidor volvió a DISPONIBLE (no pidió cierre),
+    // el motor le puede ofrecer el siguiente envío.
     if (nuevo === 'ENTREGADO') {
-      await this.asignacionService.reintentarPendientes();
+      const rep = await this.enviosRepository.buscarRepartidor?.(repartidorId);
+      if (!rep || rep.estado === 'DISPONIBLE') {
+        await this.asignacionService.reintentarPendientes();
+      }
     }
     return { estado: nuevo, siguienteEstado: siguienteEstado(nuevo) };
   }

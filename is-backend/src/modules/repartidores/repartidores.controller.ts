@@ -13,15 +13,20 @@ import {
 import { Roles } from '../../common/auth';
 import {
   ActualizarRepartidorDto,
+  AprobarCierreDto,
   CrearRepartidorDto,
   FiltroRepartidoresDto,
 } from './dto';
+import { JornadaService } from './jornada.service';
 import { RepartidoresService } from './repartidores.service';
 
 @Roles('OPERARIO')
 @Controller('repartidores')
 export class RepartidoresController {
-  constructor(private readonly repartidoresService: RepartidoresService) {}
+  constructor(
+    private readonly repartidoresService: RepartidoresService,
+    private readonly jornadaService: JornadaService,
+  ) {}
 
   @Get()
   listar(@Query() filtros: FiltroRepartidoresDto) {
@@ -57,5 +62,19 @@ export class RepartidoresController {
   @HttpCode(200)
   resetearPin(@Param('id', ParseIntPipe) id: number) {
     return this.repartidoresService.resetearPin(id);
+  }
+
+  @Get(':id/rendicion')
+  rendicion(@Param('id', ParseIntPipe) id: number) {
+    return this.jornadaService.rendicion(id);
+  }
+
+  @Post(':id/aprobar-cierre')
+  @HttpCode(200)
+  aprobarCierre(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AprobarCierreDto,
+  ) {
+    return this.jornadaService.aprobarCierre(id, dto);
   }
 }

@@ -15,6 +15,7 @@ export const SELECT_REPARTIDOR_PUBLICO = {
   estado: true,
   enColaDesde: true,
   viajesConsecutivos: true,
+  cierreSolicitado: true,
   activo: true,
   creadoEn: true,
   actualizadoEn: true,
@@ -128,7 +129,11 @@ export class RepartidoresRepository {
   async iniciarJornada(id: number): Promise<boolean> {
     const { count } = await this.prisma.repartidor.updateMany({
       where: { id, activo: true, estado: 'FUERA_DE_JORNADA' },
-      data: { estado: 'DISPONIBLE', enColaDesde: new Date() },
+      data: {
+        estado: 'DISPONIBLE',
+        enColaDesde: new Date(),
+        cierreSolicitado: false,
+      },
     });
     return count > 0;
   }
@@ -177,5 +182,102 @@ export class RepartidoresRepository {
       },
       select: SELECT_REPARTIDOR_PUBLICO,
     });
+  }
+
+  // Rendición de paquetes para cierre de turno (G-1)
+  async obtenerRendicion(repartidorId: number) {
+    const [viajesTomados, paquetesEntregados, paquetesADevolver] =
+      await Promise.all([
+        this.prisma.envio.count({
+          where: { repartidorId },
+        }),
+        this.prisma.envio.count({
+          where: { repartidorId, estado: EstadoEnvio.ENTREGADO },
+        }),
+        this.obtenerPaquetesADevolver(repartidorId),
+      ]);
+
+    return {
+      viajesTomados,
+      paquetesEntregados,
+      paquetesADevolver,
+    };
+  }
+
+  // Marca que el repartidor solicitó el cierre mientras estaba en viaje
+  async marcarCierrePendiente(id: number): Promise<boolean> {
+    const { count } = await this.prisma.repartidor.updateMany({
+      where: { id, activo: true },
+      data: { cierreSolicitado: true },
+    });
+    return count > 0;
+  }
+
+  // Cierre inmediato cuando el repartidor no tiene viajes activos
+  async solicitarCierreInmediato(id: number): Promise<boolean> {
+    const { count } = await this.prisma.repartidor.updateMany({
+      where: {
+        id,
+        activo: true,
+        OR: [{ estado: 'DISPONIBLE' }, { estado: 'EN_PAUSA' }],
+      },
+      data: {
+        estado: 'ESPERANDO_VALIDACION_CIERRE',
+        enColaDesde: null,
+        cierreSolicitado: true,
+      },
+    });
+    return count > 0;
+  }
+
+  // Lista de paquetes asignados que no fueron entregados y tienen reporte de novedad
+  async obtenerPaquetesADevolver(repartidorId: number) {
+    const envios = await this.prisma.envio.findMany({
+      where: {
+        repartidorId,
+        estado: { not: EstadoEnvio.ENTREGADO },
+        eventos: {
+          some: {
+            tipo: 'NOVEDAD',
+          },
+        },
+      },
+      include: {
+        comercio: {
+          select: { nombre: true, direccion: true },
+        },
+        eventos: {
+          where: { tipo: 'NOVEDAD' },
+          orderBy: { creadoEn: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    return envios.map((envio) => ({
+      id: envio.id,
+      codigoSeguimiento: envio.codigoSeguimiento,
+      destinoDireccion: envio.destinoDireccion,
+      comercio: {
+        nombre: envio.comercio.nombre,
+        direccion: envio.comercio.direccion,
+      },
+      motivo: envio.eventos[0]?.detalle ?? 'Novedad en ruta',
+      estado: envio.estado,
+    }));
+  }
+
+  // Aprobación de cierre de turno por el operario (G-1)
+  async aprobarCierre(id: number): Promise<boolean> {
+    const { count } = await this.prisma.repartidor.updateMany({
+      where: { id, activo: true },
+      data: {
+        estado: 'FUERA_DE_JORNADA',
+        enColaDesde: null,
+        cierreSolicitado: false,
+        viajesConsecutivos: 0,
+      },
+    });
+    return count > 0;
   }
 }

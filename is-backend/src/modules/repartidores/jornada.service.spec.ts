@@ -11,6 +11,12 @@ describe('JornadaService', () => {
     reanudar: jest.fn(),
     terminarJornada: jest.fn(),
     obtenerFlota: jest.fn(),
+    tieneViajeActivo: jest.fn(),
+    marcarCierrePendiente: jest.fn(),
+    solicitarCierreInmediato: jest.fn(),
+    obtenerPaquetesADevolver: jest.fn(),
+    obtenerRendicion: jest.fn(),
+    aprobarCierre: jest.fn(),
   };
   const asignacion = { reintentarPendientes: jest.fn() };
   let servicio: JornadaService;
@@ -166,6 +172,131 @@ describe('JornadaService', () => {
         repMotoCola2,
         repMotoSinCola,
       ]);
+    });
+  });
+
+  describe('solicitarCierre (G-1)', () => {
+    it('Escenario 1: solicitud sin viajes en curso cambia a ESPERANDO_VALIDACION_CIERRE y lista 0 paquetes', async () => {
+      repo.buscarPorId.mockResolvedValue({ id: 1, estado: 'DISPONIBLE' });
+      repo.tieneViajeActivo.mockResolvedValue(false);
+      repo.obtenerPaquetesADevolver.mockResolvedValue([]);
+      repo.solicitarCierreInmediato.mockResolvedValue(true);
+
+      const resultado = await servicio.solicitarCierre(1);
+
+      expect(resultado).toEqual({
+        estado: 'ESPERANDO_VALIDACION_CIERRE',
+        paquetesADevolver: [],
+        mensaje: 'Solicitud enviada al operario',
+      });
+      expect(repo.solicitarCierreInmediato).toHaveBeenCalledWith(1);
+    });
+
+    it('Escenario 2: solicitud con un viaje en curso deja de ofrecerle viajes y avisa que debe finalizarlo', async () => {
+      repo.buscarPorId.mockResolvedValue({ id: 1, estado: 'OCUPADO' });
+      repo.tieneViajeActivo.mockResolvedValue(true);
+      repo.marcarCierrePendiente.mockResolvedValue(true);
+
+      const resultado = await servicio.solicitarCierre(1);
+
+      expect(resultado).toEqual({
+        estado: 'OCUPADO',
+        cierrePendiente: true,
+        mensaje: 'Finalizá tu viaje en curso para completar el cierre',
+      });
+      expect(repo.marcarCierrePendiente).toHaveBeenCalledWith(1);
+      expect(repo.solicitarCierreInmediato).not.toHaveBeenCalled();
+    });
+
+    it('Escenario 3: solicitud con 2 paquetes a devolver muestra el resumen con los 2 paquetes', async () => {
+      const paquetes = [
+        {
+          id: 10,
+          codigoSeguimiento: 'ABC1234567',
+          destinoDireccion: 'Av. Corrientes 1234',
+          comercio: { nombre: 'Librería', direccion: 'Calle 5' },
+          motivo: 'Cliente ausente',
+          estado: 'RETIRADO',
+        },
+        {
+          id: 11,
+          codigoSeguimiento: 'XYZ9876543',
+          destinoDireccion: 'Calle 50 100',
+          comercio: { nombre: 'Farmacia', direccion: 'Calle 8' },
+          motivo: 'Dirección incorrecta',
+          estado: 'EN_DOMICILIO',
+        },
+      ];
+
+      repo.buscarPorId.mockResolvedValue({ id: 1, estado: 'DISPONIBLE' });
+      repo.tieneViajeActivo.mockResolvedValue(false);
+      repo.obtenerPaquetesADevolver.mockResolvedValue(paquetes);
+      repo.solicitarCierreInmediato.mockResolvedValue(true);
+
+      const resultado = await servicio.solicitarCierre(1);
+
+      expect(resultado).toEqual({
+        estado: 'ESPERANDO_VALIDACION_CIERRE',
+        paquetesADevolver: paquetes,
+        mensaje: 'Solicitud enviada al operario',
+      });
+      expect(resultado.paquetesADevolver).toHaveLength(2);
+    });
+
+    it('rechaza solicitar cierre si está FUERA_DE_JORNADA', async () => {
+      repo.buscarPorId.mockResolvedValue({ id: 1, estado: 'FUERA_DE_JORNADA' });
+
+      await expect(servicio.solicitarCierre(1)).rejects.toThrow(
+        'No estás en jornada',
+      );
+    });
+  });
+
+  describe('aprobarCierre (operario)', () => {
+    it('el operario aprueba el cierre cuando la rendición coincide', async () => {
+      repo.buscarPorId.mockResolvedValue({
+        id: 1,
+        estado: 'ESPERANDO_VALIDACION_CIERRE',
+      });
+      repo.obtenerRendicion.mockResolvedValue({
+        viajesTomados: 5,
+        paquetesEntregados: 3,
+        paquetesADevolver: [],
+      });
+      repo.aprobarCierre.mockResolvedValue(true);
+
+      const resultado = await servicio.aprobarCierre(1, {
+        viajesTomados: 5,
+        paquetesEntregados: 3,
+        paquetesDevueltos: 2,
+      });
+
+      expect(resultado).toEqual({
+        repartidorId: 1,
+        estado: 'FUERA_DE_JORNADA',
+        mensaje: 'Cierre de turno aprobado',
+      });
+      expect(repo.aprobarCierre).toHaveBeenCalledWith(1);
+    });
+
+    it('rechaza aprobar cierre si faltan rendir paquetes', async () => {
+      repo.buscarPorId.mockResolvedValue({
+        id: 1,
+        estado: 'ESPERANDO_VALIDACION_CIERRE',
+      });
+      repo.obtenerRendicion.mockResolvedValue({
+        viajesTomados: 5,
+        paquetesEntregados: 3,
+        paquetesADevolver: [],
+      });
+
+      await expect(
+        servicio.aprobarCierre(1, {
+          viajesTomados: 5,
+          paquetesEntregados: 3,
+          paquetesDevueltos: 0,
+        }),
+      ).rejects.toThrow('Faltan rendir 2 paquetes');
     });
   });
 });
