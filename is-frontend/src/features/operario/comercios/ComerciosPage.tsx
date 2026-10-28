@@ -146,8 +146,8 @@ export function ComerciosPage() {
       await api(`/comercios/${id}`, { metodo: 'DELETE' })
       await cargarComercios(busqueda)
     } catch (err) {
-      console.error('Error al dar de baja el comercio:', err)
-      alert('Error al dar de baja el comercio')
+      // El 409 explica por qué no se puede (por ejemplo, que tiene envíos en curso).
+      alert(err instanceof ErrorApi && err.status === 409 ? err.message : 'Error al dar de baja el comercio')
     }
   }
 

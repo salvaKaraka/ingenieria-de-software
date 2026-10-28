@@ -15,6 +15,7 @@ describe('ComerciosService', () => {
     crear: jest.fn(),
     actualizar: jest.fn(),
     eliminarLogico: jest.fn(),
+    contarEnviosEnCurso: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -100,8 +101,18 @@ describe('ComerciosService', () => {
 
   it('la baja lógica llama a eliminarLogico en vez de borrar', async () => {
     repository.buscarPorId.mockResolvedValue({ id: 1, activo: true });
+    repository.contarEnviosEnCurso.mockResolvedValue(0);
     await service.eliminarLogico(1);
     expect(repository.eliminarLogico).toHaveBeenCalledWith(1);
+  });
+
+  it('no da de baja un comercio con envíos en curso', async () => {
+    repository.buscarPorId.mockResolvedValue({ id: 1, activo: true });
+    repository.contarEnviosEnCurso.mockResolvedValue(2);
+    await expect(service.eliminarLogico(1)).rejects.toThrow(
+      new ConflictException('El comercio tiene envíos en curso'),
+    );
+    expect(repository.eliminarLogico).not.toHaveBeenCalled();
   });
 
   it('no da de baja un comercio inexistente', async () => {

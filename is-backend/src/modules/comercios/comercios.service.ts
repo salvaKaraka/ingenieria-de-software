@@ -47,6 +47,11 @@ export class ComerciosService {
 
   async eliminarLogico(id: number) {
     await this.obtenerPorId(id); // Valida que exista
+    // Un envío sin terminar todavía depende del comercio (hay que retirarlo, o el motor lo
+    // sigue ofreciendo): se termina o se cancela antes de darlo de baja.
+    if ((await this.comerciosRepository.contarEnviosEnCurso(id)) > 0) {
+      throw new ConflictException('El comercio tiene envíos en curso');
+    }
     return this.comerciosRepository.eliminarLogico(id);
   }
 }

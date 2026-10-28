@@ -19,6 +19,8 @@ type Viaje = {
   observaciones: string | null
   requiereFoto: boolean
   requiereDni: boolean
+  // Novedad del operario sobre este viaje (HU 31), p. ej. que cambió la dirección de entrega.
+  aviso: string | null
 }
 
 const CONSULTA_CADA_MS = 10_000
@@ -189,6 +191,12 @@ export function ViajeActual({ alEntregar }: { alEntregar: () => void }) {
         <h2 className="text-2xl font-bold">{enRetiro ? 'Retirá el paquete' : 'Entregá el paquete'}</h2>
         <p className="shrink-0 text-base text-slate-400">Paso {numero} de 4</p>
       </div>
+
+      {viaje.aviso && (
+        <p className="rounded-xl bg-yellow-400 p-4 text-lg font-bold text-slate-900" role="alert">
+          ⚠️ {viaje.aviso}
+        </p>
+      )}
 
       <dl className="space-y-3">
         {enRetiro ? (

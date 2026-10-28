@@ -51,6 +51,13 @@ export class ComerciosRepository {
     });
   }
 
+  // Pendientes o en viaje: todo lo que no está entregado ni cancelado.
+  async contarEnviosEnCurso(comercioId: number) {
+    return this.prisma.envio.count({
+      where: { comercioId, estado: { notIn: ['ENTREGADO', 'CANCELADO'] } },
+    });
+  }
+
   // 💥 BAJA LÓGICA (NO BORRAR REGISTRO DE BD)
   async eliminarLogico(id: number) {
     return this.prisma.comercio.update({
