@@ -105,7 +105,7 @@ La baja **fallida** (comercio con envíos en curso) va en el paso 6.5, cuando ya
 
 | # | Quién | Acción | Qué tiene que verse | HU |
 |---|---|---|---|---|
-| 3.1 | Operario | **Repartidores** | DNI enmascarado (•••••001). Tomás figura **Inactivo** y solo tiene **Reactivar**: no hay "Resetear PIN" para un inactivo | #6, #7, #69 |
+| 3.1 | Operario | **Repartidores** | DNI enmascarado (•••••001). Tomás figura **Inactivo** y solo tiene **Reactivar**: el botón "Resetear PIN" no aparece para un inactivo | #6, #7, #69 |
 | 3.2 | Operario | **+ Nuevo repartidor** con los datos de Santiago, pero DNI **30.000.002** → **Crear repartidor** | "El repartidor ya se encuentra registrado" | #6 |
 | 3.3 | Operario | Corregir el DNI a **35.123.456** → **Crear repartidor** | Ventana "PIN de acceso asignado" con el PIN. **El integrante 2 lo anota**: se muestra una sola vez. Santiago queda "Fuera de jornada" | #6, #7 |
 | 3.4 | Operario | **Reactivar** a Tomás y confirmar | Vuelve a activo, "Fuera de jornada", y se muestra su PIN nuevo | #69 |
@@ -126,8 +126,8 @@ La baja **fallida** (comercio con envíos en curso) va en el paso 6.5, cuando ya
 |---|---|---|---|---|
 | 5.1 | Operario | **Envíos → + Registrar nuevo envío** con el envío que vence (Kiosco, **Mediano**) → **Guardar pedido** | "Pedido guardado" con su código, vehículo requerido **Auto**. **A Valentina le llega la oferta: NO la toca.** Anotar la hora: vence en 5 minutos (bloque 7) | #2 |
 | 5.2 | Operario | **Repartidores → Editar** a Valentina: vehículo Auto → Moto → **Guardar cambios** | "El repartidor tiene una oferta sin responder: esperá a que la responda o venza". No cambia | #33 |
-| 5.3 | Operario | Registrar el **envío 1** (Pizzería Los Hijos) primero **sin DNI** y después con DNI 28.555.444 | Sin DNI no lo guarda: el comercio lo exige. Con DNI: "Pedido guardado" con el código, vehículo **Moto** y evidencia **Foto y DNI**, heredada del comercio. **Copiar link de seguimiento** | #2, #16 |
-| 5.4 | Santiago | Recibe la oferta | Tarjeta "Nuevo viaje" con retiro, entrega, tamaño y cuenta regresiva de 5 minutos. **Lucas no la recibió aunque era el primero**: tenía 2 viajes seguidos y había otra moto, así que el sistema lo salteó y lo mandó al final con el contador en 0 (se ve en Flota) | #11, #10 |
+| 5.3 | Operario | Registrar el **envío 1** (Pizzería Los Hijos) primero **sin DNI** y después con DNI 28.555.444 | Sin DNI no lo guarda: el comercio lo exige. Con DNI: "Pedido guardado" con el código, vehículo **Moto** y evidencia **Foto y DNI**, heredada del comercio. **Copiar link de seguimiento** → "¡Link copiado!" | #2, #16 |
+| 5.4 | Santiago | Recibe la oferta | Tarjeta "Nuevo viaje" con el punto de origen, el de destino, el tamaño y cuenta regresiva de 5 minutos. **Lucas no la recibió aunque era el primero**: tenía 2 viajes seguidos y había otra moto, así que el sistema lo salteó y lo mandó al final con el contador en 0 (se ve en Flota) | #11, #10 |
 | 5.5 | Santiago | **Rechazar** | La oferta pasa a Sofía. Santiago vuelve al final de la cola | #11 |
 | 5.6 | Sofía | **Aceptar** | Ve el viaje con las direcciones completas. En el panel, el envío pasa a "En curso", con Sofía como repartidor | #11 |
 
@@ -167,7 +167,7 @@ Si el profe quiere ver el historial de una oferta vencida sin esperar, abrir el 
 | 8.2 | Operario | En el envío 3 → **Modificar datos**: tamaño **Grande** → **Guardar** | Vuelve a "Pendiente" sin repartidor, porque ahora requiere camión y Juan está ocupado. Lucas vuelve a la cola. Historial: "Cambio de tamaño a Grande: ahora requiere Camión y vuelve a Pendiente. El repartidor que lo tenía vuelve a la cola." | #31, #29, #2 |
 | 8.3 | Juan | **Voy al comercio** → confirmar | Su viaje pasa a "En camino a retirar" | #14 |
 | 8.4 | Operario | Abrir el envío mediano (el de Juan) → **Cancelar envío** → **Sí, cancelar** | "Cancelado". Historial: "Cancelado" con la hora y "Operario Ana Pérez" | #29 |
-| 8.5 | Juan | **Enseguida**, antes de que se refresque, tocar **Paquete retirado** → confirmar | No avanza y avisa que ya no tiene ese viaje. Si la pantalla ya se había refrescado, muestra "No tenés viajes asignados en este momento" | #14, #13 |
+| 8.5 | Juan | **Enseguida**, antes de que se refresque, tocar **Paquete retirado** → confirmar | No avanza y avisa que ya no tiene viaje. Si la pantalla ya se había refrescado, muestra "No tenés viajes asignados en este momento" | #14, #13 |
 | 8.6 | Juan | Mirar el celular | Como quedó libre, **le llega la oferta del envío 3** (el grande que esperaba camión). **Rechazar** | #2, #11 |
 | 8.7 | Operario | **Envíos** | El envío 3 queda en "Pendientes de asignar", sin repartidor: no hay otro camión | #11 |
 
@@ -235,16 +235,11 @@ Si el profe quiere ver el historial de una oferta vencida sin esperar, abrir el 
 | #8 | Pausar y reanudar | 4.2, 4.4, 7.4, 9.2 |
 | #12 | Reasignar por vencimiento de la oferta | 5.1, 7.1, 7.2 |
 
-### Diferencias entre las HUs y la app (para corregir antes de la demo)
+### Diferencias entre las HUs y la app
 
 | HU | Qué dice la HU | Qué hace la app |
 |---|---|---|
-| #1, esc. 5 | Evidencia "Foto o DNI" | No existe: se elige foto, DNI, las dos o ninguna. La regla de la misma HU tampoco la menciona |
-| #11, esc. 3 | Antes de aceptar, la oferta muestra solo la **zona** de origen y de destino | Muestra las direcciones completas |
-| #3, esc. 5 | Botón "Cerrar sesión" | Se llama **Salir** |
-| #7, esc. 5 | Intentar resetear el PIN de un inactivo muestra un mensaje | El botón ni aparece para un inactivo (el backend igual lo rechaza con ese mensaje) |
-| #14, esc. 5 | "Le avisa que el envío fue modificado" | Dice que ya no tiene ese viaje |
-| #16, esc. 1 | "Copiar enlace de seguimiento" → "Enlace copiado" | "Copiar link de seguimiento" → "¡Link copiado!" |
+| #11, regla 2 | Antes de aceptar, la oferta muestra solo la **zona** de origen y de destino | Muestra las direcciones completas, como dice el escenario 3. Falta ajustar la regla para que coincida con el escenario |
 
 ---
 
