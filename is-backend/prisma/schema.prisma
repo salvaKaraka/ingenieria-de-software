@@ -50,6 +50,7 @@ enum EstadoRepartidor {
   OCUPADO
   EN_PAUSA
   EMERGENCIA
+  ESPERANDO_VALIDACION_CIERRE
 }
 
 enum EstadoOferta {
@@ -73,6 +74,7 @@ enum TipoEvento {
   NOVEDAD
   INCIDENTE
   NOTA
+  DEVOLUCION // el paquete volvió a la base al cerrar la jornada del repartidor (G-1)
 }
 
 // Tipo de usuario que inicia sesión. Va en el JWT y lo usan los guards (@Roles).
@@ -120,6 +122,7 @@ model Repartidor {
   enColaDesde        DateTime?        @map("en_cola_desde")
   // Entregas seguidas sin descanso (regla de máximo 2 consecutivos, supuesto 5 de TAREAS.md)
   viajesConsecutivos Int              @default(0) @map("viajes_consecutivos")
+  cierreSolicitado   Boolean          @default(false) @map("cierre_solicitado")
   activo             Boolean          @default(true)
   // HMAC-SHA256 del PIN (con la clave PIN_SECRET del .env), nunca el PIN en texto plano.
   // Determinístico: permite buscar al repartidor por su PIN y garantizar que sea único.

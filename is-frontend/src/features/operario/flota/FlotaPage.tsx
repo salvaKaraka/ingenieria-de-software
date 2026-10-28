@@ -1,7 +1,9 @@
 import { useCallback, useState, type ReactNode } from 'react'
 import { api, ErrorApi } from '../../../shared/api.ts'
 import type { TipoVehiculo } from '../../../shared/tipos.ts'
+import { Boton } from '../../../shared/ui/index.ts'
 import { usePolling } from '../../../shared/usePolling.ts'
+import { AprobarCierreModal } from '../repartidores/AprobarCierreModal.tsx'
 import {
   COLOR_ESTADO_REPARTIDOR,
   ETIQUETA_ESTADO_REPARTIDOR,
@@ -21,10 +23,11 @@ const VEHICULOS: { tipo: TipoVehiculo; titulo: string; icono: string }[] = [
 // atención del operario.
 const PRIORIDAD: Record<EstadoRepartidor, number> = {
   EMERGENCIA: 0,
-  OCUPADO: 1,
-  DISPONIBLE: 2, // fuera de la cola = tiene una oferta sin responder
-  EN_PAUSA: 3,
-  FUERA_DE_JORNADA: 4,
+  ESPERANDO_VALIDACION_CIERRE: 1, // espera que el operario apruebe el cierre (G-1)
+  OCUPADO: 2,
+  DISPONIBLE: 3, // fuera de la cola = tiene una oferta sin responder
+  EN_PAUSA: 4,
+  FUERA_DE_JORNADA: 5,
 }
 
 function horaCorta(fechaIso: string): string {
@@ -73,6 +76,7 @@ export function FlotaPage() {
   const [flota, setFlota] = useState<Flota | null>(null)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [repartidorParaCierre, setRepartidorParaCierre] = useState<Repartidor | null>(null)
 
   const cargar = useCallback(async () => {
     try {
@@ -176,7 +180,15 @@ export function FlotaPage() {
                       Fuera de la cola ({resto.length})
                     </h3>
                     {resto.map((r) => (
-                      <TarjetaRepartidor key={r.id} repartidor={r} />
+                      <TarjetaRepartidor key={r.id} repartidor={r}>
+                        {r.estado === 'ESPERANDO_VALIDACION_CIERRE' && (
+                          <div className="flex justify-end border-t border-gray-100 pt-2">
+                            <Boton variante="secundario" onClick={() => setRepartidorParaCierre(r)}>
+                              Aprobar cierre
+                            </Boton>
+                          </div>
+                        )}
+                      </TarjetaRepartidor>
                     ))}
                   </div>
                 )}
@@ -185,6 +197,13 @@ export function FlotaPage() {
           })}
         </div>
       )}
+
+      <AprobarCierreModal
+        abierto={repartidorParaCierre !== null}
+        onCerrar={() => setRepartidorParaCierre(null)}
+        onAprobado={() => void cargar()}
+        repartidor={repartidorParaCierre}
+      />
     </div>
   )
 }
