@@ -174,19 +174,24 @@ export class RepartidoresRepository {
 
   // enColaDesde no nulo = está en la cola y sin oferta: al ofrecerle un viaje el motor lo
   // saca de la cola en su misma fila, y Postgres vuelve a verificar esa condición al bloquearla.
+  // Al pausarse, el contador de viajes consecutivos vuelve a 0.
   async pausar(id: number): Promise<boolean> {
     const { count } = await this.prisma.repartidor.updateMany({
       where: { id, estado: 'DISPONIBLE', enColaDesde: { not: null } },
-      data: { estado: 'EN_PAUSA', enColaDesde: null },
+      data: { estado: 'EN_PAUSA', enColaDesde: null, viajesConsecutivos: 0 },
     });
     return count > 0;
   }
 
-  // Vuelve al final de la cola (C-3).
+  // Vuelve al final de la cola (C-3) con contador en 0.
   async reanudar(id: number): Promise<boolean> {
     const { count } = await this.prisma.repartidor.updateMany({
       where: { id, activo: true, estado: 'EN_PAUSA' },
-      data: { estado: 'DISPONIBLE', enColaDesde: new Date() },
+      data: {
+        estado: 'DISPONIBLE',
+        enColaDesde: new Date(),
+        viajesConsecutivos: 0,
+      },
     });
     return count > 0;
   }

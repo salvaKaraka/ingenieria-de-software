@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Oferta } from '../../generated/prisma/client';
 import {
+  AVISO_ASIGNACION_EXCEPCION,
   MAX_VIAJES_CONSECUTIVOS,
   OFERTA_SEGUNDOS,
 } from './asignacion.constants';
@@ -41,12 +42,22 @@ export class AsignacionService {
           return null;
         }
 
-        // Regla de los 2 viajes consecutivos: descansa un turno y se prueba con el siguiente.
-        // Si era el único disponible, en la vuelta siguiente se lo vuelve a elegir (ya descansado):
-        // es preferible a dejar el paquete sin despachar.
+        // Regla de los 2 viajes consecutivos:
+        // - Si hay otro repartidor disponible para ese vehículo: se lo saltea (descansa, contador a 0 y al final de la cola).
+        // - Si es el único repartidor disponible para ese vehículo: se le asigna igual y se avisa al operario.
+        let esAsignacionExcepcional = false;
         if (candidato.viajesConsecutivos >= MAX_VIAJES_CONSECUTIVOS) {
-          await this.repo.mandarADescansar(tx, candidato.id);
-          continue;
+          const hayOtro = await this.repo.hayOtroCandidatoDisponible(
+            tx,
+            envioId,
+            candidato.vehiculo,
+            candidato.id,
+          );
+          if (hayOtro) {
+            await this.repo.mandarADescansar(tx, candidato.id);
+            continue;
+          }
+          esAsignacionExcepcional = true;
         }
 
         const expiraEn = new Date(Date.now() + OFERTA_SEGUNDOS * 1000);
@@ -56,9 +67,22 @@ export class AsignacionService {
           candidato.id,
           expiraEn,
         );
-        this.logger.log(
-          `Envío ${envioId} ofrecido al repartidor ${candidato.id}`,
-        );
+
+        if (esAsignacionExcepcional) {
+          await this.repo.registrarAvisoExcepcion(
+            tx,
+            envioId,
+            AVISO_ASIGNACION_EXCEPCION,
+          );
+          this.logger.warn(
+            `Envío ${envioId}: asignación por excepción al repartidor ${candidato.id} (único repartidor disponible)`,
+          );
+        } else {
+          this.logger.log(
+            `Envío ${envioId} ofrecido al repartidor ${candidato.id}`,
+          );
+        }
+
         return oferta;
       }
       return null;
