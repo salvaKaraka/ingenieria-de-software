@@ -11,6 +11,7 @@ import {
 import { Boton, Campo, EtiquetaEstado, Modal, Selector } from '../../../shared/ui/index.ts'
 import { usePolling } from '../../../shared/usePolling.ts'
 import { describirEvidencia } from './evidencia.ts'
+import { AVISO_EXCEPCION, esAsignacionPorExcepcion } from './excepcion.ts'
 
 // Lo que devuelve GET /api/envios/:id (B-4). Solo los campos que usa esta pantalla.
 // Entrada del historial (A-6): un cambio de estado o algo que pasó con una oferta.
@@ -247,6 +248,18 @@ export function DetalleEnvioPage() {
       )}
 
       {error && <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800">{error} Se muestra el último dato.</p>}
+
+      {esAsignacionPorExcepcion(envio.estado, envio.historial) && (
+        <div className="flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900">
+          <span className="text-xl">⚠️</span>
+          <div>
+            <p className="font-bold">{AVISO_EXCEPCION}</p>
+            <p className="text-xs text-amber-700">
+              El repartidor asignado alcanzó el límite de 2 viajes consecutivos, pero se le ofreció el viaje por ser el único disponible para este vehículo.
+            </p>
+          </div>
+        </div>
+      )}
 
       <dl className="grid grid-cols-1 gap-4 rounded-lg border border-gray-200 bg-white p-6 text-sm sm:grid-cols-2">
         <div>
