@@ -292,6 +292,7 @@ async function main() {
                 apellido: r.apellido,
                 telefono: `221 500-00${i + 1}0`,
                 email: `repartidor${i + 1}@example.com`,
+                dni: String(30_000_001 + i),
                 direccion: 'La Plata',
                 vehiculo: r.vehiculo,
                 pinHmac: hashing.hmacPin(pin),
@@ -324,6 +325,8 @@ async function main() {
               destinatarioNombre: e.destinatario[0],
               destinatarioApellido: e.destinatario[1],
               destinatarioTelefono: `221 600-0${String(i).padStart(3, '0')}`,
+              // 30000000, 30000001…: para probar la entrega de los comercios que exigen DNI (E-4).
+              destinatarioDni: String(30_000_000 + i),
               tamanio: e.tamanio,
               vehiculoRequerido: VEHICULO_MINIMO[e.tamanio],
               observaciones: e.observaciones,

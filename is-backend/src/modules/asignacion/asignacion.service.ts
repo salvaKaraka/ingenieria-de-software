@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Oferta } from '../../generated/prisma/client';
 import {
+  AVISO_ASIGNACION_EXCEPCION,
   MAX_VIAJES_CONSECUTIVOS,
   OFERTA_SEGUNDOS,
 } from './asignacion.constants';
@@ -71,7 +72,7 @@ export class AsignacionService {
           await this.repo.registrarAvisoExcepcion(
             tx,
             envioId,
-            'Asignación por excepción: único repartidor disponible',
+            AVISO_ASIGNACION_EXCEPCION,
           );
           this.logger.warn(
             `Envío ${envioId}: asignación por excepción al repartidor ${candidato.id} (único repartidor disponible)`,

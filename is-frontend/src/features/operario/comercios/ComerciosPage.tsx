@@ -37,6 +37,7 @@ export function ComerciosPage() {
   const [form, setForm] = useState<FormularioComercio>(FORMULARIO_VACIO)
   const [erroresFormulario, setErroresFormulario] = useState<ErroresFormulario>({})
   const [errorGlobal, setErrorGlobal] = useState<string | null>(null)
+  const [mensajeExito, setMensajeExito] = useState<string | null>(null)
   const [errorCarga, setErrorCarga] = useState(false)
   const ultimaConsulta = useRef(0)
 
@@ -67,6 +68,7 @@ export function ComerciosPage() {
     setForm({ ...FORMULARIO_VACIO })
     setErroresFormulario({})
     setErrorGlobal(null)
+    setMensajeExito(null)
     setModalAbierto(true)
   }
 
@@ -82,6 +84,7 @@ export function ComerciosPage() {
     })
     setErroresFormulario({})
     setErrorGlobal(null)
+    setMensajeExito(null)
     setModalAbierto(true)
   }
 
@@ -89,6 +92,7 @@ export function ComerciosPage() {
     evento.preventDefault()
     setErroresFormulario({})
     setErrorGlobal(null)
+    setMensajeExito(null)
 
     try {
       if (comercioEditar) {
@@ -96,11 +100,13 @@ export function ComerciosPage() {
           metodo: 'PATCH',
           datos: form,
         })
+        setMensajeExito('Comercio actualizado exitosamente')
       } else {
         await api('/comercios', {
           metodo: 'POST',
           datos: form,
         })
+        setMensajeExito('Comercio registrado exitosamente')
       }
       setModalAbierto(false)
       await cargarComercios(busqueda)
@@ -140,8 +146,8 @@ export function ComerciosPage() {
       await api(`/comercios/${id}`, { metodo: 'DELETE' })
       await cargarComercios(busqueda)
     } catch (err) {
-      console.error('Error al dar de baja el comercio:', err)
-      alert('Error al dar de baja el comercio')
+      // El 409 explica por qué no se puede (por ejemplo, que tiene envíos en curso).
+      alert(err instanceof ErrorApi && err.status === 409 ? err.message : 'Error al dar de baja el comercio')
     }
   }
 
@@ -222,6 +228,12 @@ export function ComerciosPage() {
           />
         </div>
       </div>
+
+      {mensajeExito && (
+        <p role="status" className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800">
+          {mensajeExito}
+        </p>
+      )}
 
       {errorCarga && (
         <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">

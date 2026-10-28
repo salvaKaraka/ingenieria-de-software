@@ -23,6 +23,13 @@ export class ComerciosRepository {
     });
   }
 
+  // Incluye los dados de baja: el nombre tiene que ser único en todo el sistema.
+  async buscarPorNombre(nombre: string) {
+    return this.prisma.comercio.findFirst({
+      where: { nombre: { equals: nombre, mode: 'insensitive' } },
+    });
+  }
+
   async crear(data: CrearComercioDto) {
     return this.prisma.comercio.create({
       data: {
@@ -41,6 +48,13 @@ export class ComerciosRepository {
     return this.prisma.comercio.update({
       where: { id },
       data,
+    });
+  }
+
+  // Pendientes o en viaje: todo lo que no está entregado ni cancelado.
+  async contarEnviosEnCurso(comercioId: number) {
+    return this.prisma.envio.count({
+      where: { comercioId, estado: { notIn: ['ENTREGADO', 'CANCELADO'] } },
     });
   }
 
