@@ -119,6 +119,10 @@ export class EnviosRepository {
         include: {
           comercio: { select: { id: true, nombre: true } },
           repartidor: { select: { id: true, nombre: true, apellido: true } },
+          eventos: {
+            where: { detalle: { contains: 'Asignación por excepción' } },
+            select: { id: true, detalle: true },
+          },
         },
       }),
       this.prisma.envio.count({ where }),

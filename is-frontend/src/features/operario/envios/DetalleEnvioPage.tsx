@@ -117,6 +117,20 @@ export function DetalleEnvioPage() {
 
       {error && <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800">{error} Se muestra el último dato.</p>}
 
+      {envio.eventos.some((e) =>
+        e.detalle?.includes('Asignación por excepción: único repartidor disponible'),
+      ) && (
+        <div className="flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900">
+          <span className="text-xl">⚠️</span>
+          <div>
+            <p className="font-bold">Asignación por excepción: único repartidor disponible</p>
+            <p className="text-xs text-amber-700">
+              El repartidor asignado alcanzó el límite de 2 viajes consecutivos, pero se le ofreció el viaje por ser el único disponible para este vehículo.
+            </p>
+          </div>
+        </div>
+      )}
+
       <dl className="grid grid-cols-1 gap-4 rounded-lg border border-gray-200 bg-white p-6 text-sm sm:grid-cols-2">
         <div>
           <dt className="text-gray-500">Comercio</dt>

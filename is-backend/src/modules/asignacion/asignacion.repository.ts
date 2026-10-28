@@ -13,7 +13,11 @@ export type EnvioBloqueado = {
   estado: EstadoEnvio;
   vehiculoRequerido: TipoVehiculo;
 };
-export type Candidato = { id: number; viajesConsecutivos: number };
+export type Candidato = {
+  id: number;
+  viajesConsecutivos: number;
+  vehiculo: TipoVehiculo;
+};
 
 // Acceso a datos del motor. Las consultas críticas están en SQL a mano porque Prisma no sabe
 // expresar los bloqueos de fila (FOR UPDATE / SKIP LOCKED). Todas reciben la transacción `tx`.
@@ -54,7 +58,7 @@ export class AsignacionRepository {
     vehiculos: TipoVehiculo[],
   ): Promise<Candidato | null> {
     const filas = await tx.$queryRaw<Candidato[]>`
-      SELECT r.id, r.viajes_consecutivos AS "viajesConsecutivos"
+      SELECT r.id, r.viajes_consecutivos AS "viajesConsecutivos", r.vehiculo
       FROM repartidores r
       WHERE r.estado = 'DISPONIBLE'
         AND r.activo
@@ -76,6 +80,44 @@ export class AsignacionRepository {
       LIMIT 1
       FOR UPDATE OF r SKIP LOCKED`;
     return filas[0] ?? null;
+  }
+
+  // Verifica si hay otro repartidor disponible para el mismo vehículo que pueda recibir este envío.
+  async hayOtroCandidatoDisponible(
+    tx: Tx,
+    envioId: number,
+    vehiculo: TipoVehiculo,
+    excluirRepartidorId: number,
+  ): Promise<boolean> {
+    const filas = await tx.$queryRaw<{ id: number }[]>`
+      SELECT r.id
+      FROM repartidores r
+      WHERE r.id != ${excluirRepartidorId}
+        AND r.estado = 'DISPONIBLE'
+        AND r.activo
+        AND r.en_cola_desde IS NOT NULL
+        AND r.vehiculo = ${vehiculo}
+        AND NOT EXISTS (
+          SELECT 1 FROM ofertas o WHERE o.repartidor_id = r.id AND o.estado = 'PENDIENTE'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM ofertas o
+          WHERE o.repartidor_id = r.id AND o.envio_id = ${envioId} AND o.estado IN ('RECHAZADA', 'VENCIDA')
+        )
+      LIMIT 1`;
+    return filas.length > 0;
+  }
+
+  // Registra el aviso de asignación por excepción en el historial del envío.
+  async registrarAvisoExcepcion(tx: Tx, envioId: number, detalle: string) {
+    await tx.eventoEnvio.create({
+      data: {
+        envioId,
+        tipo: 'NOTA',
+        detalle,
+        actorTipo: 'SISTEMA',
+      },
+    });
   }
 
   // Descanso por viajes consecutivos: vuelve a 0 y pasa al final de la cola.

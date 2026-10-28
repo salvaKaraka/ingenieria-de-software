@@ -11,6 +11,7 @@ interface EnvioResumen {
   estado: string
   destinoDireccion: string
   comercio: { nombre: string }
+  eventos?: { id: number; detalle: string | null }[]
 }
 
 interface RespuestaPaginada {
@@ -112,13 +113,28 @@ export function EnviosPage() {
     },
     {
       titulo: 'Estado actual',
-      celda: (envio: EnvioResumen) => (
-        <span
-          className={`inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-bold ${obtenerEstiloEstado(envio.estado)}`}
-        >
-          {formatearEstado(envio.estado)}
-        </span>
-      ),
+      celda: (envio: EnvioResumen) => {
+        const esExcepcion = envio.eventos?.some((e) =>
+          e.detalle?.includes('Asignación por excepción: único repartidor disponible'),
+        )
+        return (
+          <div className="space-y-1">
+            <span
+              className={`inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-bold ${obtenerEstiloEstado(envio.estado)}`}
+            >
+              {formatearEstado(envio.estado)}
+            </span>
+            {esExcepcion && (
+              <span
+                className="block rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800"
+                title="Asignación por excepción: único repartidor disponible"
+              >
+                ⚠️ Asignación por excepción: único repartidor disponible
+              </span>
+            )}
+          </div>
+        )
+      },
     },
     {
       titulo: 'Acciones',

@@ -116,6 +116,30 @@ describe('Jornada del repartidor (e2e)', () => {
     });
   });
 
+  it('Escenario 4: reinicio del contador por pausa (un repartidor con 2 viajes se pausa y al reanudar tiene contador en 0)', async () => {
+    const repartidor = await crearRepartidor();
+    await prisma.repartidor.update({
+      where: { id: repartidor },
+      data: { viajesConsecutivos: 2 },
+    });
+    await post(repartidor, 'iniciar');
+
+    await post(repartidor, 'pausar');
+    const pausado = await prisma.repartidor.findUniqueOrThrow({
+      where: { id: repartidor },
+    });
+    expect(pausado.viajesConsecutivos).toBe(0);
+    expect(pausado.estado).toBe('EN_PAUSA');
+
+    await post(repartidor, 'reanudar');
+    const reanudado = await prisma.repartidor.findUniqueOrThrow({
+      where: { id: repartidor },
+    });
+    expect(reanudado.viajesConsecutivos).toBe(0);
+    expect(reanudado.estado).toBe('DISPONIBLE');
+    expect(reanudado.enColaDesde).not.toBeNull();
+  });
+
   it('no deja pausar con una oferta pendiente (409)', async () => {
     const repartidor = await crearRepartidor();
     await crearEnvio();
