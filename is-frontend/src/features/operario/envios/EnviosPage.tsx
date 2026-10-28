@@ -102,6 +102,7 @@ export function EnviosPage() {
       setUltimaActualizacion(new Date())
       setError(false)
     } catch {
+      // Se deja la última lista: un corte de red no debería vaciar el panel.
       setError(true)
     } finally {
       setCargando(false)
@@ -305,10 +306,6 @@ export function EnviosPage() {
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600" />
             <p className="font-medium">Sincronizando envíos...</p>
           </div>
-        ) : error ? (
-          <p role="alert" className="p-8 text-center text-amber-800">
-            No se pudo actualizar el panel. Se reintenta en 15 s.
-          </p>
         ) : (
           <Tabla
             columnas={columnasTabla}
