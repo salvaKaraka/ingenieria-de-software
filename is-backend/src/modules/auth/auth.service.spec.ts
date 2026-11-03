@@ -44,6 +44,7 @@ describe('AuthService', () => {
       revocarTodos: jest.fn(),
       rotarRefreshToken: jest.fn(),
       crearOperario: jest.fn(),
+      iniciarJornadaRepartidor: jest.fn().mockResolvedValue({ count: 1 }),
     } as unknown as jest.Mocked<AuthRepository>;
     servicio = new AuthService(repo, hashing, jwt);
   });
@@ -116,6 +117,20 @@ describe('AuthService', () => {
         rol: 'REPARTIDOR',
         nombre: 'Juan Pérez',
       });
+    });
+
+    it('al ingresar con PIN por primera vez (FUERA_DE_JORNADA) inicializa la jornada en DISPONIBLE y en cola', async () => {
+      repo.buscarRepartidorPorPinHmac.mockResolvedValue({
+        id: 7,
+        nombre: 'Juan',
+        apellido: 'Pérez',
+        activo: true,
+        estado: 'FUERA_DE_JORNADA',
+      } as never);
+
+      await servicio.loginRepartidor('0427');
+
+      expect(repo.iniciarJornadaRepartidor).toHaveBeenCalledWith(7);
     });
 
     it('rechaza un PIN que no es de nadie', async () => {

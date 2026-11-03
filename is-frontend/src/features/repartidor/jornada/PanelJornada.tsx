@@ -31,13 +31,27 @@ const PANTALLA: Record<EstadoRepartidor, { titulo: string; detalle: string; acci
 
 export function PanelJornada() {
   const [estado, setEstado] = useState<EstadoRepartidor | null>(null)
+  const [tieneViajeActivo, setTieneViajeActivo] = useState(false)
   const [enviando, setEnviando] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
   const [confirmandoTerminar, setConfirmandoTerminar] = useState(false)
 
   const consultar = useCallback(async () => {
-    const respuesta = await api<{ estado: EstadoRepartidor }>('/repartidor/jornada')
-    setEstado(respuesta.estado)
+    try {
+      const [respuestaJornada, respuestaViaje] = await Promise.all([
+        api<{ estado: EstadoRepartidor }>('/repartidor/jornada'),
+        api<{ viaje: { envioId: number; estado: string } | null }>('/repartidor/viajes/actual').catch(() => ({ viaje: null })),
+      ])
+      setEstado(respuestaJornada.estado)
+      setTieneViajeActivo(Boolean(respuestaViaje?.viaje))
+    } catch {
+      try {
+        const respuestaJornada = await api<{ estado: EstadoRepartidor }>('/repartidor/jornada')
+        setEstado(respuestaJornada.estado)
+      } catch {
+        // Se preserva el último estado si hay error de red temporal
+      }
+    }
   }, [])
 
   usePolling(consultar, CONSULTA_CADA_MS)
@@ -50,7 +64,7 @@ export function PanelJornada() {
       const respuesta = await api<{ estado: EstadoRepartidor }>(`/repartidor/jornada/${accion}`, { metodo: 'POST' })
       setEstado(respuesta.estado)
     } catch (error) {
-      // El 409 trae el motivo (por ejemplo, una oferta pendiente): se le muestra tal cual.
+      // El 409 trae el motivo (ej. "Finalizá tu viaje en curso antes de pausar"): se muestra tal cual.
       setAviso(error instanceof ErrorApi && error.status === 409 ? error.message : 'No se pudo. Probá de nuevo.')
       void consultar().catch(() => undefined)
     } finally {
@@ -67,11 +81,31 @@ export function PanelJornada() {
     <section className="space-y-4 rounded-2xl bg-slate-900 p-5" aria-live="polite">
       <div>
         <p className="text-sm uppercase text-slate-400">Tu jornada</p>
-        <h2 className="text-3xl font-bold">{titulo}</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-3xl font-bold">{titulo}</h2>
+          {estado === 'EN_PAUSA' && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/40 bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-300">
+              <span>⏸️</span> En pausa
+            </span>
+          )}
+        </div>
         <p className="mt-1 text-slate-300">{detalle}</p>
       </div>
 
-      {aviso && <p className="rounded-xl bg-slate-800 p-4">{aviso}</p>}
+      {aviso && (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-500/40 bg-red-950/40 p-4 text-center font-semibold text-red-200"
+        >
+          {aviso}
+        </div>
+      )}
+
+      {tieneViajeActivo && estado === 'DISPONIBLE' && (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-950/30 p-2.5 text-center text-xs font-medium text-amber-300">
+          ⚠️ Tenés un viaje activo o asignado en curso.
+        </p>
+      )}
 
       {confirmandoTerminar ? (
         <div className="space-y-3 rounded-xl border border-red-500/30 bg-red-950/20 p-4">
@@ -98,6 +132,7 @@ export function PanelJornada() {
               variante={accion.tipo === 'pausar' ? 'secundario' : 'primario'}
               onClick={() => void ejecutar(accion.tipo)}
               disabled={enviando}
+              title={tieneViajeActivo && accion.tipo === 'pausar' ? 'Finalizá tu viaje en curso antes de pausar' : undefined}
             >
               {accion.texto}
             </BotonGrande>

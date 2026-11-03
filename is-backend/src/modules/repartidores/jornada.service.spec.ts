@@ -11,6 +11,7 @@ describe('JornadaService', () => {
     reanudar: jest.fn(),
     terminarJornada: jest.fn(),
     obtenerFlota: jest.fn(),
+    tieneViajeActivo: jest.fn().mockResolvedValue(false),
   };
   const asignacion = { reintentarPendientes: jest.fn() };
   let servicio: JornadaService;
@@ -58,11 +59,22 @@ describe('JornadaService', () => {
     await expect(servicio.pausar(1)).rejects.toThrow('oferta pendiente');
   });
 
-  it('no deja pausar con un viaje en curso', async () => {
+  it('no deja pausar con un viaje en curso (mensaje exacto)', async () => {
     repo.pausar.mockResolvedValue(false);
     estaEn('OCUPADO');
 
-    await expect(servicio.pausar(1)).rejects.toThrow('viaje en curso');
+    await expect(servicio.pausar(1)).rejects.toThrow(
+      'Finalizá tu viaje en curso antes de pausar',
+    );
+  });
+
+  it('rechaza la pausa si el repartidor tiene un viaje activo en curso o asignado', async () => {
+    repo.tieneViajeActivo.mockResolvedValue(true);
+
+    await expect(servicio.pausar(1)).rejects.toThrow(
+      'Finalizá tu viaje en curso antes de pausar',
+    );
+    expect(repo.pausar).not.toHaveBeenCalled();
   });
 
   it('al reanudar vuelve a la cola y el motor reintenta los pendientes', async () => {
