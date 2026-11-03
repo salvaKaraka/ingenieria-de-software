@@ -20,7 +20,7 @@ import { CrearEnvioDto } from './dto/crear-envio.dto';
 import { ListarEnviosDto } from './dto/listar-envios.dto';
 import { EnviosService } from './envios.service';
 
-@Controller('envios')
+@Controller(['envios', 'operario/envios'])
 @Roles('OPERARIO')
 export class EnviosController {
   constructor(private readonly enviosService: EnviosService) {}
@@ -36,6 +36,11 @@ export class EnviosController {
   @Get()
   async listar(@Query() filtros: ListarEnviosDto) {
     return this.enviosService.listar(filtros);
+  }
+
+  @Get('panel')
+  async panel() {
+    return this.enviosService.obtenerPanel();
   }
 
   @Get(':id')
