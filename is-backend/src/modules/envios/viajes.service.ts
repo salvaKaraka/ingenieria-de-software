@@ -12,6 +12,7 @@ type ExigenciasEntrega = {
   requiereDni: boolean;
   requiereFoto: boolean;
   destinatarioDni: string | null;
+  fotoUrl?: string | null;
 };
 
 // Viaje activo del repartidor logueado (E-2): verlo y avanzarlo un paso por vez.
@@ -51,9 +52,33 @@ export class ViajesService {
         observaciones: envio.observaciones,
         requiereFoto: envio.requiereFoto,
         requiereDni: envio.requiereDni,
+        fotoUrl: envio.fotoUrl ?? null,
         aviso,
       },
     };
+  }
+
+  // HU #18 (Épica #58): Captura y asociación de fotografía como evidencia de entrega.
+  // Solo permitida cuando el envío se encuentra en estado EN_DOMICILIO.
+  async adjuntarFoto(repartidorId: number, foto: string) {
+    if (!foto || typeof foto !== 'string' || !foto.trim()) {
+      throw new BadRequestException('La foto es obligatoria');
+    }
+
+    const envio =
+      await this.enviosRepository.buscarViajeActivoPorRepartidor(repartidorId);
+    if (!envio) {
+      throw new ConflictException('No tenés ningún viaje activo');
+    }
+
+    if (envio.estado !== 'EN_DOMICILIO') {
+      throw new ConflictException(
+        'La fotografía solo puede capturarse en el domicilio de entrega',
+      );
+    }
+
+    await this.enviosRepository.guardarFotoEnvio(envio.id, foto.trim());
+    return { ok: true, fotoUrl: foto.trim() };
   }
 
   async avanzarViajeActual(
@@ -71,10 +96,14 @@ export class ViajesService {
       throw new ConflictException('El viaje no se puede avanzar desde acá');
     }
 
-    const detalle =
-      nuevo === 'ENTREGADO'
-        ? this.verificarEvidencia(envio, evidencia)
-        : undefined;
+    let detalle: string | undefined = undefined;
+    let fotoUrl: string | undefined = undefined;
+
+    if (nuevo === 'ENTREGADO') {
+      const resultado = this.verificarEvidencia(envio, evidencia);
+      detalle = resultado.detalle;
+      fotoUrl = resultado.fotoUrl;
+    }
 
     const avanzado = await this.enviosRepository.avanzarViaje(
       envio.id,
@@ -82,6 +111,7 @@ export class ViajesService {
       nuevo,
       repartidorId,
       detalle,
+      fotoUrl,
     );
     if (!avanzado) {
       throw new ConflictException(
@@ -97,13 +127,13 @@ export class ViajesService {
     return { estado: nuevo, siguienteEstado: siguienteEstado(nuevo) };
   }
 
-  // E-4 (épica 4.3): no se entrega sin la evidencia que exige el comercio. La comparación del
-  // DNI se hace acá y no en el front para no mandarle al celular el DNI del destinatario.
-  // Devuelve el texto que queda en el historial del envío (sin el DNI, que es un dato sensible).
+  // E-4 (épica 4.3 / HU 18): no se entrega sin la evidencia que exige el comercio.
+  // La comparación del DNI se hace acá y no en el front para no mandarle al celular el DNI del destinatario.
+  // Devuelve el texto que queda en el historial del envío y la foto para persistir.
   private verificarEvidencia(
     envio: ExigenciasEntrega,
     evidencia: AvanzarViajeDto,
-  ): string | undefined {
+  ): { detalle?: string; fotoUrl?: string } {
     const registro: string[] = [];
 
     if (envio.requiereDni) {
@@ -123,17 +153,27 @@ export class ViajesService {
       }
     }
 
+    const foto =
+      evidencia.foto?.trim() ||
+      evidencia.fotoUrl?.trim() ||
+      envio.fotoUrl ||
+      undefined;
+
     if (envio.requiereFoto) {
-      if (!evidencia.fotoEnviada) {
+      if (!foto && !evidencia.fotoEnviada) {
         throw new BadRequestException(
-          'Confirmá que mandaste la foto por WhatsApp',
+          'Este comercio exige una foto de la entrega',
         );
       }
-      registro.push('foto enviada por WhatsApp');
+      registro.push(foto ? 'foto adjunta' : 'foto enviada por WhatsApp');
+    } else if (foto) {
+      registro.push('foto adjunta');
     }
 
-    return registro.length > 0
-      ? `Evidencia: ${registro.join(', ')}`
-      : undefined;
+    return {
+      detalle:
+        registro.length > 0 ? `Evidencia: ${registro.join(', ')}` : undefined,
+      fotoUrl: foto,
+    };
   }
 }
