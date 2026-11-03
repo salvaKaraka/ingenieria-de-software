@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { EstadoOferta } from '../../generated/prisma/client';
 import { AsignacionService } from './asignacion.service';
 import { type OfertaBloqueada, OfertasRepository } from './ofertas.repository';
 
@@ -21,6 +22,56 @@ export type OfertaParaRepartidor = {
     observaciones: string | null;
   };
 };
+
+export type DetalleHistorialRespuesta = {
+  id: number;
+  estado: EstadoOferta;
+  fecha: string;
+  envioId: number;
+  codigoSeguimiento?: string;
+};
+
+export type HistorialRespuestasResultado = {
+  repartidorId: number;
+  rango: {
+    desde: string | null;
+    hasta: string | null;
+  };
+  totales: {
+    aceptadas: number;
+    rechazadas: number;
+    vencidas: number;
+  };
+  detalle: DetalleHistorialRespuesta[];
+};
+
+function parsearFechaDesde(valor?: string): Date | undefined {
+  if (!valor) return undefined;
+  const d = new Date(valor);
+  return isNaN(d.getTime()) ? undefined : d;
+}
+
+function parsearFechaHasta(valor?: string): Date | undefined {
+  if (!valor) return undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
+    const d = new Date(`${valor}T23:59:59.999Z`);
+    if (!isNaN(d.getTime())) return d;
+  }
+  const d = new Date(valor);
+  return isNaN(d.getTime()) ? undefined : d;
+}
+
+function obtenerFechaEvento(oferta: {
+  estado: EstadoOferta;
+  creadaEn: Date;
+  expiraEn: Date;
+  respondidaEn: Date | null;
+}): Date {
+  return (
+    oferta.respondidaEn ??
+    (oferta.estado === 'VENCIDA' ? oferta.expiraEn : oferta.creadaEn)
+  );
+}
 
 // Respuestas del repartidor a las ofertas (épica 3.3) y su vencimiento.
 @Injectable()
@@ -95,5 +146,66 @@ export class OfertasService {
       throw new ConflictException('La oferta ya fue respondida');
     if (oferta.expiraEn <= new Date())
       throw new ConflictException('La oferta venció');
+  }
+
+  // HU #28: Historial de respuestas y métricas de ofertas de un repartidor
+  async consultarHistorial(
+    repartidorId: number,
+    filtro?: { desde?: string; hasta?: string },
+  ): Promise<HistorialRespuestasResultado> {
+    const fechaDesde = parsearFechaDesde(filtro?.desde);
+    const fechaHasta = parsearFechaHasta(filtro?.hasta);
+
+    const ofertas = await this.repo.buscarHistorialPorRepartidor(
+      repartidorId,
+      fechaDesde,
+      fechaHasta,
+    );
+
+    const filtradas = ofertas.filter((o) => {
+      const fecha = obtenerFechaEvento(o);
+      if (fechaDesde && fecha < fechaDesde) return false;
+      if (fechaHasta && fecha > fechaHasta) return false;
+      return true;
+    });
+
+    filtradas.sort(
+      (a, b) =>
+        obtenerFechaEvento(b).getTime() - obtenerFechaEvento(a).getTime(),
+    );
+
+    let aceptadas = 0;
+    let rechazadas = 0;
+    let vencidas = 0;
+
+    for (const o of filtradas) {
+      if (o.estado === 'ACEPTADA') aceptadas++;
+      else if (o.estado === 'RECHAZADA') rechazadas++;
+      else if (o.estado === 'VENCIDA') vencidas++;
+    }
+
+    const detalle: DetalleHistorialRespuesta[] = filtradas.map((o) => ({
+      id: o.id,
+      estado: o.estado,
+      fecha: obtenerFechaEvento(o).toISOString(),
+      envioId: o.envioId,
+      ...(o.envio?.codigoSeguimiento && {
+        codigoSeguimiento: o.envio.codigoSeguimiento,
+      }),
+    }));
+
+    return {
+      repartidorId,
+      rango: {
+        desde: filtro?.desde ?? null,
+        hasta: filtro?.hasta ?? null,
+      },
+      totales: {
+        aceptadas,
+        rechazadas,
+        vencidas,
+      },
+      detalle,
+    };
   }
 }

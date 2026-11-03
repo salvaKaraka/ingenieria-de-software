@@ -5,10 +5,11 @@ type Props = {
   onCerrar: () => void
   titulo: string
   children: ReactNode
+  ancho?: string
 }
 
 // Ventana modal. Se cierra con Escape o haciendo clic afuera.
-export function Modal({ abierto, onCerrar, titulo, children }: Props) {
+export function Modal({ abierto, onCerrar, titulo, children, ancho = 'max-w-md' }: Props) {
   useEffect(() => {
     if (!abierto) return
     const alApretarTecla = (evento: KeyboardEvent) => {
@@ -26,7 +27,7 @@ export function Modal({ abierto, onCerrar, titulo, children }: Props) {
         role="dialog"
         aria-modal="true"
         aria-label={titulo}
-        className="w-full max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-xl"
+        className={`w-full ${ancho} max-h-[90vh] overflow-y-auto rounded-xl bg-white p-6 text-gray-900 shadow-xl`}
         onClick={(evento) => evento.stopPropagation()}
       >
         <h2 className="mb-4 text-lg font-semibold">{titulo}</h2>
