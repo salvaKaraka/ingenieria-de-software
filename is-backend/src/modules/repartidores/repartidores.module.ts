@@ -4,6 +4,7 @@ import { AuthModule } from '../auth/auth.module';
 import { FlotaController } from './flota.controller';
 import { JornadaController } from './jornada.controller';
 import { JornadaService } from './jornada.service';
+import { PerfilRepartidorController } from './perfil-repartidor.controller';
 import { RepartidoresController } from './repartidores.controller';
 import { RepartidoresRepository } from './repartidores.repository';
 import { RepartidoresService } from './repartidores.service';
@@ -11,7 +12,12 @@ import { RepartidoresService } from './repartidores.service';
 @Module({
   // AsignacionModule: iniciar o reanudar la jornada dispara el motor (C-3).
   imports: [AuthModule, AsignacionModule],
-  controllers: [RepartidoresController, JornadaController, FlotaController],
+  controllers: [
+    RepartidoresController,
+    JornadaController,
+    FlotaController,
+    PerfilRepartidorController,
+  ],
   providers: [RepartidoresService, JornadaService, RepartidoresRepository],
   // AGENTS.md: repartidores.module.ts exporta SOLO el service
   exports: [RepartidoresService],
