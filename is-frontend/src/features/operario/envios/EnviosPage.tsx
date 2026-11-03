@@ -212,7 +212,14 @@ export function EnviosPage() {
           </p>
         </div>
 
-        <div className="rounded-lg shadow-xl transition hover:scale-105">
+        <div className="flex flex-wrap items-center gap-3">
+          <Boton
+            variante="secundario"
+            onClick={() => navigate('/operario/panel')}
+            className="border-white/30 bg-white/10 text-white hover:bg-white/20"
+          >
+            📊 Panel del día
+          </Boton>
           <Boton
             onClick={() => navigate('/operario/envios/nuevo')}
             className="rounded-xl border-none bg-amber-400 px-6 py-3 font-bold text-slate-900 shadow-lg hover:bg-amber-300"

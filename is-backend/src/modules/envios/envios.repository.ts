@@ -501,4 +501,54 @@ export class EnviosRepository {
       return envio;
     });
   }
+
+  // Envíos del panel diario: activos (no entregados ni cancelados) con novedad o incidente si existe
+  async obtenerPanelEnvios() {
+    return this.prisma.envio.findMany({
+      where: {
+        estado: {
+          in: [
+            'PENDIENTE',
+            'ASIGNADO',
+            'EN_CAMINO_A_RETIRAR',
+            'RETIRADO',
+            'EN_DOMICILIO',
+          ],
+        },
+      },
+      orderBy: {
+        creadoEn: 'asc',
+      },
+      include: {
+        comercio: {
+          select: {
+            id: true,
+            nombre: true,
+            telefono: true,
+            direccion: true,
+          },
+        },
+        repartidor: {
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true,
+            telefono: true,
+            vehiculo: true,
+          },
+        },
+        eventos: {
+          where: {
+            tipo: {
+              in: ['NOVEDAD', 'INCIDENTE'],
+            },
+          },
+          orderBy: {
+            creadoEn: 'desc',
+          },
+          take: 1,
+        },
+      },
+    });
+  }
 }

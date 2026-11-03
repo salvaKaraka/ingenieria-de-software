@@ -214,6 +214,79 @@ export class EnviosService {
     };
   }
 
+  async obtenerPanel() {
+    const envios = await this.enviosRepository.obtenerPanelEnvios();
+
+    const grupos: Record<
+      'PENDIENTE' | 'ASIGNADO' | 'EN_CAMINO_A_RETIRAR' | 'RETIRADO' | 'EN_DOMICILIO',
+      any[]
+    > = {
+      PENDIENTE: [],
+      ASIGNADO: [],
+      EN_CAMINO_A_RETIRAR: [],
+      RETIRADO: [],
+      EN_DOMICILIO: [],
+    };
+
+    const totales = {
+      total: envios.length,
+      PENDIENTE: 0,
+      ASIGNADO: 0,
+      EN_CAMINO_A_RETIRAR: 0,
+      RETIRADO: 0,
+      EN_DOMICILIO: 0,
+    };
+
+    const enviosFormateados = envios.map((envio) => {
+      const eventoNovedad = envio.eventos?.[0] ?? null;
+      const conNovedad = Boolean(eventoNovedad);
+
+      return {
+        id: envio.id,
+        codigoSeguimiento: envio.codigoSeguimiento,
+        estado: envio.estado,
+        origenDireccion: envio.origenDireccion,
+        destinoDireccion: envio.destinoDireccion,
+        destinatarioNombre: envio.destinatarioNombre,
+        destinatarioApellido: envio.destinatarioApellido,
+        destinatarioTelefono: envio.destinatarioTelefono,
+        destinatarioDni: envio.destinatarioDni,
+        tamanio: envio.tamanio,
+        vehiculoRequerido: envio.vehiculoRequerido,
+        observaciones: envio.observaciones,
+        requiereFoto: envio.requiereFoto,
+        requiereDni: envio.requiereDni,
+        creadoEn: envio.creadoEn,
+        actualizadoEn: envio.actualizadoEn,
+        comercio: envio.comercio,
+        repartidor: envio.repartidor,
+        conNovedad,
+        novedad: eventoNovedad
+          ? {
+              tipo: eventoNovedad.tipo,
+              detalle: eventoNovedad.detalle,
+              creadoEn: eventoNovedad.creadoEn,
+            }
+          : null,
+      };
+    });
+
+    for (const envio of enviosFormateados) {
+      if (grupos[envio.estado as keyof typeof grupos]) {
+        grupos[envio.estado as keyof typeof grupos].push(envio);
+      }
+      if (typeof totales[envio.estado as keyof typeof totales] === 'number') {
+        totales[envio.estado as keyof typeof totales]++;
+      }
+    }
+
+    return {
+      totales,
+      grupos,
+      envios: enviosFormateados,
+    };
+  }
+
   async cancelar(id: number, operarioId: number) {
     const envio = await this.enviosRepository.obtenerEstado(id);
     if (!envio) {
