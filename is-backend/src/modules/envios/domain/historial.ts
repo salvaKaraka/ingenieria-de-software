@@ -10,6 +10,7 @@ export type EventoHistorial = {
   tipo: TipoEvento;
   estadoNuevo: EstadoEnvio | null;
   detalle: string | null;
+  fotoUrl?: string | null;
   actorTipo: TipoActor;
   actorId: number | null;
   creadoEn: Date;
@@ -36,6 +37,7 @@ export type EntradaHistorial = {
   tipo: TipoEvento | 'OFERTA_ENVIADA' | 'OFERTA_RECHAZADA' | 'OFERTA_VENCIDA';
   estadoNuevo: EstadoEnvio | null;
   detalle: string | null;
+  fotoUrl?: string | null;
   actorTipo: TipoActor;
   // Quién hizo la acción; null si fue el sistema o no se encontró.
   actorNombre: string | null;
@@ -69,6 +71,7 @@ export function armarHistorial(
     tipo: evento.tipo,
     estadoNuevo: evento.estadoNuevo,
     detalle: evento.detalle,
+    fotoUrl: evento.fotoUrl ?? null,
     actorTipo: evento.actorTipo,
     actorNombre: nombreDe(evento.actorTipo, evento.actorId, nombres),
     repartidorNombre: null,
@@ -89,6 +92,7 @@ export function armarHistorial(
     const base = {
       estadoNuevo: null,
       detalle: null,
+      fotoUrl: null,
       repartidorNombre,
     };
 

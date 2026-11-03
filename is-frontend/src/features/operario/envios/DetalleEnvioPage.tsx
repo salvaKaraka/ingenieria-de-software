@@ -21,6 +21,7 @@ interface EntradaHistorial {
   tipo: string
   estadoNuevo: EstadoEnvio | null
   detalle: string | null
+  fotoUrl?: string | null
   actorTipo: 'OPERARIO' | 'REPARTIDOR' | 'SISTEMA'
   actorNombre: string | null
   repartidorNombre: string | null
@@ -40,6 +41,7 @@ interface DetalleEnvio {
   vehiculoRequerido: TipoVehiculo
   requiereFoto: boolean
   requiereDni: boolean
+  fotoUrl?: string | null
   observaciones: string | null
   comercio: { nombre: string }
   repartidor: { nombre: string; apellido: string } | null
@@ -302,6 +304,18 @@ export function DetalleEnvioPage() {
             <dd className="font-medium">{envio.observaciones}</dd>
           </div>
         )}
+        {envio.fotoUrl && (
+          <div className="sm:col-span-2">
+            <dt className="text-gray-500">Foto de evidencia de entrega</dt>
+            <dd className="mt-2">
+              <img
+                src={envio.fotoUrl}
+                alt="Foto de evidencia de entrega"
+                className="max-h-72 rounded-lg border border-gray-300 object-contain shadow-sm"
+              />
+            </dd>
+          </div>
+        )}
       </dl>
 
       <section className="rounded-lg border border-gray-200 bg-white p-6">
@@ -316,6 +330,16 @@ export function DetalleEnvioPage() {
                 {/* Por ejemplo, la evidencia que se pidió al entregar (E-4). */}
                 {entrada.estadoNuevo && entrada.detalle && (
                   <p className="text-sm text-gray-600">{entrada.detalle}</p>
+                )}
+                {(entrada.fotoUrl || (entrada.estadoNuevo === 'ENTREGADO' && envio.fotoUrl)) && (
+                  <div className="mt-2">
+                    <p className="text-xs font-semibold text-gray-500">Foto adjunta:</p>
+                    <img
+                      src={entrada.fotoUrl || envio.fotoUrl || ''}
+                      alt="Foto de evidencia en entrega"
+                      className="mt-1 max-h-48 rounded-lg border border-gray-300 object-contain shadow-sm"
+                    />
+                  </div>
                 )}
                 <p className="text-xs text-gray-500">
                   {new Date(entrada.fecha).toLocaleString('es-AR')} · {responsable(entrada)}

@@ -392,6 +392,14 @@ export class EnviosRepository {
     });
   }
 
+  async guardarFotoEnvio(envioId: number, fotoUrl: string): Promise<boolean> {
+    const { count } = await this.prisma.envio.updateMany({
+      where: { id: envioId },
+      data: { fotoUrl },
+    });
+    return count > 0;
+  }
+
   // Avanza el viaje un paso (E-2). Solo si el envío sigue en el estado que leyó el service y
   // sigue siendo de este repartidor: si en el medio el operario lo canceló, no toca nada y
   // devuelve false. Al entregar, el repartidor vuelve al final de la cola en la misma transacción.
@@ -401,11 +409,19 @@ export class EnviosRepository {
     estadoNuevo: EstadoEnvio,
     repartidorId: number,
     detalle?: string,
+    fotoUrl?: string,
   ): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
+      const dataEnvio: Prisma.EnvioUpdateManyMutationInput = {
+        estado: estadoNuevo,
+      };
+      if (fotoUrl !== undefined) {
+        dataEnvio.fotoUrl = fotoUrl;
+      }
+
       const { count } = await tx.envio.updateMany({
         where: { id: envioId, estado: estadoAnterior, repartidorId },
-        data: { estado: estadoNuevo },
+        data: dataEnvio,
       });
       if (count === 0) return false;
 
@@ -416,6 +432,7 @@ export class EnviosRepository {
           estadoAnterior,
           estadoNuevo,
           detalle,
+          fotoUrl,
           actorTipo: 'REPARTIDOR',
           actorId: repartidorId,
         },

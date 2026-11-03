@@ -154,6 +154,7 @@ model Envio {
   // Copiados del comercio al crear el envío: un cambio posterior del comercio no afecta envíos en curso (riesgo 15)
   requiereFoto         Boolean        @map("requiere_foto")
   requiereDni          Boolean        @map("requiere_dni")
+  fotoUrl              String?        @map("foto_url")
   estado               EstadoEnvio    @default(PENDIENTE)
   repartidorId         Int?           @map("repartidor_id")
   // Restrict: un repartidor con envíos no se puede borrar (las bajas son lógicas) y no se pierde el historial
@@ -179,6 +180,7 @@ model EventoEnvio {
   estadoAnterior EstadoEnvio? @map("estado_anterior")
   estadoNuevo    EstadoEnvio? @map("estado_nuevo")
   detalle        String?
+  fotoUrl        String?      @map("foto_url")
   actorTipo      TipoActor    @map("actor_tipo")
   // Id del operario o repartidor que hizo la acción; null si fue el SISTEMA
   actorId        Int?         @map("actor_id")
