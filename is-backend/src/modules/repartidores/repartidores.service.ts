@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -6,8 +7,11 @@ import {
 import { Prisma, RolUsuario } from '../../generated/prisma/client';
 import { AsignacionService } from '../asignacion/asignacion.service';
 import { AuthService } from '../auth/auth.service';
+import { HashingService } from '../auth/hashing.service';
 import {
+  type ActualizarPerfilRepartidorDto,
   type ActualizarRepartidorDto,
+  type CambiarPinDto,
   type CrearRepartidorDto,
   type FiltroRepartidoresDto,
 } from './dto';
@@ -33,6 +37,7 @@ export class RepartidoresService {
     private readonly repo: RepartidoresRepository,
     private readonly authService: AuthService,
     private readonly asignacion: AsignacionService,
+    private readonly hashing: HashingService,
   ) {}
 
   async listar(filtros?: FiltroRepartidoresDto): Promise<RepartidorPublico[]> {
@@ -202,5 +207,60 @@ export class RepartidoresService {
     // Si esto fallara, queda activo sin PIN conocido y se resuelve con "Resetear PIN".
     const pin = await this.authService.asignarNuevoPin(id);
     return { ...repartidor, activo: true, pin };
+  }
+
+  // HU #68: Bloqueo por viaje activo en tránsito ("En camino a retirar", "Paquete en poder", "En domicilio de entrega").
+  private async verificarSinViajeEnTransito(id: number): Promise<void> {
+    if (await this.repo.tieneViajeEnTransito(id)) {
+      throw new ConflictException(
+        'No podés modificar tu perfil mientras tenés un viaje en curso',
+      );
+    }
+  }
+
+  // HU #68: Modificar datos de contacto (teléfono y email).
+  async actualizarPerfil(
+    id: number,
+    dto: ActualizarPerfilRepartidorDto,
+  ): Promise<RepartidorPublico> {
+    await this.buscarPorId(id);
+    await this.verificarSinViajeEnTransito(id);
+
+    const datos: Prisma.RepartidorUpdateInput = {
+      ...(dto.telefono !== undefined && { telefono: dto.telefono.trim() }),
+      ...(dto.email !== undefined && { email: dto.email.trim().toLowerCase() }),
+    };
+
+    const repartidor = await this.conDatosUnicos(() =>
+      this.repo.actualizar(id, datos),
+    );
+    return ocultarDni(repartidor);
+  }
+
+  // HU #68: Cambio de PIN con validación de PIN actual y nuevo PIN numérico de 4 a 6 dígitos.
+  async cambiarPin(
+    id: number,
+    dto: CambiarPinDto,
+  ): Promise<{ mensaje: string }> {
+    await this.buscarPorId(id);
+    await this.verificarSinViajeEnTransito(id);
+
+    const pinHmacActual = await this.repo.buscarPinHmacPorId(id);
+    const pinActualHmacIngresado = this.hashing.hmacPin(dto.pinActual);
+
+    if (!pinHmacActual || pinHmacActual !== pinActualHmacIngresado) {
+      throw new BadRequestException('El PIN actual ingresado es incorrecto');
+    }
+
+    const nuevoPinHmac = this.hashing.hmacPin(dto.nuevoPin);
+    if (await this.authService.existePinHmac(nuevoPinHmac)) {
+      if (nuevoPinHmac !== pinHmacActual) {
+        throw new ConflictException('El PIN ingresado ya está en uso');
+      }
+    }
+
+    await this.repo.actualizarPinHmac(id, nuevoPinHmac);
+
+    return { mensaje: 'PIN modificado con éxito' };
   }
 }

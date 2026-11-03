@@ -133,6 +133,11 @@ export class AuthService {
     return this.repo.revocarTodos(rol, usuarioId);
   }
 
+  // Verifica si un PIN (por su HMAC) ya pertenece a algún repartidor.
+  existePinHmac(pinHmac: string): Promise<boolean> {
+    return this.repo.existePinHmac(pinHmac);
+  }
+
   // Para el script de creación de operarios (no hay registro público).
   async crearOperario(usuario: string, password: string, nombre: string) {
     const existente = await this.repo.buscarOperarioPorUsuario(usuario);
