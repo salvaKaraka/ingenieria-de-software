@@ -31,6 +31,14 @@ export class AuthRepository {
     return this.prisma.repartidor.findUnique({ where: { id } });
   }
 
+  // Al ingresar con PIN por primera vez en el día (HU #8 / Escenario 4)
+  iniciarJornadaRepartidor(id: number) {
+    return this.prisma.repartidor.updateMany({
+      where: { id, estado: 'FUERA_DE_JORNADA' },
+      data: { estado: 'DISPONIBLE', enColaDesde: new Date() },
+    });
+  }
+
   async existePinHmac(pinHmac: string): Promise<boolean> {
     const repartidor = await this.prisma.repartidor.findUnique({
       where: { pinHmac },
