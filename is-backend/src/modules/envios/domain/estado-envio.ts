@@ -12,6 +12,10 @@ const SIGUIENTE: Partial<Record<EstadoEnvio, EstadoEnvio>> = {
   EN_DOMICILIO: 'ENTREGADO',
 };
 
+// Estados en los que el envío ya terminó: no admite más cambios y sale del panel del día
+// (HU4). Si se agrega otro estado final al enum, se suma acá.
+export const ESTADOS_FINALES: readonly EstadoEnvio[] = ['ENTREGADO', 'CANCELADO'];
+
 export function esTransicionValida(
   estadoActual: EstadoEnvio,
   estadoDestino: EstadoEnvio,

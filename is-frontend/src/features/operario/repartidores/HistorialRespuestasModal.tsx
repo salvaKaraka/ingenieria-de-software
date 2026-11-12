@@ -91,47 +91,14 @@ function HistorialContenido({
   async function handleFiltrar(e: FormEvent) {
     e.preventDefault()
     setCargando(true)
-    setError(null)
-    try {
-      const params = new URLSearchParams()
-      if (desde) params.set('desde', desde)
-      if (hasta) params.set('hasta', hasta)
-
-      const query = params.toString() ? `?${params.toString()}` : ''
-      const res = await api<HistorialRespuestas>(
-        `/repartidores/${repartidor.id}/historial-respuestas${query}`,
-      )
-      setDatos(res)
-    } catch (err) {
-      if (err instanceof ErrorApi) {
-        setError(err.mensajes[0] || 'Error al consultar el historial.')
-      } else {
-        setError('No se pudo conectar con el servidor.')
-      }
-    } finally {
-      setCargando(false)
-    }
+    await consultar()
+    setCargando(false)
   }
 
-  async function handleLimpiar() {
+  function handleLimpiar() {
+    // Al vaciar las fechas cambia `consultar` y usePolling vuelve a pedir el historial sin filtro.
     setDesde('')
     setHasta('')
-    setCargando(true)
-    setError(null)
-    try {
-      const res = await api<HistorialRespuestas>(
-        `/repartidores/${repartidor.id}/historial-respuestas`,
-      )
-      setDatos(res)
-    } catch (err) {
-      if (err instanceof ErrorApi) {
-        setError(err.mensajes[0] || 'Error al consultar el historial.')
-      } else {
-        setError('No se pudo conectar con el servidor.')
-      }
-    } finally {
-      setCargando(false)
-    }
   }
 
   function formatearFecha(iso: string) {
@@ -226,7 +193,7 @@ function HistorialContenido({
             <Boton
               type="button"
               variante="secundario"
-              onClick={() => void handleLimpiar()}
+              onClick={handleLimpiar}
               disabled={cargando}
             >
               Limpiar

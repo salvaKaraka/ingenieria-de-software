@@ -114,46 +114,42 @@ export class OfertasRepository {
     });
   }
 
-  // Historial de respuestas y vencimientos de ofertas de un repartidor (HU #28)
-  async buscarHistorialPorRepartidor(
+  // Respuestas del repartidor (HU 28): ofertas aceptadas, rechazadas y vencidas. El rango
+  // se aplica sobre el momento de la respuesta: cuándo aceptó o rechazó, o cuándo venció.
+  // Trae además los cierres del envío (cancelación o cambio de vehículo), que el service
+  // necesita para descartar las ofertas que no vencieron por inactividad.
+  buscarHistorialPorRepartidor(
     repartidorId: number,
-    fechaDesde?: Date,
-    fechaHasta?: Date,
+    desde?: Date,
+    hasta?: Date,
   ) {
-    const where: Prisma.OfertaWhereInput = {
-      repartidorId,
-      estado: { in: ['ACEPTADA', 'RECHAZADA', 'VENCIDA'] },
+    const rango: Prisma.DateTimeFilter = {
+      ...(desde && { gte: desde }),
+      ...(hasta && { lte: hasta }),
     };
 
-    if (fechaDesde || fechaHasta) {
-      where.OR = [
-        {
-          respondidaEn: {
-            ...(fechaDesde && { gte: fechaDesde }),
-            ...(fechaHasta && { lte: fechaHasta }),
-          },
-        },
-        {
-          creadaEn: {
-            ...(fechaDesde && { gte: fechaDesde }),
-            ...(fechaHasta && { lte: fechaHasta }),
-          },
-        },
-        {
-          expiraEn: {
-            ...(fechaDesde && { gte: fechaDesde }),
-            ...(fechaHasta && { lte: fechaHasta }),
-          },
-        },
-      ];
-    }
-
     return this.prisma.oferta.findMany({
-      where,
-      include: {
-        envio: { select: { id: true, codigoSeguimiento: true } },
+      where: {
+        repartidorId,
+        OR: [
+          { estado: { in: ['ACEPTADA', 'RECHAZADA'] }, respondidaEn: rango },
+          { estado: 'VENCIDA', expiraEn: rango },
+        ],
       },
-      orderBy: { creadaEn: 'desc' },
+      include: {
+        envio: {
+          select: {
+            id: true,
+            codigoSeguimiento: true,
+            eventos: {
+              where: {
+                OR: [{ estadoNuevo: 'CANCELADO' }, { tipo: 'REASIGNACION' }],
+              },
+              select: { creadoEn: true },
+            },
+          },
+        },
+      },
     });
   }
 }

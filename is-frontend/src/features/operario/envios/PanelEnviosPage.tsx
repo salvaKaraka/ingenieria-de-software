@@ -1,137 +1,86 @@
 import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { api } from '../../../shared/api'
-import type { EstadoEnvio } from '../../../shared/tipos'
+import { ETIQUETA_ESTADO_ENVIO, type EstadoEnvio } from '../../../shared/tipos'
 import { Boton } from '../../../shared/ui/Boton'
 import { usePolling } from '../../../shared/usePolling'
+import { AVISO_EXCEPCION, esAsignacionPorExcepcion } from './excepcion'
 
-interface ComercioInfo {
-  id: number
-  nombre: string
-  telefono?: string
-  direccion?: string
-}
-
-interface RepartidorInfo {
-  id: number
-  nombre: string
-  apellido: string
-  telefono?: string
-  vehiculo?: string
-}
-
-interface NovedadInfo {
-  tipo: string
-  detalle: string | null
-  creadoEn: string
-}
-
+// Lo que manda GET /envios/panel: un grupo por cada estado no final, con su cantidad.
 export interface EnvioPanelItem {
   id: number
   codigoSeguimiento: string
   estado: EstadoEnvio
-  origenDireccion: string
   destinoDireccion: string
-  destinatarioNombre: string | null
-  destinatarioApellido: string | null
-  destinatarioTelefono: string | null
-  destinatarioDni?: string | null
+  destinatarioNombre: string
+  destinatarioApellido: string
   tamanio: string
-  vehiculoRequerido: string
-  observaciones?: string | null
-  creadoEn: string
-  actualizadoEn?: string
-  comercio: ComercioInfo
-  repartidor: RepartidorInfo | null
-  conNovedad: boolean
-  novedad: NovedadInfo | null
+  comercio: { nombre: string }
+  repartidor: { nombre: string; apellido: string } | null
+  // Solo trae el aviso de asignación por excepción, si lo hubo (HU10).
+  eventos: { id: number; detalle: string | null }[]
 }
 
-interface TotalesPanel {
-  total: number
-  PENDIENTE: number
-  ASIGNADO: number
-  EN_CAMINO_A_RETIRAR: number
-  RETIRADO: number
-  EN_DOMICILIO: number
-}
-
-interface PanelEnviosRespuesta {
-  totales: TotalesPanel
-  grupos: {
-    PENDIENTE: EnvioPanelItem[]
-    ASIGNADO: EnvioPanelItem[]
-    EN_CAMINO_A_RETIRAR: EnvioPanelItem[]
-    RETIRADO: EnvioPanelItem[]
-    EN_DOMICILIO: EnvioPanelItem[]
-  }
+interface GrupoPanel {
+  estado: EstadoEnvio
+  cantidad: number
   envios: EnvioPanelItem[]
 }
 
-const TOTALES_INICIALES: TotalesPanel = {
-  total: 0,
-  PENDIENTE: 0,
-  ASIGNADO: 0,
-  EN_CAMINO_A_RETIRAR: 0,
-  RETIRADO: 0,
-  EN_DOMICILIO: 0,
+interface PanelEnviosRespuesta {
+  total: number
+  grupos: GrupoPanel[]
 }
 
-type EstadoPanel = 'PENDIENTE' | 'ASIGNADO' | 'EN_CAMINO_A_RETIRAR' | 'RETIRADO' | 'EN_DOMICILIO'
+// Estados cuyos envíos se muestran destacados (HU4). Todavía no existen en el backend: los
+// agregan otras historias. Por eso van como texto y no como EstadoEnvio. Cuando el panel
+// empiece a recibirlos, la columna y sus tarjetas se destacan sin tocar nada más.
+const ESTADOS_DESTACADOS: readonly string[] = ['CON_NOVEDAD', 'INTERRUMPIDO']
 
-interface ColumnaDef {
-  estado: EstadoPanel
-  titulo: string
+interface EstiloColumna {
   bordeColor: string
   badgeColor: string
 }
 
-const COLUMNAS: ColumnaDef[] = [
-  {
-    estado: 'PENDIENTE',
-    titulo: 'Pendiente',
+const ESTILO_POR_ESTADO: Partial<Record<EstadoEnvio, EstiloColumna>> = {
+  PENDIENTE: {
     bordeColor: 'border-t-4 border-amber-400',
     badgeColor: 'bg-amber-100 text-amber-800 border-amber-300',
   },
-  {
-    estado: 'ASIGNADO',
-    titulo: 'Asignado',
+  ASIGNADO: {
     bordeColor: 'border-t-4 border-sky-400',
     badgeColor: 'bg-sky-100 text-sky-800 border-sky-300',
   },
-  {
-    estado: 'EN_CAMINO_A_RETIRAR',
-    titulo: 'En camino a retirar',
+  EN_CAMINO_A_RETIRAR: {
     bordeColor: 'border-t-4 border-indigo-400',
     badgeColor: 'bg-indigo-100 text-indigo-800 border-indigo-300',
   },
-  {
-    estado: 'RETIRADO',
-    titulo: 'Paquete retirado',
+  RETIRADO: {
     bordeColor: 'border-t-4 border-violet-400',
     badgeColor: 'bg-violet-100 text-violet-800 border-violet-300',
   },
-  {
-    estado: 'EN_DOMICILIO',
-    titulo: 'En domicilio de entrega',
+  EN_DOMICILIO: {
     bordeColor: 'border-t-4 border-blue-400',
     badgeColor: 'bg-blue-100 text-blue-800 border-blue-300',
   },
-]
+}
+
+const ESTILO_DESTACADO: EstiloColumna = {
+  bordeColor: 'border-t-4 border-red-500',
+  badgeColor: 'bg-red-100 text-red-800 border-red-300',
+}
+
+// Para un estado que el backend ya manda pero este archivo todavía no conoce.
+const ESTILO_GENERICO: EstiloColumna = {
+  bordeColor: 'border-t-4 border-slate-400',
+  badgeColor: 'bg-slate-100 text-slate-800 border-slate-300',
+}
+
+const PANEL_VACIO: PanelEnviosRespuesta = { total: 0, grupos: [] }
 
 export function PanelEnviosPage() {
   const navigate = useNavigate()
-  const [datosPanel, setDatosPanel] = useState<PanelEnviosRespuesta>({
-    totales: TOTALES_INICIALES,
-    grupos: {
-      PENDIENTE: [],
-      ASIGNADO: [],
-      EN_CAMINO_A_RETIRAR: [],
-      RETIRADO: [],
-      EN_DOMICILIO: [],
-    },
-    envios: [],
-  })
+  const [datosPanel, setDatosPanel] = useState<PanelEnviosRespuesta>(PANEL_VACIO)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState(false)
   const [ultimaActualizacion, setUltimaActualizacion] = useState<Date | null>(null)
@@ -149,10 +98,10 @@ export function PanelEnviosPage() {
     }
   }, [])
 
-  // Auto-actualización periódica en segundo plano cada 10 s (RNF / Escenario 2)
-  usePolling(cargarPanel, 10_000)
+  // Auto-actualización en segundo plano (Escenario 2): 15 s, como todo el panel del operario.
+  usePolling(cargarPanel, 15_000)
 
-  const totalActivos = datosPanel.totales?.total ?? 0
+  const totalActivos = datosPanel.total
 
   return (
     <div className="min-h-screen space-y-6 bg-slate-100 p-6">
@@ -171,7 +120,7 @@ export function PanelEnviosPage() {
           </div>
           <p className="mt-1 text-sm text-slate-300">
             Total activos: <strong className="text-white">{totalActivos}</strong> · Última actualización:{' '}
-            {ultimaActualizacion?.toLocaleTimeString() ?? 'pendiente'} · Auto-refresh cada 10 s
+            {ultimaActualizacion?.toLocaleTimeString() ?? 'pendiente'} · Auto-refresh cada 15 s
           </p>
         </div>
 
@@ -229,23 +178,28 @@ export function PanelEnviosPage() {
       {/* Agrupaciones y columnas operativas */}
       {totalActivos > 0 && (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-5">
-          {COLUMNAS.map((col) => {
-            const lista = datosPanel.grupos[col.estado] ?? []
-            const cantidad = datosPanel.totales[col.estado] ?? lista.length
+          {datosPanel.grupos.map((grupo) => {
+            const lista = grupo.envios
+            // El destacado depende solo del estado del envío, nunca de sus eventos.
+            const destacado = ESTADOS_DESTACADOS.includes(grupo.estado)
+            const titulo = ETIQUETA_ESTADO_ENVIO[grupo.estado] ?? grupo.estado
+            const estilo = destacado
+              ? ESTILO_DESTACADO
+              : (ESTILO_POR_ESTADO[grupo.estado] ?? ESTILO_GENERICO)
 
             return (
               <section
-                key={col.estado}
-                aria-label={`Columna ${col.titulo}`}
-                className={`flex flex-col rounded-2xl border border-slate-200 bg-slate-50/50 shadow-sm ${col.bordeColor}`}
+                key={grupo.estado}
+                aria-label={`Columna ${titulo}`}
+                className={`flex flex-col rounded-2xl border border-slate-200 bg-slate-50/50 shadow-sm ${estilo.bordeColor}`}
               >
                 {/* Cabecera de Columna */}
                 <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 rounded-t-xl">
-                  <h2 className="text-sm font-bold text-slate-800">{col.titulo}</h2>
+                  <h2 className="text-sm font-bold text-slate-800">{titulo}</h2>
                   <span
-                    className={`rounded-full border px-2.5 py-0.5 text-xs font-bold ${col.badgeColor}`}
+                    className={`rounded-full border px-2.5 py-0.5 text-xs font-bold ${estilo.badgeColor}`}
                   >
-                    {cantidad}
+                    {grupo.cantidad}
                   </span>
                 </div>
 
@@ -257,22 +211,20 @@ export function PanelEnviosPage() {
                     </div>
                   ) : (
                     lista.map((envio) => {
-                      const tieneNovedad = envio.conNovedad || Boolean(envio.novedad)
-
                       return (
                         <article
                           key={envio.id}
                           className={`flex flex-col rounded-xl p-4 transition-all duration-200 ${
-                            tieneNovedad
+                            destacado
                               ? 'border-2 border-amber-500 bg-amber-50/90 shadow-md ring-2 ring-amber-300/50'
                               : 'border border-slate-200 bg-white shadow-xs hover:border-slate-300 hover:shadow-md'
                           }`}
                         >
                           {/* Indicador de Novedad / Destacado */}
-                          {tieneNovedad && (
+                          {destacado && (
                             <div className="mb-2 flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-100/80 px-2 py-1 text-xs font-bold text-amber-900">
                               <span>⚠️</span>
-                              <span className="uppercase tracking-wider">Con novedad</span>
+                              <span className="uppercase tracking-wider">{titulo}</span>
                             </div>
                           )}
 
@@ -286,18 +238,18 @@ export function PanelEnviosPage() {
                             </span>
                           </div>
 
-                          {/* Detalle de Novedad si existe */}
-                          {tieneNovedad && envio.novedad?.detalle && (
-                            <p className="mt-2 rounded bg-amber-200/50 p-1.5 text-xs font-medium text-amber-950">
-                              {envio.novedad.detalle}
-                            </p>
+                          {/* Mismo aviso y mismo criterio que en el listado de envíos (HU10). */}
+                          {esAsignacionPorExcepcion(envio.estado, envio.eventos) && (
+                            <span className="mt-2 block rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                              ⚠️ {AVISO_EXCEPCION}
+                            </span>
                           )}
 
                           {/* Información del Envío */}
                           <div className="mt-3 space-y-1.5 text-xs text-slate-600">
                             <div>
                               <span className="font-medium text-slate-400">Comercio:</span>{' '}
-                              <span className="font-semibold text-slate-700">{envio.comercio?.nombre}</span>
+                              <span className="font-semibold text-slate-700">{envio.comercio.nombre}</span>
                             </div>
                             <div>
                               <span className="font-medium text-slate-400">Destino:</span>{' '}

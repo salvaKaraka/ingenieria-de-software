@@ -162,11 +162,25 @@ function AsignarModal({
   const [elegido, setElegido] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [errorCarga, setErrorCarga] = useState<string | null>(null)
+  const [reintentando, setReintentando] = useState(false)
 
   const cargar = useCallback(async () => {
-    const lista = await api<RepartidorAsignable[]>(`/excepciones/${excepcion.envioId}/repartidores`)
-    setRepartidores(lista)
+    try {
+      const lista = await api<RepartidorAsignable[]>(`/excepciones/${excepcion.envioId}/repartidores`)
+      setRepartidores(lista)
+      setErrorCarga(null)
+    } catch (err) {
+      // Sin esto el modal quedaba en "Cargando repartidores…" para siempre.
+      setErrorCarga(err instanceof ErrorApi ? err.message : 'No se pudieron cargar los repartidores.')
+    }
   }, [excepcion.envioId])
+
+  async function reintentar() {
+    setReintentando(true)
+    await cargar()
+    setReintentando(false)
+  }
 
   // Se actualiza mientras el modal está abierto: los repartidores cambian de estado.
   usePolling(cargar, CONSULTA_CADA_MS)
@@ -203,7 +217,16 @@ function AsignarModal({
   return (
     <Modal abierto onCerrar={onCerrar} titulo={`Asignar envío ${excepcion.codigoSeguimiento}`}>
       <div className="space-y-4">
-        {repartidores === null && <p className="text-sm text-gray-500">Cargando repartidores…</p>}
+        {repartidores === null && !errorCarga && <p className="text-sm text-gray-500">Cargando repartidores…</p>}
+        {/* Si ya había una lista cargada se sigue mostrando: el error solo tapa la carga inicial. */}
+        {repartidores === null && errorCarga && (
+          <div className="space-y-2 rounded-lg bg-red-50 p-3">
+            <p className="text-sm text-red-800">{errorCarga}</p>
+            <Boton variante="secundario" onClick={reintentar} disabled={reintentando}>
+              {reintentando ? 'Reintentando…' : 'Reintentar'}
+            </Boton>
+          </div>
+        )}
         {repartidores?.length === 0 && (
           <p className="text-sm text-gray-600">
             No hay repartidores en jornada con un vehículo que pueda llevar este envío.
