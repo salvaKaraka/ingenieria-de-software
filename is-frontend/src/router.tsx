@@ -37,7 +37,6 @@ const rutas: RouteObject[] = [
     children: [
       { index: true, element: <Navigate to="envios" replace /> },
       { path: 'panel', element: <PanelEnviosPage /> },
-      { path: 'envios/panel', element: <PanelEnviosPage /> },
       { path: 'envios', element: <EnviosPage /> },
       { path: 'envios/nuevo', element: <NuevoEnvioPage /> },
       { path: 'envios/:id', element: <DetalleEnvioPage /> },
