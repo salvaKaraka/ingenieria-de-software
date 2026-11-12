@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, RolUsuario } from '../../generated/prisma/client';
 import { AsignacionService } from '../asignacion/asignacion.service';
+import { OfertasService } from '../asignacion/ofertas.service';
 import { AuthService } from '../auth/auth.service';
 import { HashingService } from '../auth/hashing.service';
 import {
@@ -13,6 +14,7 @@ import {
   type ActualizarRepartidorDto,
   type CambiarPinDto,
   type CrearRepartidorDto,
+  type FiltroHistorialRespuestasDto,
   type FiltroRepartidoresDto,
 } from './dto';
 import {
@@ -38,6 +40,7 @@ export class RepartidoresService {
     private readonly authService: AuthService,
     private readonly asignacion: AsignacionService,
     private readonly hashing: HashingService,
+    private readonly ofertasService: OfertasService,
   ) {}
 
   async listar(filtros?: FiltroRepartidoresDto): Promise<RepartidorPublico[]> {
@@ -262,5 +265,14 @@ export class RepartidoresService {
     await this.repo.actualizarPinHmac(id, nuevoPinHmac);
 
     return { mensaje: 'PIN modificado con éxito' };
+  }
+
+  // HU #28: Historial de respuestas y métricas de ofertas del repartidor
+  async historialRespuestas(
+    id: number,
+    filtro?: FiltroHistorialRespuestasDto,
+  ) {
+    await this.buscarPorId(id);
+    return this.ofertasService.consultarHistorial(id, filtro);
   }
 }

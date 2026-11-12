@@ -41,4 +41,10 @@ export class JornadaController {
   terminar(@UsuarioActual() usuario: UsuarioAutenticado) {
     return this.jornada.terminar(usuario.id);
   }
+
+  @Post('solicitar-cierre')
+  @HttpCode(200)
+  solicitarCierre(@UsuarioActual() usuario: UsuarioAutenticado) {
+    return this.jornada.solicitarCierre(usuario.id);
+  }
 }

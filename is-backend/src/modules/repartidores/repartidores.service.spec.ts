@@ -10,6 +10,7 @@ import {
   TipoVehiculo,
 } from '../../generated/prisma/client';
 import type { AsignacionService } from '../asignacion/asignacion.service';
+import type { OfertasService } from '../asignacion/ofertas.service';
 import type { AuthService } from '../auth/auth.service';
 import type { HashingService } from '../auth/hashing.service';
 import type {
@@ -24,6 +25,7 @@ describe('RepartidoresService', () => {
   let authService: jest.Mocked<AuthService>;
   let asignacion: jest.Mocked<AsignacionService>;
   let hashing: jest.Mocked<HashingService>;
+  let ofertasService: jest.Mocked<OfertasService>;
 
   const repartidorEjemplo: RepartidorPublico = {
     id: 1,
@@ -78,12 +80,16 @@ describe('RepartidoresService', () => {
       generarTokenAleatorio: jest.fn(),
       hashearToken: jest.fn(),
     } as unknown as jest.Mocked<HashingService>;
+    ofertasService = {
+      consultarHistorial: jest.fn(),
+    } as unknown as jest.Mocked<OfertasService>;
 
     servicio = new RepartidoresService(
       repo,
       authService,
       asignacion,
       hashing,
+      ofertasService,
     );
   });
 
@@ -583,6 +589,43 @@ describe('RepartidoresService', () => {
       );
 
       expect(repo.actualizarPinHmac).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('historialRespuestas (HU #28)', () => {
+    it('lanza NotFoundException si el repartidor no existe', async () => {
+      repo.buscarPorId.mockResolvedValue(null);
+
+      await expect(servicio.historialRespuestas(999)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(ofertasService.consultarHistorial).not.toHaveBeenCalled();
+    });
+
+    it('delega en ofertasService si el repartidor existe', async () => {
+      repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
+      const resultadoMock = {
+        repartidorId: 1,
+        rango: { desde: null, hasta: null },
+        totales: { aceptadas: 1, rechazadas: 0, vencidas: 0 },
+        detalle: [
+          {
+            id: 10,
+            estado: 'ACEPTADA' as const,
+            fecha: '2026-11-03T10:00:00.000Z',
+            envioId: 100,
+          },
+        ],
+      };
+      ofertasService.consultarHistorial.mockResolvedValue(resultadoMock);
+
+      const res = await servicio.historialRespuestas(1, { desde: '2026-11-01' });
+
+      expect(repo.buscarPorId).toHaveBeenCalledWith(1);
+      expect(ofertasService.consultarHistorial).toHaveBeenCalledWith(1, {
+        desde: '2026-11-01',
+      });
+      expect(res).toEqual(resultadoMock);
     });
   });
 });
