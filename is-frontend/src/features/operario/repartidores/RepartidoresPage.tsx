@@ -290,6 +290,7 @@ export function RepartidoresPage() {
         <div className="max-w-md">
           <Campo
             etiqueta="Buscar repartidor"
+            type="search"
             placeholder="Buscar por nombre, email, teléfono..."
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}

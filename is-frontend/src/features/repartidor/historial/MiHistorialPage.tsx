@@ -27,7 +27,7 @@ export function MiHistorialPage() {
     <>
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Mi historial</h1>
-        <Link to="/repartidor" className="text-base text-slate-400 underline">
+        <Link to="/repartidor" className="inline-flex min-h-12 items-center px-2 text-lg text-slate-300 underline">
           Volver
         </Link>
       </div>
@@ -52,7 +52,7 @@ export function MiHistorialPage() {
                   <p className="font-bold">{entrega.comercio}</p>
                   <p className="shrink-0 text-xl font-bold text-yellow-400">{horaDe(entrega.entregadoEn)}</p>
                 </div>
-                <p className="text-base text-slate-400">{entrega.destinoDireccion}</p>
+                <p className="text-lg text-slate-300">{entrega.destinoDireccion}</p>
               </li>
             ))}
           </ul>

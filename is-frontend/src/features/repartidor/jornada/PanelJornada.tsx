@@ -20,10 +20,9 @@ export interface PaqueteDevolver {
     direccion: string
   }
   motivo: string
-  estado: string
 }
 
-type Accion = 'iniciar' | 'pausar' | 'reanudar' | 'terminar'
+type Accion = 'iniciar' | 'pausar' | 'reanudar'
 
 const CONSULTA_CADA_MS = 10_000
 
@@ -181,7 +180,7 @@ export function PanelJornada() {
       {cierreSolicitado && estado === 'OCUPADO' && (
         <div className="rounded-xl border border-amber-500/40 bg-amber-950/30 p-4 text-amber-200">
           <p className="font-semibold">Cierre de jornada pendiente</p>
-          <p className="text-sm mt-1">Finalizá tu viaje en curso para completar el cierre.</p>
+          <p className="text-lg mt-1">Finalizá tu viaje en curso para completar el cierre.</p>
         </div>
       )}
 
@@ -191,25 +190,25 @@ export function PanelJornada() {
             Resumen de paquetes a devolver en la base
           </h3>
           {paquetesADevolver.length === 0 ? (
-            <p className="text-sm text-slate-300">
+            <p className="text-lg text-slate-300">
               No tenés paquetes pendientes de devolución. El operario ya puede validar tu cierre.
             </p>
           ) : (
             <div className="space-y-2">
-              <p className="text-sm font-medium text-amber-300">
-                Debes entregar {paquetesADevolver.length}{' '}
+              <p className="text-lg font-medium text-amber-300">
+                Tenés que entregar {paquetesADevolver.length}{' '}
                 {paquetesADevolver.length === 1 ? 'paquete' : 'paquetes'} en la base:
               </p>
               {paquetesADevolver.map((paquete) => (
                 <div
                   key={paquete.id}
-                  className="rounded-lg bg-slate-800 p-3 text-sm space-y-1"
+                  className="rounded-lg bg-slate-800 p-3 text-lg space-y-1"
                 >
-                  <div className="flex justify-between items-center">
+                  <div className="flex flex-wrap justify-between items-center gap-x-2">
                     <span className="font-mono font-bold text-white">
                       {paquete.codigoSeguimiento}
                     </span>
-                    <span className="text-xs bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded">
+                    <span className="text-lg bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded">
                       {paquete.motivo}
                     </span>
                   </div>
@@ -228,7 +227,7 @@ export function PanelJornada() {
             ¿Confirmás solicitar el cierre de tu jornada?
           </p>
           {estado === 'OCUPADO' && (
-            <p className="text-center text-sm text-amber-300">
+            <p className="text-center text-lg text-amber-300">
               Tenés un viaje en curso. La solicitud llegará al operario cuando lo finalices.
             </p>
           )}

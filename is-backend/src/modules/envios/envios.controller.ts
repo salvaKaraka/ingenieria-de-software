@@ -20,7 +20,7 @@ import { CrearEnvioDto } from './dto/crear-envio.dto';
 import { ListarEnviosDto } from './dto/listar-envios.dto';
 import { EnviosService } from './envios.service';
 
-@Controller(['envios', 'operario/envios'])
+@Controller('envios')
 @Roles('OPERARIO')
 export class EnviosController {
   constructor(private readonly enviosService: EnviosService) {}

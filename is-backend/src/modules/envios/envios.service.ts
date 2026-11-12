@@ -7,15 +7,19 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  EstadoEnvio,
   Prisma,
-  type EstadoEnvio,
   type TamanioPaquete,
   type TipoVehiculo,
 } from '../../generated/prisma/client';
+import {
+  convertirMedianocheArgentinaAUTC,
+  finDelDiaArgentina,
+} from '../../common/dia-argentina';
 import { AsignacionService } from '../asignacion/asignacion.service';
 import { ComerciosService } from '../comercios/comercios.service';
 import { generarCodigoSeguimiento } from './codigo-seguimiento.util';
-import { esTransicionValida } from './domain/estado-envio';
+import { ESTADOS_FINALES, esTransicionValida } from './domain/estado-envio';
 import { armarHistorial } from './domain/historial';
 import { ActualizarEnvioDto } from './dto/actualizar-envio.dto';
 import { CrearEnvioDto } from './dto/crear-envio.dto';
@@ -28,47 +32,6 @@ const VEHICULO_MINIMO: Record<TamanioPaquete, TipoVehiculo> = {
   MEDIANO: 'AUTO',
   GRANDE: 'CAMION',
 };
-
-const ZONA_HORARIA_OPERATIVA = 'America/Argentina/Buenos_Aires';
-const FORMATEADOR_OPERATIVO = new Intl.DateTimeFormat('en-US', {
-  timeZone: ZONA_HORARIA_OPERATIVA,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: 'h23',
-});
-
-function convertirMedianocheArgentinaAUTC(fecha: string): Date {
-  const [anio, mes, dia] = fecha.split('-').map(Number);
-  const medianocheComoUTC = Date.UTC(anio, mes - 1, dia);
-  let instanteUTC = medianocheComoUTC;
-
-  // Recalcular el desfase en el instante resultante contempla cambios horarios de la zona.
-  for (let intento = 0; intento < 3; intento++) {
-    const partes = new Map(
-      FORMATEADOR_OPERATIVO.formatToParts(new Date(instanteUTC)).map(
-        (parte) => [parte.type, parte.value],
-      ),
-    );
-    const fechaLocalComoUTC = Date.UTC(
-      Number(partes.get('year')),
-      Number(partes.get('month')) - 1,
-      Number(partes.get('day')),
-      Number(partes.get('hour')),
-      Number(partes.get('minute')),
-      Number(partes.get('second')),
-    );
-    const desfase = fechaLocalComoUTC - instanteUTC;
-    const siguienteInstanteUTC = medianocheComoUTC - desfase;
-    if (siguienteInstanteUTC === instanteUTC) break;
-    instanteUTC = siguienteInstanteUTC;
-  }
-
-  return new Date(instanteUTC);
-}
 
 // Cómo se nombra cada dato en el historial cuando el operario lo modifica (HU 31).
 const ETIQUETA_CAMPO: Record<keyof ActualizarEnvioDto, string> = {
@@ -214,77 +177,20 @@ export class EnviosService {
     };
   }
 
+  // Panel del día (HU4): un grupo por cada estado no final, en el orden del enum y con su
+  // cantidad. Los grupos salen del enum (no de una lista fija) para que un estado nuevo
+  // aparezca solo. Cada envío viaja una única vez, dentro de su grupo.
   async obtenerPanel() {
-    const envios = await this.enviosRepository.obtenerPanelEnvios();
+    const envios = await this.enviosRepository.obtenerPanelEnvios(ESTADOS_FINALES);
 
-    const grupos: Record<
-      'PENDIENTE' | 'ASIGNADO' | 'EN_CAMINO_A_RETIRAR' | 'RETIRADO' | 'EN_DOMICILIO',
-      any[]
-    > = {
-      PENDIENTE: [],
-      ASIGNADO: [],
-      EN_CAMINO_A_RETIRAR: [],
-      RETIRADO: [],
-      EN_DOMICILIO: [],
-    };
+    const grupos = Object.values(EstadoEnvio)
+      .filter((estado) => !ESTADOS_FINALES.includes(estado))
+      .map((estado) => {
+        const delEstado = envios.filter((envio) => envio.estado === estado);
+        return { estado, cantidad: delEstado.length, envios: delEstado };
+      });
 
-    const totales = {
-      total: envios.length,
-      PENDIENTE: 0,
-      ASIGNADO: 0,
-      EN_CAMINO_A_RETIRAR: 0,
-      RETIRADO: 0,
-      EN_DOMICILIO: 0,
-    };
-
-    const enviosFormateados = envios.map((envio) => {
-      const eventoNovedad = envio.eventos?.[0] ?? null;
-      const conNovedad = Boolean(eventoNovedad);
-
-      return {
-        id: envio.id,
-        codigoSeguimiento: envio.codigoSeguimiento,
-        estado: envio.estado,
-        origenDireccion: envio.origenDireccion,
-        destinoDireccion: envio.destinoDireccion,
-        destinatarioNombre: envio.destinatarioNombre,
-        destinatarioApellido: envio.destinatarioApellido,
-        destinatarioTelefono: envio.destinatarioTelefono,
-        destinatarioDni: envio.destinatarioDni,
-        tamanio: envio.tamanio,
-        vehiculoRequerido: envio.vehiculoRequerido,
-        observaciones: envio.observaciones,
-        requiereFoto: envio.requiereFoto,
-        requiereDni: envio.requiereDni,
-        creadoEn: envio.creadoEn,
-        actualizadoEn: envio.actualizadoEn,
-        comercio: envio.comercio,
-        repartidor: envio.repartidor,
-        conNovedad,
-        novedad: eventoNovedad
-          ? {
-              tipo: eventoNovedad.tipo,
-              detalle: eventoNovedad.detalle,
-              creadoEn: eventoNovedad.creadoEn,
-            }
-          : null,
-      };
-    });
-
-    for (const envio of enviosFormateados) {
-      if (grupos[envio.estado as keyof typeof grupos]) {
-        grupos[envio.estado as keyof typeof grupos].push(envio);
-      }
-      if (typeof totales[envio.estado as keyof typeof totales] === 'number') {
-        totales[envio.estado as keyof typeof totales]++;
-      }
-    }
-
-    return {
-      totales,
-      grupos,
-      envios: enviosFormateados,
-    };
+    return { total: envios.length, grupos };
   }
 
   async cancelar(id: number, operarioId: number) {
@@ -415,15 +321,7 @@ export class EnviosService {
   }
 
   private finDelDia(fecha: string): Date {
-    if (fecha.length !== 10) return new Date(fecha);
-
-    const [anio, mes, dia] = fecha.split('-').map(Number);
-    const diaSiguiente = new Date(Date.UTC(anio, mes - 1, dia + 1))
-      .toISOString()
-      .slice(0, 10);
-    return new Date(
-      convertirMedianocheArgentinaAUTC(diaSiguiente).getTime() - 1,
-    );
+    return fecha.length === 10 ? finDelDiaArgentina(fecha) : new Date(fecha);
   }
 
   private inicioDelDia(fecha: string): Date {

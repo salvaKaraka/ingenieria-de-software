@@ -17,7 +17,7 @@ import {
   type RepartidorPublico,
 } from './repartidores.repository';
 
-type Accion = 'iniciar' | 'pausar' | 'reanudar' | 'terminar' | 'cerrar';
+type Accion = 'iniciar' | 'pausar' | 'reanudar' | 'cerrar';
 
 // Por qué no se pudo hacer cada acción, según el estado en que está el repartidor.
 const MOTIVO: Record<Accion, Partial<Record<EstadoRepartidor, string>>> = {
@@ -40,14 +40,6 @@ const MOTIVO: Record<Accion, Partial<Record<EstadoRepartidor, string>>> = {
     DISPONIBLE: 'Ya estás en jornada',
     OCUPADO: 'Ya estás en jornada',
     ESPERANDO_VALIDACION_CIERRE: 'Ya solicitaste el cierre de jornada',
-  },
-  terminar: {
-    FUERA_DE_JORNADA: 'No estás en jornada',
-    OCUPADO: 'No podés terminar la jornada con un viaje en curso',
-    // Disponible pero fuera de la cola: tiene una oferta esperando respuesta.
-    DISPONIBLE:
-      'Tenés una oferta pendiente: respondela antes de terminar la jornada',
-    ESPERANDO_VALIDACION_CIERRE: 'El operario debe validar el cierre',
   },
   cerrar: {
     FUERA_DE_JORNADA: 'No estás en jornada',
@@ -144,13 +136,6 @@ export class JornadaService {
     }
     await this.asignacion.reintentarPendientes();
     return { estado: 'DISPONIBLE' as const };
-  }
-
-  async terminar(repartidorId: number) {
-    if (!(await this.repo.terminarJornada(repartidorId))) {
-      throw await this.conflicto(repartidorId, 'terminar');
-    }
-    return { estado: 'FUERA_DE_JORNADA' as const };
   }
 
   // Lo que el operario revisa antes de aprobar el cierre (G-1).
