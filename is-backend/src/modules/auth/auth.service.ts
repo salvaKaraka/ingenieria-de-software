@@ -52,11 +52,6 @@ export class AuthService {
     if (!repartidor || !repartidor.activo)
       throw new UnauthorizedException(CREDENCIALES_INVALIDAS);
 
-    // Al autenticarse por primera vez en el día (login con PIN), queda DISPONIBLE y en cola (HU #8)
-    if (repartidor.estado === 'FUERA_DE_JORNADA') {
-      await this.repo.iniciarJornadaRepartidor(repartidor.id);
-    }
-
     return this.iniciarSesion({
       id: repartidor.id,
       rol: RolUsuario.REPARTIDOR,
