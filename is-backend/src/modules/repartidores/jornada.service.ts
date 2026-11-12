@@ -30,7 +30,7 @@ const MOTIVO: Record<Accion, Partial<Record<EstadoRepartidor, string>>> = {
   pausar: {
     FUERA_DE_JORNADA: 'No estás en jornada',
     EN_PAUSA: 'Ya estás en pausa',
-    OCUPADO: 'No podés pausar con un viaje en curso',
+    OCUPADO: 'Finalizá tu viaje en curso antes de pausar',
     // Disponible pero fuera de la cola: tiene una oferta esperando respuesta.
     DISPONIBLE: 'Tenés una oferta pendiente: respondela antes de pausar',
     ESPERANDO_VALIDACION_CIERRE: 'Ya solicitaste el cierre de jornada',
@@ -121,6 +121,9 @@ export class JornadaService {
   }
 
   async pausar(repartidorId: number) {
+    if (await this.repo.tieneViajeActivo(repartidorId)) {
+      throw new ConflictException('Finalizá tu viaje en curso antes de pausar');
+    }
     if (!(await this.repo.pausar(repartidorId))) {
       throw await this.conflicto(repartidorId, 'pausar');
     }

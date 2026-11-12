@@ -69,17 +69,21 @@ export function PanelJornada() {
   const [confirmandoCierre, setConfirmandoCierre] = useState(false)
 
   const consultar = useCallback(async () => {
-    const respuesta = await api<{
-      estado: EstadoRepartidor
-      cierreSolicitado?: boolean
-      paquetesADevolver?: PaqueteDevolver[]
-    }>('/repartidor/jornada')
-    setEstado(respuesta.estado)
-    if (respuesta.cierreSolicitado !== undefined) {
-      setCierreSolicitado(respuesta.cierreSolicitado)
-    }
-    if (respuesta.paquetesADevolver) {
-      setPaquetesADevolver(respuesta.paquetesADevolver)
+    try {
+      const respuestaJornada = await api<{
+        estado: EstadoRepartidor
+        cierreSolicitado?: boolean
+        paquetesADevolver?: PaqueteDevolver[]
+      }>('/repartidor/jornada')
+      setEstado(respuestaJornada.estado)
+      if (respuestaJornada.cierreSolicitado !== undefined) {
+        setCierreSolicitado(respuestaJornada.cierreSolicitado)
+      }
+      if (respuestaJornada.paquetesADevolver) {
+        setPaquetesADevolver(respuestaJornada.paquetesADevolver)
+      }
+    } catch {
+      // Se preserva el último estado si hay error de red temporal
     }
   }, [])
 
@@ -96,7 +100,7 @@ export function PanelJornada() {
       )
       setEstado(respuesta.estado)
     } catch (error) {
-      // El 409 trae el motivo (por ejemplo, una oferta pendiente): se le muestra tal cual.
+      // El 409 trae el motivo (ej. "Finalizá tu viaje en curso antes de pausar"): se muestra tal cual.
       setAviso(
         error instanceof ErrorApi && error.status === 409
           ? error.message
@@ -153,9 +157,25 @@ export function PanelJornada() {
     <section className="space-y-4 rounded-2xl bg-slate-900 p-5" aria-live="polite">
       <div>
         <p className="text-sm uppercase text-slate-400">Tu jornada</p>
-        <h2 className="text-3xl font-bold">{titulo}</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-3xl font-bold">{titulo}</h2>
+          {estado === 'EN_PAUSA' && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/40 bg-amber-500/20 px-3 py-1 text-lg font-bold text-amber-300">
+              <span>⏸️</span> En pausa
+            </span>
+          )}
+        </div>
         <p className="mt-1 text-slate-300">{detalle}</p>
       </div>
+
+      {aviso && (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-500/40 bg-red-950/40 p-4 text-center text-lg font-semibold text-red-200"
+        >
+          {aviso}
+        </div>
+      )}
 
       {cierreSolicitado && estado === 'OCUPADO' && (
         <div className="rounded-xl border border-amber-500/40 bg-amber-950/30 p-4 text-amber-200">
@@ -163,8 +183,6 @@ export function PanelJornada() {
           <p className="text-lg mt-1">Finalizá tu viaje en curso para completar el cierre.</p>
         </div>
       )}
-
-      {aviso && <p className="rounded-xl bg-slate-800 p-4 text-slate-200">{aviso}</p>}
 
       {estado === 'ESPERANDO_VALIDACION_CIERRE' && (
         <div className="space-y-3 rounded-xl border border-blue-500/30 bg-blue-950/20 p-4">
