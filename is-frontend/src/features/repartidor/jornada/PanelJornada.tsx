@@ -63,7 +63,6 @@ const PANTALLA: Record<
 
 export function PanelJornada() {
   const [estado, setEstado] = useState<EstadoRepartidor | null>(null)
-  const [tieneViajeActivo, setTieneViajeActivo] = useState(false)
   const [cierreSolicitado, setCierreSolicitado] = useState(false)
   const [paquetesADevolver, setPaquetesADevolver] = useState<PaqueteDevolver[]>([])
   const [enviando, setEnviando] = useState(false)
@@ -72,16 +71,12 @@ export function PanelJornada() {
 
   const consultar = useCallback(async () => {
     try {
-      const [respuestaJornada, respuestaViaje] = await Promise.all([
-        api<{
-          estado: EstadoRepartidor
-          cierreSolicitado?: boolean
-          paquetesADevolver?: PaqueteDevolver[]
-        }>('/repartidor/jornada'),
-        api<{ viaje: { envioId: number; estado: string } | null }>('/repartidor/viajes/actual').catch(() => ({ viaje: null })),
-      ])
+      const respuestaJornada = await api<{
+        estado: EstadoRepartidor
+        cierreSolicitado?: boolean
+        paquetesADevolver?: PaqueteDevolver[]
+      }>('/repartidor/jornada')
       setEstado(respuestaJornada.estado)
-      setTieneViajeActivo(Boolean(respuestaViaje?.viaje))
       if (respuestaJornada.cierreSolicitado !== undefined) {
         setCierreSolicitado(respuestaJornada.cierreSolicitado)
       }
@@ -166,7 +161,7 @@ export function PanelJornada() {
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-3xl font-bold">{titulo}</h2>
           {estado === 'EN_PAUSA' && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/40 bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-300">
+            <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/40 bg-amber-500/20 px-3 py-1 text-lg font-bold text-amber-300">
               <span>⏸️</span> En pausa
             </span>
           )}
@@ -177,16 +172,10 @@ export function PanelJornada() {
       {aviso && (
         <div
           role="alert"
-          className="rounded-xl border border-red-500/40 bg-red-950/40 p-4 text-center font-semibold text-red-200"
+          className="rounded-xl border border-red-500/40 bg-red-950/40 p-4 text-center text-lg font-semibold text-red-200"
         >
           {aviso}
         </div>
-      )}
-
-      {tieneViajeActivo && estado === 'DISPONIBLE' && (
-        <p className="rounded-lg border border-amber-500/30 bg-amber-950/30 p-2.5 text-center text-xs font-medium text-amber-300">
-          ⚠️ Tenés un viaje activo o asignado en curso.
-        </p>
       )}
 
       {cierreSolicitado && estado === 'OCUPADO' && (
@@ -265,7 +254,6 @@ export function PanelJornada() {
               variante={accion.tipo === 'pausar' ? 'secundario' : 'primario'}
               onClick={() => void ejecutar(accion.tipo)}
               disabled={enviando}
-              title={tieneViajeActivo && accion.tipo === 'pausar' ? 'Finalizá tu viaje en curso antes de pausar' : undefined}
             >
               {accion.texto}
             </BotonGrande>
