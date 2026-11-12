@@ -21,7 +21,6 @@ interface EntradaHistorial {
   tipo: string
   estadoNuevo: EstadoEnvio | null
   detalle: string | null
-  fotoUrl?: string | null
   actorTipo: 'OPERARIO' | 'REPARTIDOR' | 'SISTEMA'
   actorNombre: string | null
   repartidorNombre: string | null
@@ -69,6 +68,10 @@ function describirEntrada(entrada: EntradaHistorial): string {
   if (entrada.estadoNuevo) return ETIQUETA_ESTADO_ENVIO[entrada.estadoNuevo]
   return entrada.detalle ?? entrada.tipo
 }
+
+// La foto se usa como src de un <img>: solo se muestra si es una imagen embebida (lo único que
+// acepta el backend), nunca una URL externa que haga pedidos a otro sitio desde el panel.
+const FOTO_DATA_URI = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/
 
 function responsable(entrada: EntradaHistorial): string {
   return [ACTOR[entrada.actorTipo], entrada.actorNombre].filter(Boolean).join(' ')
@@ -214,6 +217,7 @@ export function DetalleEnvioPage() {
 
   const destinatario = [envio.destinatarioNombre, envio.destinatarioApellido].filter(Boolean).join(' ')
   const sePuedeCancelar = envio.estado !== 'ENTREGADO' && envio.estado !== 'CANCELADO'
+  const fotoEntrega = envio.fotoUrl && FOTO_DATA_URI.test(envio.fotoUrl) ? envio.fotoUrl : null
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -304,12 +308,12 @@ export function DetalleEnvioPage() {
             <dd className="font-medium">{envio.observaciones}</dd>
           </div>
         )}
-        {envio.fotoUrl && (
+        {fotoEntrega && (
           <div className="sm:col-span-2">
             <dt className="text-gray-500">Foto de evidencia de entrega</dt>
             <dd className="mt-2">
               <img
-                src={envio.fotoUrl}
+                src={fotoEntrega}
                 alt="Foto de evidencia de entrega"
                 className="max-h-72 rounded-lg border border-gray-300 object-contain shadow-sm"
               />
@@ -331,11 +335,12 @@ export function DetalleEnvioPage() {
                 {entrada.estadoNuevo && entrada.detalle && (
                   <p className="text-sm text-gray-600">{entrada.detalle}</p>
                 )}
-                {(entrada.fotoUrl || (entrada.estadoNuevo === 'ENTREGADO' && envio.fotoUrl)) && (
+                {/* La foto es del envío (se guarda una sola vez): se muestra en el paso de la entrega. */}
+                {entrada.estadoNuevo === 'ENTREGADO' && fotoEntrega && (
                   <div className="mt-2">
                     <p className="text-xs font-semibold text-gray-500">Foto adjunta:</p>
                     <img
-                      src={entrada.fotoUrl || envio.fotoUrl || ''}
+                      src={fotoEntrega}
                       alt="Foto de evidencia en entrega"
                       className="mt-1 max-h-48 rounded-lg border border-gray-300 object-contain shadow-sm"
                     />

@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactNode } from 'react'
+import { useCallback, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { api, ErrorApi } from '../../../shared/api.ts'
 import type { EstadoEnvio } from '../../../shared/tipos.ts'
 import { BotonGrande } from '../../../shared/ui/index.ts'
@@ -19,12 +19,58 @@ type Viaje = {
   observaciones: string | null
   requiereFoto: boolean
   requiereDni: boolean
-  fotoUrl?: string | null
   // Novedad del operario sobre este viaje (HU 31), p. ej. que cambió la dirección de entrega.
   aviso: string | null
 }
 
 const CONSULTA_CADA_MS = 10_000
+
+// Foto de la entrega (HU 18): la cámara del celular da archivos de varios MB y la foto viaja
+// dentro del JSON, así que se achica acá antes de mandarla (queda en el orden de 100–300 kb).
+const LADO_MAXIMO_FOTO_PX = 1280
+const CALIDADES_JPEG = [0.7, 0.5, 0.3]
+// El mismo tope que valida el backend (LARGO_MAXIMO_FOTO en avanzar-viaje.dto.ts).
+const LARGO_MAXIMO_FOTO = 900_000
+const ERROR_FOTO = 'No se pudo usar esa foto. Sacala de nuevo.'
+
+function cargarImagen(archivo: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(archivo)
+    const imagen = new Image()
+    imagen.onload = () => {
+      URL.revokeObjectURL(url)
+      resolve(imagen)
+    }
+    // Pasa cuando el archivo no es una imagen o el navegador no la sabe leer.
+    imagen.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error(ERROR_FOTO))
+    }
+    imagen.src = url
+  })
+}
+
+// Devuelve la foto como data URI JPEG, con el lado mayor de hasta LADO_MAXIMO_FOTO_PX.
+async function comprimirFoto(archivo: File): Promise<string> {
+  if (!archivo.type.startsWith('image/')) throw new Error(ERROR_FOTO)
+  const imagen = await cargarImagen(archivo)
+  const escala = Math.min(1, LADO_MAXIMO_FOTO_PX / Math.max(imagen.naturalWidth, imagen.naturalHeight))
+  const lienzo = document.createElement('canvas')
+  lienzo.width = Math.max(1, Math.round(imagen.naturalWidth * escala))
+  lienzo.height = Math.max(1, Math.round(imagen.naturalHeight * escala))
+  const contexto = lienzo.getContext('2d')
+  if (!contexto) throw new Error(ERROR_FOTO)
+  // JPEG no tiene transparencia: sin fondo, un PNG transparente quedaría negro.
+  contexto.fillStyle = '#ffffff'
+  contexto.fillRect(0, 0, lienzo.width, lienzo.height)
+  contexto.drawImage(imagen, 0, 0, lienzo.width, lienzo.height)
+
+  for (const calidad of CALIDADES_JPEG) {
+    const foto = lienzo.toDataURL('image/jpeg', calidad)
+    if (foto.startsWith('data:image/jpeg;base64,') && foto.length <= LARGO_MAXIMO_FOTO) return foto
+  }
+  throw new Error(ERROR_FOTO)
+}
 
 // Texto del botón según el estado ACTUAL: describe lo que el repartidor acaba de hacer
 // (o va a hacer), que es justo lo que pasa el envío al estado siguiente.
@@ -32,7 +78,7 @@ const PASO: Record<EstadoViaje, { numero: number; accion: string }> = {
   ASIGNADO: { numero: 1, accion: 'Voy al comercio' },
   EN_CAMINO_A_RETIRAR: { numero: 2, accion: 'Paquete retirado' },
   RETIRADO: { numero: 3, accion: 'Llegué al domicilio' },
-  EN_DOMICILIO: { numero: 4, accion: 'Finalizar entrega' },
+  EN_DOMICILIO: { numero: 4, accion: 'Entregado' },
 }
 
 function Dato({ titulo, grande = false, children }: { titulo: string; grande?: boolean; children: ReactNode }) {
@@ -60,8 +106,9 @@ function describirEvidencia(viaje: Viaje): string {
   return pedidos.length > 0 ? `Al entregar: ${pedidos.join(' y ')}.` : 'El comercio no exige evidencia.'
 }
 
-// E-4 / HU #18: lo que el comercio exige para entregar. El DNI lo compara el backend contra el del
-// destinatario; la foto se captura o adjunta en el domicilio y se vincula al registro del envío.
+// E-4 / HU 18: lo que el comercio exige para entregar. El DNI lo compara el backend contra el del
+// destinatario (al celular nunca llega ese dato); la foto se saca acá, en el domicilio, y se
+// manda junto con la confirmación de la entrega.
 function EvidenciaEntrega({
   viaje,
   dni,
@@ -75,20 +122,24 @@ function EvidenciaEntrega({
   foto: string
   alCambiarFoto: (foto: string) => void
 }) {
+  const [errorFoto, setErrorFoto] = useState<string | null>(null)
+
   if (!viaje.requiereDni && !viaje.requiereFoto) {
     return <p className="text-center text-lg text-slate-300">El comercio no exige evidencia.</p>
   }
 
-  function manejarArchivo(evento: React.ChangeEvent<HTMLInputElement>) {
-    const archivo = evento.target.files?.[0]
+  async function manejarArchivo(evento: ChangeEvent<HTMLInputElement>) {
+    const campo = evento.target
+    const archivo = campo.files?.[0]
+    // Se vacía el campo para que elegir otra vez el mismo archivo vuelva a disparar el cambio.
+    campo.value = ''
     if (!archivo) return
-    const lector = new FileReader()
-    lector.onload = () => {
-      if (typeof lector.result === 'string') {
-        alCambiarFoto(lector.result)
-      }
+    setErrorFoto(null)
+    try {
+      alCambiarFoto(await comprimirFoto(archivo))
+    } catch {
+      setErrorFoto(ERROR_FOTO)
     }
-    lector.readAsDataURL(archivo)
   }
 
   return (
@@ -123,20 +174,20 @@ function EvidenciaEntrega({
                 />
               </div>
               <div className="flex gap-2">
-                <label className="flex min-h-12 flex-1 cursor-pointer items-center justify-center rounded-xl bg-slate-800 px-4 text-base font-semibold text-white hover:bg-slate-700 active:scale-95">
+                <label className="flex min-h-12 flex-1 cursor-pointer items-center justify-center rounded-xl bg-slate-800 px-4 text-lg font-semibold text-white hover:bg-slate-700 active:scale-95">
                   Cambiar foto
                   <input
                     type="file"
                     accept="image/*"
                     capture="environment"
-                    onChange={manejarArchivo}
+                    onChange={(evento) => void manejarArchivo(evento)}
                     className="sr-only"
                   />
                 </label>
                 <button
                   type="button"
                   onClick={() => alCambiarFoto('')}
-                  className="min-h-12 rounded-xl bg-red-900/60 px-4 text-base font-semibold text-red-200 hover:bg-red-800 active:scale-95"
+                  className="min-h-12 rounded-xl bg-red-900/60 px-4 text-lg font-semibold text-red-200 hover:bg-red-800 active:scale-95"
                 >
                   Quitar
                 </button>
@@ -149,10 +200,15 @@ function EvidenciaEntrega({
                 type="file"
                 accept="image/*"
                 capture="environment"
-                onChange={manejarArchivo}
+                onChange={(evento) => void manejarArchivo(evento)}
                 className="sr-only"
               />
             </label>
+          )}
+          {errorFoto && (
+            <p className="text-lg font-semibold text-red-300" role="alert">
+              {errorFoto}
+            </p>
           )}
         </div>
       )}
@@ -171,13 +227,19 @@ export function ViajeActual({ alEntregar }: { alEntregar: () => void }) {
   const [aviso, setAviso] = useState<string | null>(null)
   const [dni, setDni] = useState('')
   const [foto, setFoto] = useState('')
+  const envioDeLaEvidencia = useRef<number | null>(null)
 
   const consultar = useCallback(async () => {
     const respuesta = await api<{ viaje: Viaje | null }>('/repartidor/viajes/actual')
-    setViaje(respuesta.viaje)
-    if (respuesta.viaje?.fotoUrl) {
-      setFoto((prev) => prev || respuesta.viaje?.fotoUrl || '')
+    // La evidencia cargada es de un envío en particular: si el viaje cambió (por ejemplo, lo
+    // cancelaron y llegó otro), no puede quedar la foto o el DNI del anterior.
+    const envioId = respuesta.viaje?.envioId ?? null
+    if (envioId !== envioDeLaEvidencia.current) {
+      envioDeLaEvidencia.current = envioId
+      setDni('')
+      setFoto('')
     }
+    setViaje(respuesta.viaje)
   }, [])
 
   // El operario puede cancelar el envío mientras tanto: se refresca como el resto de la app.
@@ -186,24 +248,13 @@ export function ViajeActual({ alEntregar }: { alEntregar: () => void }) {
   async function avanzar() {
     setEnviando(true)
     setAviso(null)
-
-    // Validación preventiva en front manteniendo exactamente el mensaje exigido por la HU
-    if (viaje?.estado === 'EN_DOMICILIO' && viaje.requiereFoto && !foto) {
-      setConfirmando(false)
-      setAviso('Este comercio exige una foto de la entrega')
-      setEnviando(false)
-      return
-    }
+    // La evidencia es solo del paso que entrega: el backend rechaza una foto en los anteriores.
+    const entregando = viaje?.estado === 'EN_DOMICILIO'
 
     try {
       const respuesta = await api<{ estado: EstadoEnvio }>('/repartidor/viajes/actual/avanzar', {
         metodo: 'POST',
-        // El backend solo la mira al entregar; en los otros pasos va vacía.
-        datos: {
-          dni: dni || undefined,
-          foto: foto || undefined,
-          fotoEnviada: Boolean(foto),
-        },
+        datos: entregando ? { dni: dni || undefined, foto: foto || undefined } : {},
       })
       setConfirmando(false)
       if (respuesta.estado === 'ENTREGADO') {
@@ -336,7 +387,7 @@ export function ViajeActual({ alEntregar }: { alEntregar: () => void }) {
           {faltaEvidencia && (
             <p className="text-center text-lg text-slate-300">
               {viaje.requiereFoto && !foto
-                ? 'Este comercio exige una foto de la entrega.'
+                ? 'Este comercio exige una foto de la entrega'
                 : 'Completá lo de arriba para confirmar la entrega.'}
             </p>
           )}
