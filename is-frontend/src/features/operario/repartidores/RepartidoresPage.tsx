@@ -6,6 +6,7 @@ import { usePolling } from '../../../shared/usePolling.ts'
 import { AprobarCierreModal } from './AprobarCierreModal.tsx'
 import { BajaRepartidorModal } from './BajaRepartidorModal.tsx'
 import { FormularioRepartidorModal } from './FormularioRepartidorModal.tsx'
+import { HistorialRespuestasModal } from './HistorialRespuestasModal.tsx'
 import { PinGeneradoModal } from './PinGeneradoModal.tsx'
 import {
   COLOR_ESTADO_REPARTIDOR,
@@ -22,6 +23,7 @@ export function RepartidoresPage() {
   // Modales
   const [modalFormularioAbierto, setModalFormularioAbierto] = useState(false)
   const [modalBajaAbierto, setModalBajaAbierto] = useState(false)
+  const [modalHistorialAbierto, setModalHistorialAbierto] = useState(false)
   const [repartidorParaCierre, setRepartidorParaCierre] = useState<Repartidor | null>(null)
   const [repartidorSeleccionado, setRepartidorSeleccionado] =
     useState<Repartidor | null>(null)
@@ -64,6 +66,11 @@ export function RepartidoresPage() {
   function abrirBaja(repartidor: Repartidor) {
     setRepartidorSeleccionado(repartidor)
     setModalBajaAbierto(true)
+  }
+
+  function abrirHistorial(repartidor: Repartidor) {
+    setRepartidorSeleccionado(repartidor)
+    setModalHistorialAbierto(true)
   }
 
   async function handleResetearPin(repartidor: Repartidor) {
@@ -203,6 +210,14 @@ export function RepartidoresPage() {
         <div className="flex items-center gap-2">
           <button
             type="button"
+            onClick={() => abrirHistorial(r)}
+            className="text-xs font-medium text-purple-600 hover:text-purple-800 hover:underline"
+          >
+            Historial
+          </button>
+          <span className="text-gray-300">|</span>
+          <button
+            type="button"
             onClick={() => abrirEdicion(r)}
             className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline"
           >
@@ -262,34 +277,34 @@ export function RepartidoresPage() {
       {/* Cabecera */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            Gestión de Repartidores
-          </h1>
-          <p className="text-sm text-gray-600">
-            Administración de choferes, vehículos y credenciales de acceso.
+          <h1 className="text-2xl font-bold text-gray-900">Repartidores</h1>
+          <p className="text-sm text-gray-500">
+            Administración del personal de entregas, movilidad y estados.
           </p>
         </div>
-        <Boton onClick={abrirNuevo}>+ Nuevo repartidor</Boton>
+        <Boton onClick={abrirNuevo}>Nuevo repartidor</Boton>
       </div>
 
-      {errorCarga && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {errorCarga}
+      {/* Barra de búsqueda y feedback */}
+      <div className="flex flex-col gap-4">
+        <div className="max-w-md">
+          <Campo
+            etiqueta="Buscar repartidor"
+            type="search"
+            placeholder="Buscar por nombre, email, teléfono..."
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+          />
         </div>
-      )}
 
-      {/* Buscador */}
-      <div className="w-full sm:max-w-xs">
-        <Campo
-          etiqueta="Buscar"
-          type="search"
-          placeholder="Filtrar por nombre, teléfono, email..."
-          value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
-        />
+        {errorCarga && (
+          <div className="rounded-lg bg-red-50 p-4 text-sm text-red-700">
+            {errorCarga}
+          </div>
+        )}
       </div>
 
-      {/* Tabla con estados */}
+      {/* Tabla principal */}
       {cargando && repartidores.length === 0 ? (
         <div className="rounded-lg border border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
           Cargando repartidores...
@@ -322,6 +337,15 @@ export function RepartidoresPage() {
         onConfirmado={cargar}
         repartidor={repartidorSeleccionado}
       />
+
+      {/* Modal de Historial de Respuestas de Ofertas (HU #28) */}
+      {repartidorSeleccionado && (
+        <HistorialRespuestasModal
+          abierto={modalHistorialAbierto}
+          repartidor={repartidorSeleccionado}
+          onCerrar={() => setModalHistorialAbierto(false)}
+        />
+      )}
 
       {/* Modal de PIN de un solo uso */}
       <PinGeneradoModal

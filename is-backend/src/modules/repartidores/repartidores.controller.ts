@@ -19,6 +19,7 @@ import {
   ActualizarRepartidorDto,
   AprobarCierreDto,
   CrearRepartidorDto,
+  FiltroHistorialRespuestasDto,
   FiltroRepartidoresDto,
 } from './dto';
 import { JornadaService } from './jornada.service';
@@ -73,6 +74,15 @@ export class RepartidoresController {
   @HttpCode(200)
   reactivar(@Param('id', ParseIntPipe) id: number) {
     return this.repartidoresService.reactivar(id);
+  }
+
+  // HU #28: Historial de respuestas de ofertas y métricas acumuladas
+  @Get(':id/historial-respuestas')
+  historialRespuestas(
+    @Param('id', ParseIntPipe) id: number,
+    @Query() filtro: FiltroHistorialRespuestasDto,
+  ) {
+    return this.repartidoresService.historialRespuestas(id, filtro);
   }
 
   @Get(':id/rendicion')
