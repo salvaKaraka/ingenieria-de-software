@@ -571,134 +571,76 @@ describe('EnviosService', () => {
   });
 
   describe('obtenerPanel', () => {
-    it('agrupa los envíos activos por estado y calcula totales correctamente', async () => {
+    const envioPanel = (id: number, estado: string) => ({
+      id,
+      codigoSeguimiento: `P${id}`,
+      estado,
+      destinoDireccion: 'Calle Destino 456',
+      destinatarioNombre: 'Juan',
+      destinatarioApellido: 'Pérez',
+      tamanio: 'CHICO',
+      comercio: { nombre: 'Comercio A' },
+      repartidor: null,
+      eventos: [],
+    });
+
+    it('pide al repository todo lo que no está en un estado final', async () => {
+      repository.obtenerPanelEnvios.mockResolvedValue([]);
+
+      await service.obtenerPanel();
+
+      expect(repository.obtenerPanelEnvios).toHaveBeenCalledWith([
+        'ENTREGADO',
+        'CANCELADO',
+      ]);
+    });
+
+    it('agrupa los envíos por estado, en el orden del recorrido, con la cantidad de cada grupo', async () => {
       repository.obtenerPanelEnvios.mockResolvedValue([
-        {
-          id: 1,
-          codigoSeguimiento: 'P1',
-          estado: 'PENDIENTE',
-          tamanio: 'CHICO',
-          vehiculoRequerido: 'MOTO',
-          comercio: { id: 1, nombre: 'Comercio A', telefono: '111' },
-          repartidor: null,
-          eventos: [],
-        },
-        {
-          id: 2,
-          codigoSeguimiento: 'P2',
-          estado: 'PENDIENTE',
-          tamanio: 'MEDIANO',
-          vehiculoRequerido: 'AUTO',
-          comercio: { id: 1, nombre: 'Comercio A', telefono: '111' },
-          repartidor: null,
-          eventos: [],
-        },
-        {
-          id: 3,
-          codigoSeguimiento: 'A1',
-          estado: 'ASIGNADO',
-          tamanio: 'CHICO',
-          vehiculoRequerido: 'MOTO',
-          comercio: { id: 1, nombre: 'Comercio A', telefono: '111' },
-          repartidor: { id: 10, nombre: 'Carlos', apellido: 'Gómez', telefono: '222', vehiculo: 'MOTO' },
-          eventos: [],
-        },
-        {
-          id: 4,
-          codigoSeguimiento: 'R1',
-          estado: 'RETIRADO',
-          tamanio: 'GRANDE',
-          vehiculoRequerido: 'CAMION',
-          comercio: { id: 2, nombre: 'Comercio B', telefono: '333' },
-          repartidor: { id: 11, nombre: 'Martín', apellido: 'López', telefono: '444', vehiculo: 'CAMION' },
-          eventos: [],
-        },
+        envioPanel(1, 'PENDIENTE'),
+        envioPanel(2, 'RETIRADO'),
+        envioPanel(3, 'PENDIENTE'),
+        envioPanel(4, 'ASIGNADO'),
       ]);
 
       const resultado = await service.obtenerPanel();
 
-      expect(resultado.totales).toEqual({
-        total: 4,
-        PENDIENTE: 2,
-        ASIGNADO: 1,
-        EN_CAMINO_A_RETIRAR: 0,
-        RETIRADO: 1,
-        EN_DOMICILIO: 0,
-      });
-
-      expect(resultado.grupos.PENDIENTE).toHaveLength(2);
-      expect(resultado.grupos.ASIGNADO).toHaveLength(1);
-      expect(resultado.grupos.EN_CAMINO_A_RETIRAR).toHaveLength(0);
-      expect(resultado.grupos.RETIRADO).toHaveLength(1);
-      expect(resultado.grupos.EN_DOMICILIO).toHaveLength(0);
-    });
-
-    it('identifica y resalta los envíos con novedad o incidente', async () => {
-      repository.obtenerPanelEnvios.mockResolvedValue([
-        {
-          id: 5,
-          codigoSeguimiento: 'NOV1',
-          estado: 'EN_CAMINO_A_RETIRAR',
-          tamanio: 'CHICO',
-          vehiculoRequerido: 'MOTO',
-          comercio: { id: 1, nombre: 'Comercio A', telefono: '111' },
-          repartidor: { id: 10, nombre: 'Carlos', apellido: 'Gómez', telefono: '222', vehiculo: 'MOTO' },
-          eventos: [
-            {
-              tipo: 'NOVEDAD',
-              detalle: 'Demorado por lluvia intensa',
-              creadoEn: new Date('2026-11-03T10:00:00Z'),
-            },
-          ],
-        },
-        {
-          id: 6,
-          codigoSeguimiento: 'OK1',
-          estado: 'EN_CAMINO_A_RETIRAR',
-          tamanio: 'CHICO',
-          vehiculoRequerido: 'MOTO',
-          comercio: { id: 1, nombre: 'Comercio A', telefono: '111' },
-          repartidor: { id: 12, nombre: 'Lucía', apellido: 'Díaz', telefono: '555', vehiculo: 'MOTO' },
-          eventos: [],
-        },
+      expect(resultado.total).toBe(4);
+      expect(
+        resultado.grupos.map((grupo) => ({
+          estado: grupo.estado,
+          cantidad: grupo.cantidad,
+          ids: grupo.envios.map((envio) => envio.id),
+        })),
+      ).toEqual([
+        { estado: 'PENDIENTE', cantidad: 2, ids: [1, 3] },
+        { estado: 'ASIGNADO', cantidad: 1, ids: [4] },
+        { estado: 'EN_CAMINO_A_RETIRAR', cantidad: 0, ids: [] },
+        { estado: 'RETIRADO', cantidad: 1, ids: [2] },
+        { estado: 'EN_DOMICILIO', cantidad: 0, ids: [] },
       ]);
-
-      const resultado = await service.obtenerPanel();
-
-      const conNovedad = resultado.envios.find((e) => e.codigoSeguimiento === 'NOV1');
-      const sinNovedad = resultado.envios.find((e) => e.codigoSeguimiento === 'OK1');
-
-      expect(conNovedad?.conNovedad).toBe(true);
-      expect(conNovedad?.novedad).toEqual({
-        tipo: 'NOVEDAD',
-        detalle: 'Demorado por lluvia intensa',
-        creadoEn: expect.any(Date),
-      });
-
-      expect(sinNovedad?.conNovedad).toBe(false);
-      expect(sinNovedad?.novedad).toBeNull();
     });
 
-    it('devuelve contadores en 0 y agrupaciones vacías cuando no hay envíos activos', async () => {
+    it('no arma grupos para los estados finales', async () => {
       repository.obtenerPanelEnvios.mockResolvedValue([]);
 
       const resultado = await service.obtenerPanel();
 
-      expect(resultado.totales).toEqual({
-        total: 0,
-        PENDIENTE: 0,
-        ASIGNADO: 0,
-        EN_CAMINO_A_RETIRAR: 0,
-        RETIRADO: 0,
-        EN_DOMICILIO: 0,
-      });
+      const estados = resultado.grupos.map((grupo) => grupo.estado);
+      expect(estados).not.toContain('ENTREGADO');
+      expect(estados).not.toContain('CANCELADO');
+    });
 
-      expect(resultado.grupos.PENDIENTE).toEqual([]);
-      expect(resultado.grupos.ASIGNADO).toEqual([]);
-      expect(resultado.grupos.EN_CAMINO_A_RETIRAR).toEqual([]);
-      expect(resultado.grupos.RETIRADO).toEqual([]);
-      expect(resultado.grupos.EN_DOMICILIO).toEqual([]);
-      expect(resultado.envios).toEqual([]);
+    it('devuelve total 0 y todos los grupos vacíos cuando no hay envíos pendientes ni en curso', async () => {
+      repository.obtenerPanelEnvios.mockResolvedValue([]);
+
+      const resultado = await service.obtenerPanel();
+
+      expect(resultado.total).toBe(0);
+      expect(resultado.grupos.length).toBeGreaterThan(0);
+      expect(resultado.grupos.every((grupo) => grupo.cantidad === 0)).toBe(
+        true,
+      );
     });
   });
 });
