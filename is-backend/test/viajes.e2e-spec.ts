@@ -58,6 +58,10 @@ describe('Viaje del repartidor (e2e)', () => {
     return envio.id;
   }
 
+  // PNG de 1x1: la foto de la entrega viaja como data URI de imagen (HU 18).
+  const FOTO =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
   const avanzar = async (repartidorId: number, evidencia: object = {}) =>
     request(app.getHttpServer())
       .post('/api/repartidor/viajes/actual/avanzar')
@@ -153,7 +157,7 @@ describe('Viaje del repartidor (e2e)', () => {
     expect((await avanzar(repartidor)).status).toBe(400);
     const distinto = await avanzar(repartidor, {
       dni: '99888777',
-      fotoEnviada: true,
+      foto: FOTO,
     });
     expect(distinto.status).toBe(400);
     expect(distinto.body.message).toBe(
@@ -162,7 +166,7 @@ describe('Viaje del repartidor (e2e)', () => {
 
     const res = await avanzar(repartidor, {
       dni: '30111222',
-      fotoEnviada: true,
+      foto: FOTO,
     });
     expect(res.status).toBe(200);
     expect(res.body.estado).toBe('ENTREGADO');
@@ -171,7 +175,7 @@ describe('Viaje del repartidor (e2e)', () => {
       where: { envioId, estadoNuevo: 'ENTREGADO' },
     });
     expect(evento.detalle).toBe(
-      'Evidencia: DNI verificado, foto enviada por WhatsApp',
+      'Evidencia: DNI verificado, foto adjunta',
     );
   });
 

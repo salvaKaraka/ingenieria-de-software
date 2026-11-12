@@ -14,6 +14,8 @@ export class SeguimientoRepository {
   async buscarPorCodigo(codigo: string) {
     return this.prisma.envio.findUnique({
       where: { codigoSeguimiento: codigo },
+      // Página pública: la foto de la entrega no se trae ni de la base.
+      omit: { fotoUrl: true },
       include: {
         comercio: { select: { nombre: true } },
         eventos: {

@@ -7,7 +7,6 @@ describe('ViajesService', () => {
   const repository = {
     buscarViajeActivoPorRepartidor: jest.fn(),
     avanzarViaje: jest.fn(),
-    guardarFotoEnvio: jest.fn(),
     listarEntregadosDelRepartidorDesde: jest.fn(),
   };
   const asignacion = { reintentarPendientes: jest.fn() };
@@ -27,7 +26,6 @@ describe('ViajesService', () => {
     observaciones: null,
     requiereFoto: false,
     requiereDni: true,
-    fotoUrl: null,
     eventos: [] as { detalle: string | null }[],
   });
 
@@ -212,7 +210,7 @@ describe('ViajesService', () => {
       );
     });
 
-    it('con DNI y foto deja las dos cosas en el historial', async () => {
+    it('con DNI y foto deja las dos cosas en el historial, sin el número de DNI', async () => {
       entregando({ requiereDni: true, requiereFoto: true });
       repository.avanzarViaje.mockResolvedValue(true);
       const fotoData = 'data:image/png;base64,fotoprueba';
@@ -230,6 +228,8 @@ describe('ViajesService', () => {
         'Evidencia: DNI verificado, foto adjunta',
         fotoData,
       );
+      const detalle = repository.avanzarViaje.mock.calls[0][4] as string;
+      expect(detalle).not.toContain('30111222');
     });
 
     it('si el comercio no exige nada, entrega sin evidencia', async () => {
@@ -249,28 +249,16 @@ describe('ViajesService', () => {
       });
     });
 
-    it('adjuntarFoto solo permite capturar en EN_DOMICILIO', async () => {
+    it('no acepta una foto antes de llegar al domicilio de entrega', async () => {
       repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
         envioEn('EN_CAMINO_A_RETIRAR'),
       );
       await expect(
-        service.adjuntarFoto(1, 'data:image/jpeg;base64,123'),
-      ).rejects.toThrow(ConflictException);
-
-      repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
-        envioEn('EN_DOMICILIO'),
+        service.avanzarViajeActual(1, { foto: 'data:image/jpeg;base64,abc1' }),
+      ).rejects.toThrow(
+        'La fotografía solo puede capturarse en el domicilio de entrega',
       );
-      repository.guardarFotoEnvio.mockResolvedValue(true);
-      await expect(
-        service.adjuntarFoto(1, 'data:image/jpeg;base64,123'),
-      ).resolves.toEqual({
-        ok: true,
-        fotoUrl: 'data:image/jpeg;base64,123',
-      });
-      expect(repository.guardarFotoEnvio).toHaveBeenCalledWith(
-        5,
-        'data:image/jpeg;base64,123',
-      );
+      expect(repository.avanzarViaje).not.toHaveBeenCalled();
     });
   });
 

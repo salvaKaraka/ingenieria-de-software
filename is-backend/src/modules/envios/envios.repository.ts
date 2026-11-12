@@ -130,6 +130,8 @@ export class EnviosRepository {
         orderBy: [{ creadoEn: 'desc' }, { id: 'desc' }],
         skip: filtros.saltar,
         take: filtros.tomar,
+        // La foto pesa cientos de kb y el listado no la muestra: solo sale en el detalle.
+        omit: { fotoUrl: true },
         include: {
           comercio: { select: { id: true, nombre: true } },
           repartidor: { select: { id: true, nombre: true, apellido: true } },
@@ -146,6 +148,7 @@ export class EnviosRepository {
   }
 
   async obtenerDetalle(id: number) {
+    // Único lugar que devuelve la foto de la entrega (fotoUrl): la pantalla de detalle la muestra.
     return this.prisma.envio.findUnique({
       where: { id },
       include: {
@@ -213,6 +216,7 @@ export class EnviosRepository {
           in: ['ASIGNADO', 'EN_CAMINO_A_RETIRAR', 'RETIRADO', 'EN_DOMICILIO'],
         },
       },
+      omit: { fotoUrl: true },
       include: {
         comercio: { select: { nombre: true, telefono: true } },
         eventos: {
@@ -343,6 +347,7 @@ export class EnviosRepository {
       const envioActualizado = await tx.envio.update({
         where: { id },
         data: dataUpdate,
+        omit: { fotoUrl: true },
       });
 
       // Si cambia el vehículo y había ofertas abiertas, vencerlas y devolver repartidores a la cola
@@ -415,17 +420,10 @@ export class EnviosRepository {
     });
   }
 
-  async guardarFotoEnvio(envioId: number, fotoUrl: string): Promise<boolean> {
-    const { count } = await this.prisma.envio.updateMany({
-      where: { id: envioId },
-      data: { fotoUrl },
-    });
-    return count > 0;
-  }
-
   // Avanza el viaje un paso (E-2). Solo si el envío sigue en el estado que leyó el service y
   // sigue siendo de este repartidor: si en el medio el operario lo canceló, no toca nada y
   // devuelve false. Al entregar, el repartidor vuelve al final de la cola en la misma transacción.
+  // La foto de la entrega (HU 18) se guarda solo en el envío; el evento lleva el texto de la evidencia.
   async avanzarViaje(
     envioId: number,
     estadoAnterior: EstadoEnvio,
@@ -455,7 +453,6 @@ export class EnviosRepository {
           estadoAnterior,
           estadoNuevo,
           detalle,
-          fotoUrl,
           actorTipo: 'REPARTIDOR',
           actorId: repartidorId,
         },
@@ -525,7 +522,10 @@ export class EnviosRepository {
         });
       }
 
-      const envio = await tx.envio.findUniqueOrThrow({ where: { id } });
+      const envio = await tx.envio.findUniqueOrThrow({
+        where: { id },
+        omit: { fotoUrl: true },
+      });
       // Si ya tenía repartidor, el viaje terminó: queda libre y vuelve al final de la cola.
       if (envio.repartidorId !== null) {
         await this.liberarRepartidor(tx, envio.repartidorId);
@@ -551,6 +551,7 @@ export class EnviosRepository {
       orderBy: {
         creadoEn: 'asc',
       },
+      omit: { fotoUrl: true },
       include: {
         comercio: {
           select: {

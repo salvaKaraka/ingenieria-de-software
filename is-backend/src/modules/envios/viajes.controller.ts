@@ -4,7 +4,7 @@ import {
   UsuarioActual,
   type UsuarioAutenticado,
 } from '../../common/auth';
-import { AdjuntarFotoDto, AvanzarViajeDto } from './dto/avanzar-viaje.dto';
+import { AvanzarViajeDto } from './dto/avanzar-viaje.dto';
 import { ViajesService } from './viajes.service';
 
 // Endpoints del repartidor logueado sobre su viaje activo (E-2).
@@ -17,16 +17,6 @@ export class ViajesController {
   @Get('actual')
   obtenerActual(@UsuarioActual() usuario: UsuarioAutenticado) {
     return this.viajesService.obtenerViajeActual(usuario.id);
-  }
-
-  // HU #18: Permite adjuntar la foto de evidencia antes o durante la entrega
-  @Post('actual/foto')
-  @HttpCode(200)
-  adjuntarFoto(
-    @UsuarioActual() usuario: UsuarioAutenticado,
-    @Body() dto: AdjuntarFotoDto,
-  ) {
-    return this.viajesService.adjuntarFoto(usuario.id, dto.foto);
   }
 
   // HU 34: "Mi historial", las entregas del día en curso.
