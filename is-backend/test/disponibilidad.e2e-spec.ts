@@ -221,20 +221,19 @@ describe('Disponibilidad del Repartidor - HU #8 (e2e)', () => {
   });
 
   describe('Escenario 4: Inicio de jornada', () => {
-    it('al autenticarse con PIN por primera vez, el sistema inicializa su estado como Disponible y al final de la cola', async () => {
-      const repartidor = await prisma.repartidor.create({
-        data: {
-          nombre: 'Matías',
-          apellido: 'Novo',
-          telefono: '221-999-8888',
-          email: emailUnico(),
-          direccion: 'Calle 5 n° 500',
-          vehiculo: 'MOTO',
-          estado: 'FUERA_DE_JORNADA',
-          enColaDesde: null,
-        },
+    // Ingresar con el PIN solo abre la sesión: el repartidor entra a la cola
+    // recién cuando toca "Iniciar jornada" (misma regla que la HU67).
+    it('al ingresar con el PIN sigue Fuera de jornada y, al iniciar la jornada, queda Disponible al final de la cola de su vehículo', async () => {
+      const horaAnterior = new Date(Date.now() - 60_000);
+      const yaEnCola = await crearRepartidor({
+        vehiculo: 'MOTO',
+        estado: 'DISPONIBLE',
+        enColaDesde: horaAnterior,
       });
-
+      const repartidor = await crearRepartidor({
+        vehiculo: 'MOTO',
+        estado: 'FUERA_DE_JORNADA',
+      });
       const pin = await authService.asignarNuevoPin(repartidor.id);
 
       const loginRes = await request(app.getHttpServer())
@@ -242,12 +241,31 @@ describe('Disponibilidad del Repartidor - HU #8 (e2e)', () => {
         .send({ pin });
 
       expect(loginRes.status).toBe(200);
-
       const despuesLogin = await prisma.repartidor.findUniqueOrThrow({
         where: { id: repartidor.id },
       });
-      expect(despuesLogin.estado).toBe('DISPONIBLE');
-      expect(despuesLogin.enColaDesde).not.toBeNull();
+      expect(despuesLogin.estado).toBe('FUERA_DE_JORNADA');
+      expect(despuesLogin.enColaDesde).toBeNull();
+
+      const iniciarRes = await request(app.getHttpServer())
+        .post('/api/repartidor/jornada/iniciar')
+        .set('Cookie', loginRes.get('Set-Cookie') ?? []);
+
+      expect(iniciarRes.status).toBe(200);
+      expect(iniciarRes.body).toEqual({ estado: 'DISPONIBLE' });
+      const despuesIniciar = await prisma.repartidor.findUniqueOrThrow({
+        where: { id: repartidor.id },
+      });
+      expect(despuesIniciar.estado).toBe('DISPONIBLE');
+      expect(despuesIniciar.enColaDesde).not.toBeNull();
+      expect(despuesIniciar.enColaDesde!.getTime()).toBeGreaterThan(
+        horaAnterior.getTime(),
+      );
+
+      // Al final de la cola: el primer viaje de moto es para el que ya estaba.
+      const envio = await crearEnvio({ vehiculo: 'MOTO' });
+      const oferta = await motor.asignar(envio.id);
+      expect(oferta?.repartidorId).toBe(yaEnCola.id);
     });
   });
 
