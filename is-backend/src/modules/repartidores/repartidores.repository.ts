@@ -34,6 +34,13 @@ const ESTADOS_VIAJE_ACTIVO: EstadoEnvio[] = [
   EstadoEnvio.EN_DOMICILIO,
 ];
 
+// Viaje activo en tránsito según HU #68: "En camino a retirar", "Paquete en poder" (RETIRADO) y "En domicilio de entrega".
+const ESTADOS_VIAJE_TRANSITO: EstadoEnvio[] = [
+  EstadoEnvio.EN_CAMINO_A_RETIRAR,
+  EstadoEnvio.RETIRADO,
+  EstadoEnvio.EN_DOMICILIO,
+];
+
 @Injectable()
 export class RepartidoresRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -99,6 +106,17 @@ export class RepartidoresRepository {
       },
     });
 
+    return cantidad > 0;
+  }
+
+  // Verifica si el chofer posee un viaje activo en tránsito (HU #68)
+  async tieneViajeEnTransito(repartidorId: number): Promise<boolean> {
+    const cantidad = await this.prisma.envio.count({
+      where: {
+        repartidorId,
+        estado: { in: ESTADOS_VIAJE_TRANSITO },
+      },
+    });
     return cantidad > 0;
   }
 

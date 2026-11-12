@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -126,6 +127,31 @@ export class AuthService {
     throw new ConflictException(
       'No se pudo generar un PIN libre, intentá de nuevo',
     );
+  }
+
+  // HU #68: el repartidor cambia su propio PIN. No lo elige: demuestra que conoce el actual y
+  // el sistema le genera uno nuevo, igual que el reseteo del operario. Si pudiera elegirlo,
+  // el aviso de "PIN en uso" le revelaría el PIN de otro repartidor (el PIN es identificador y secreto).
+  async cambiarPinPropio(
+    repartidorId: number,
+    pinActual: string,
+  ): Promise<{ pin: string; sesion: Sesion }> {
+    const repartidor = await this.repo.buscarRepartidorPorId(repartidorId);
+    if (!repartidor || !repartidor.activo)
+      throw new NotFoundException('Repartidor inexistente');
+    if (repartidor.pinHmac !== this.hashing.hmacPin(pinActual))
+      throw new BadRequestException('El PIN actual ingresado es incorrecto');
+
+    // asignarNuevoPin cierra TODAS las sesiones (por si alguien más conocía el PIN viejo).
+    // El refresh token no viaja a esta ruta, así que no podemos exceptuar el del dispositivo
+    // actual: le abrimos una sesión nueva para que no quede deslogueado.
+    const pin = await this.asignarNuevoPin(repartidorId);
+    const sesion = await this.iniciarSesion({
+      id: repartidor.id,
+      rol: RolUsuario.REPARTIDOR,
+      nombre: `${repartidor.nombre} ${repartidor.apellido}`,
+    });
+    return { pin, sesion };
   }
 
   // Cierra todas las sesiones de un usuario (al darlo de baja o al terminar la jornada).

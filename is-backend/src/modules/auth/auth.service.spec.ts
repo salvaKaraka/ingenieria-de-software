@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { RolUsuario } from '../../generated/prisma/client';
@@ -199,6 +199,49 @@ describe('AuthService', () => {
       await servicio.asignarNuevoPin(7);
 
       expect(repo.existePinHmac).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('cambiarPinPropio (HU #68)', () => {
+    const repartidor = (pin: string, extra: object = {}) =>
+      ({
+        id: 7,
+        nombre: 'Juan',
+        apellido: 'Pérez',
+        activo: true,
+        pinHmac: hashing.hmacPin(pin),
+        ...extra,
+      }) as never;
+
+    it('con el PIN actual correcto genera uno nuevo de 4 dígitos, cierra las sesiones y abre una nueva para este dispositivo', async () => {
+      repo.buscarRepartidorPorId.mockResolvedValue(repartidor('1234'));
+
+      const { pin, sesion } = await servicio.cambiarPinPropio(7, '1234');
+
+      expect(pin).toMatch(/^\d{4}$/);
+      expect(repo.guardarPinHmac).toHaveBeenCalledWith(7, hashing.hmacPin(pin));
+      expect(repo.revocarTodos).toHaveBeenCalledWith('REPARTIDOR', 7);
+      // La sesión nueva se crea DESPUÉS de revocar: si no, se cerraría también.
+      expect(
+        repo.crearRefreshToken.mock.invocationCallOrder[0],
+      ).toBeGreaterThan(repo.revocarTodos.mock.invocationCallOrder[0]);
+      expect(sesion.usuario).toEqual({
+        id: 7,
+        rol: 'REPARTIDOR',
+        nombre: 'Juan Pérez',
+      });
+    });
+
+    it('con un PIN actual incorrecto responde 400 "El PIN actual ingresado es incorrecto" y no cambia nada', async () => {
+      repo.buscarRepartidorPorId.mockResolvedValue(repartidor('1234'));
+
+      await expect(servicio.cambiarPinPropio(7, '9999')).rejects.toThrow(
+        new BadRequestException('El PIN actual ingresado es incorrecto'),
+      );
+
+      expect(repo.guardarPinHmac).not.toHaveBeenCalled();
+      expect(repo.revocarTodos).not.toHaveBeenCalled();
+      expect(repo.crearRefreshToken).not.toHaveBeenCalled();
     });
   });
 });

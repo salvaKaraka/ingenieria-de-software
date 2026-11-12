@@ -16,6 +16,7 @@ import { FlotaPage } from './features/operario/flota/FlotaPage.tsx'
 import { RepartidoresPage } from './features/operario/repartidores/RepartidoresPage.tsx'
 import { MiHistorialPage } from './features/repartidor/historial/MiHistorialPage.tsx'
 import { InicioRepartidorPage } from './features/repartidor/jornada/InicioRepartidorPage.tsx'
+import { PerfilRepartidorPage } from './features/repartidor/perfil/PerfilRepartidorPage.tsx'
 import { BuscarSeguimientoPage } from './features/seguimiento/BuscarSeguimientoPage.tsx'
 import { SeguimientoPage } from './features/seguimiento/SeguimientoPage.tsx'
 import { OperarioLayout } from './shared/layouts/OperarioLayout.tsx'
@@ -59,6 +60,7 @@ const rutas: RouteObject[] = [
     ),
     children: [
       { index: true, element: <InicioRepartidorPage /> },
+      { path: 'perfil', element: <PerfilRepartidorPage /> },
       { path: 'historial', element: <MiHistorialPage /> },
     ],
   },
