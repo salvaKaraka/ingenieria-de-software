@@ -57,9 +57,11 @@ export class ExcepcionesRepository {
         vehiculoRequerido: true,
         estado: true,
         comercio: { select: { nombre: true } },
+        // La PRIMERA oferta que venció: desde ahí espera el envío. Si se tomara la última,
+        // cada asignación manual que vence lo haría "rejuvenecer" y bajar en el panel.
         ofertas: {
           where: { estado: 'VENCIDA' },
-          orderBy: { expiraEn: 'desc' },
+          orderBy: [{ expiraEn: 'asc' }, { id: 'asc' }],
           take: 1,
           select: { expiraEn: true },
         },
