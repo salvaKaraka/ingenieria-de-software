@@ -50,10 +50,10 @@ export function PerfilRepartidorPage() {
 
   // Campos de PIN
   const [pinActual, setPinActual] = useState('')
-  const [nuevoPin, setNuevoPin] = useState('')
   const [guardandoPin, setGuardandoPin] = useState(false)
-  const [mensajePin, setMensajePin] = useState<string | null>(null)
   const [errorPin, setErrorPin] = useState<string | null>(null)
+  // El PIN nuevo solo vive en memoria mientras se muestra: al confirmar se descarta y no hay forma de volver a verlo.
+  const [pinGenerado, setPinGenerado] = useState<string | null>(null)
 
   const consultar = useCallback(async () => {
     try {
@@ -115,36 +115,31 @@ export function PerfilRepartidorPage() {
     }
   }
 
-  async function cambiarPin(e: FormEvent) {
+  async function generarPinNuevo(e: FormEvent) {
     e.preventDefault()
-    setMensajePin(null)
     setErrorPin(null)
 
-    if (!pinActual) {
-      setErrorPin('El PIN actual es obligatorio')
-      return
-    }
-
-    if (!/^\d{4,6}$/.test(nuevoPin)) {
-      setErrorPin('El nuevo PIN debe ser estrictamente numérico y tener entre 4 y 6 dígitos')
+    if (!/^\d{4}$/.test(pinActual)) {
+      setErrorPin('Ingresá tu PIN actual de 4 dígitos')
       return
     }
 
     setGuardandoPin(true)
     try {
-      const respuesta = await api<{ mensaje: string }>('/repartidor/perfil/cambiar-pin', {
+      // El repartidor no elige el PIN: el sistema genera uno y lo devuelve esta única vez.
+      const respuesta = await api<{ pin: string }>('/repartidor/perfil/cambiar-pin', {
         metodo: 'POST',
-        datos: { pinActual, nuevoPin },
+        datos: { pinActual },
       })
-      setMensajePin(respuesta.mensaje || 'PIN modificado con éxito')
+      setPinGenerado(respuesta.pin)
       setPinActual('')
-      setNuevoPin('')
     } catch (error) {
-      if (error instanceof ErrorApi) {
-        // En el Escenario 4, si el backend responde con error de PIN erróneo:
-        setErrorPin(error.message || 'El PIN actual ingresado es incorrecto')
+      if (error instanceof ErrorApi && error.status === 429) {
+        setErrorPin('Demasiados intentos. Esperá un minuto y volvé a probar.')
+      } else if (error instanceof ErrorApi) {
+        setErrorPin(error.message)
       } else {
-        setErrorPin('El PIN actual ingresado es incorrecto')
+        setErrorPin('No se pudo generar el PIN nuevo. Revisá tu conexión y volvé a probar.')
       }
     } finally {
       setGuardandoPin(false)
@@ -273,73 +268,70 @@ export function PerfilRepartidorPage() {
         </form>
       </section>
 
-      {/* Sección de Cambio de PIN (Escenarios 2 y 4) */}
+      {/* Cambio de PIN: el repartidor confirma el actual y el sistema le genera uno nuevo */}
       <section className="space-y-5 rounded-2xl bg-slate-900 p-5">
-        <div>
-          <h2 className="text-2xl font-bold">Cambiar PIN</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            Ingresá tu PIN actual y elegí un nuevo PIN de 4 a 6 dígitos numéricos.
-          </p>
-        </div>
+        <h2 className="text-2xl font-bold">Cambiar PIN</h2>
 
-        {mensajePin && (
-          <p role="status" className="rounded-xl bg-green-800 p-4 text-center font-semibold text-white">
-            {mensajePin}
-          </p>
-        )}
-
-        {errorPin && (
-          <p role="alert" className="rounded-xl border border-red-500/50 bg-red-950/40 p-4 text-center font-semibold text-red-200">
-            {errorPin}
-          </p>
-        )}
-
-        <form onSubmit={(e) => void cambiarPin(e)} className="space-y-4">
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="pinActual" className="text-sm font-medium text-slate-300">
-              PIN actual
-            </label>
-            <input
-              id="pinActual"
-              name="pinActual"
-              type="password"
-              inputMode="numeric"
-              required
-              value={pinActual}
-              onChange={(e) => setPinActual(e.target.value)}
-              disabled={guardandoPin || viajeBloqueante}
-              autoComplete="current-password"
-              className="min-h-12 w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-lg tracking-widest text-white focus:border-yellow-400 focus:outline-none disabled:opacity-50"
-            />
+        {pinGenerado ? (
+          <div className="space-y-5">
+            <p role="status" className="text-lg font-semibold text-white">
+              Tu PIN nuevo es:
+            </p>
+            <p className="rounded-2xl border-2 border-yellow-400 bg-slate-950 py-6 text-center font-mono text-6xl font-bold tracking-[0.3em] text-yellow-400">
+              {pinGenerado}
+            </p>
+            <p
+              role="alert"
+              className="rounded-xl border border-amber-500/30 bg-amber-950/40 p-4 text-lg font-medium text-amber-200"
+            >
+              Anotalo ahora: no se va a volver a mostrar. Tu PIN anterior ya no sirve para ingresar.
+            </p>
+            <BotonGrande variante="primario" onClick={() => setPinGenerado(null)}>
+              Ya lo anoté
+            </BotonGrande>
           </div>
+        ) : (
+          <>
+            <p className="text-lg text-slate-300">
+              Ingresá tu PIN actual y el sistema te va a dar un PIN nuevo de 4 dígitos.
+            </p>
 
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="nuevoPin" className="text-sm font-medium text-slate-300">
-              Nuevo PIN (4 a 6 dígitos)
-            </label>
-            <input
-              id="nuevoPin"
-              name="nuevoPin"
-              type="password"
-              inputMode="numeric"
-              maxLength={6}
-              required
-              value={nuevoPin}
-              onChange={(e) => setNuevoPin(e.target.value)}
-              disabled={guardandoPin || viajeBloqueante}
-              autoComplete="new-password"
-              className="min-h-12 w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-lg tracking-widest text-white focus:border-yellow-400 focus:outline-none disabled:opacity-50"
-            />
-          </div>
+            {errorPin && (
+              <p
+                role="alert"
+                className="rounded-xl border border-red-500/50 bg-red-950/40 p-4 text-center text-lg font-semibold text-red-200"
+              >
+                {errorPin}
+              </p>
+            )}
 
-          <BotonGrande
-            type="submit"
-            variante="secundario"
-            disabled={guardandoPin || viajeBloqueante}
-          >
-            {guardandoPin ? 'Modificando PIN…' : 'Cambiar PIN'}
-          </BotonGrande>
-        </form>
+            <form onSubmit={(e) => void generarPinNuevo(e)} className="space-y-4">
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="pinActual" className="text-lg font-medium text-slate-300">
+                  PIN actual
+                </label>
+                <input
+                  id="pinActual"
+                  name="pinActual"
+                  type="password"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={4}
+                  required
+                  value={pinActual}
+                  onChange={(e) => setPinActual(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  disabled={guardandoPin || viajeBloqueante}
+                  autoComplete="off"
+                  className="min-h-12 w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-lg tracking-widest text-white focus:border-yellow-400 focus:outline-none disabled:opacity-50"
+                />
+              </div>
+
+              <BotonGrande type="submit" variante="secundario" disabled={guardandoPin || viajeBloqueante}>
+                {guardandoPin ? 'Generando PIN…' : 'Generar PIN nuevo'}
+              </BotonGrande>
+            </form>
+          </>
+        )}
       </section>
     </div>
   )
