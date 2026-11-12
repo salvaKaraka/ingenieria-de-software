@@ -163,30 +163,64 @@ describe('Jornada del repartidor (e2e)', () => {
       .expect(403);
   });
 
-  it('termina la jornada desde DISPONIBLE o EN_PAUSA', async () => {
+  // La jornada solo termina con el cierre que aprueba el operario (G-1): el repartidor
+  // pide el cierre y queda esperando la validación, fuera de la cola.
+  it('solicita el cierre desde DISPONIBLE: sale de la cola y queda esperando la validación', async () => {
     const repartidor = await crearRepartidor();
     await post(repartidor, 'iniciar');
 
-    const res = await post(repartidor, 'terminar');
+    const res = await post(repartidor, 'solicitar-cierre');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ estado: 'FUERA_DE_JORNADA' });
+    expect(res.body).toEqual({
+      estado: 'ESPERANDO_VALIDACION_CIERRE',
+      paquetesADevolver: [],
+      mensaje: 'Solicitud enviada al operario',
+    });
 
     const enBase = await prisma.repartidor.findUniqueOrThrow({
       where: { id: repartidor },
     });
-    expect(enBase.estado).toBe('FUERA_DE_JORNADA');
+    expect(enBase.estado).toBe('ESPERANDO_VALIDACION_CIERRE');
     expect(enBase.enColaDesde).toBeNull();
   });
 
-  it('no deja terminar la jornada con una oferta pendiente (409)', async () => {
+  it('solicita el cierre desde EN_PAUSA', async () => {
+    const repartidor = await crearRepartidor();
+    await post(repartidor, 'iniciar');
+    await post(repartidor, 'pausar');
+
+    const res = await post(repartidor, 'solicitar-cierre');
+    expect(res.status).toBe(200);
+    expect(res.body.estado).toBe('ESPERANDO_VALIDACION_CIERRE');
+
+    const enBase = await prisma.repartidor.findUniqueOrThrow({
+      where: { id: repartidor },
+    });
+    expect(enBase.estado).toBe('ESPERANDO_VALIDACION_CIERRE');
+    expect(enBase.enColaDesde).toBeNull();
+  });
+
+  it('no deja solicitar el cierre con una oferta pendiente (409)', async () => {
     const repartidor = await crearRepartidor();
     await crearEnvio();
     await post(repartidor, 'iniciar'); // el motor le ofrece el envío
 
-    const res = await post(repartidor, 'terminar');
+    const res = await post(repartidor, 'solicitar-cierre');
 
     expect(res.status).toBe(409);
     expect(res.body.message).toContain('oferta pendiente');
+  });
+
+  it('el repartidor no puede terminar la jornada por su cuenta: el endpoint no existe (404)', async () => {
+    const repartidor = await crearRepartidor();
+    await post(repartidor, 'iniciar');
+
+    expect((await post(repartidor, 'terminar')).status).toBe(404);
+
+    const enBase = await prisma.repartidor.findUniqueOrThrow({
+      where: { id: repartidor },
+    });
+    expect(enBase.estado).toBe('DISPONIBLE');
   });
 
   it('la flota respeta el orden FIFO y la agrupación por vehículo', async () => {

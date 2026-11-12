@@ -6,6 +6,7 @@ import { AppModule } from '../src/app.module';
 import { configurarApp } from '../src/configurar-app';
 import { PrismaService } from '../src/database/prisma.service';
 import type { EstadoEnvio } from '../src/generated/prisma/client';
+import { AVISO_ASIGNACION_EXCEPCION } from '../src/modules/asignacion/asignacion.constants';
 import { emailUnico, vaciarBase } from './utils';
 
 describe('Panel de envíos del día - HU #4 (e2e)', () => {
@@ -42,6 +43,33 @@ describe('Panel de envíos del día - HU #4 (e2e)', () => {
         repartidorId: opciones.repartidorId,
       },
     });
+  }
+
+  interface GrupoPanel {
+    estado: string;
+    cantidad: number;
+    envios: Array<Record<string, unknown> & { id: number }>;
+  }
+
+  interface RespuestaPanel {
+    total: number;
+    grupos: GrupoPanel[];
+  }
+
+  async function consultarPanel(): Promise<RespuestaPanel> {
+    const res = await request(app.getHttpServer())
+      .get('/api/envios/panel')
+      .set('Cookie', await cookieDeOperario())
+      .expect(200);
+    return res.body as RespuestaPanel;
+  }
+
+  function grupoDe(panel: RespuestaPanel, estado: string): GrupoPanel {
+    const grupo = panel.grupos.find((g) => g.estado === estado);
+    if (!grupo) {
+      throw new Error(`El panel no trae el grupo ${estado}`);
+    }
+    return grupo;
   }
 
   async function cookieDeOperario() {
@@ -111,84 +139,118 @@ describe('Panel de envíos del día - HU #4 (e2e)', () => {
         .expect(403);
     });
 
-    it('permite el acceso con rol OPERARIO tanto en /api/envios/panel como en /api/operario/envios/panel', async () => {
-      const cookie = await cookieDeOperario();
+    it('permite el acceso con rol OPERARIO', async () => {
+      const panel = await consultarPanel();
 
-      const res1 = await request(app.getHttpServer())
-        .get('/api/envios/panel')
-        .set('Cookie', cookie)
-        .expect(200);
+      expect(panel).toHaveProperty('total');
+      expect(panel).toHaveProperty('grupos');
+    });
 
-      const res2 = await request(app.getHttpServer())
+    it('no expone el alias /api/operario/envios/panel', async () => {
+      await request(app.getHttpServer())
         .get('/api/operario/envios/panel')
-        .set('Cookie', cookie)
-        .expect(200);
-
-      expect(res1.body).toHaveProperty('totales');
-      expect(res2.body).toHaveProperty('totales');
+        .set('Cookie', await cookieDeOperario())
+        .expect(404);
     });
   });
 
-  describe('Escenario 1: Panel con envíos en distintos estados y resaltado de novedad', () => {
-    it('renderiza agrupaciones, contadores y resalta visualmente el envío con novedad', async () => {
-      // 3 PENDIENTES
+  describe('Escenario 1: Panel con envíos en distintos estados', () => {
+    // El destacado de "Con novedad" e "Interrumpido" depende solo del estado del envío. Esos
+    // estados todavía no existen en el enum: se prueba cuando los agreguen sus historias.
+    it('agrupa los envíos por estado con la cantidad de cada grupo', async () => {
       await crearEnvio({ estado: 'PENDIENTE' });
       await crearEnvio({ estado: 'PENDIENTE' });
       await crearEnvio({ estado: 'PENDIENTE' });
+      await crearEnvio({ estado: 'EN_CAMINO_A_RETIRAR', repartidorId });
+      await crearEnvio({ estado: 'EN_CAMINO_A_RETIRAR', repartidorId });
 
-      // 2 EN_CAMINO_A_RETIRAR (1 normal, 1 con novedad)
-      await crearEnvio({
+      const panel = await consultarPanel();
+
+      expect(panel.total).toBe(5);
+      expect(
+        panel.grupos.map((g) => ({ estado: g.estado, cantidad: g.cantidad })),
+      ).toEqual([
+        { estado: 'PENDIENTE', cantidad: 3 },
+        { estado: 'ASIGNADO', cantidad: 0 },
+        { estado: 'EN_CAMINO_A_RETIRAR', cantidad: 2 },
+        { estado: 'RETIRADO', cantidad: 0 },
+        { estado: 'EN_DOMICILIO', cantidad: 0 },
+      ]);
+      expect(grupoDe(panel, 'PENDIENTE').envios).toHaveLength(3);
+      expect(grupoDe(panel, 'EN_CAMINO_A_RETIRAR').envios).toHaveLength(2);
+    });
+
+    it('un evento de novedad (ej: cambio de dirección) no cambia el grupo ni marca el envío', async () => {
+      const envio = await crearEnvio({
         estado: 'EN_CAMINO_A_RETIRAR',
         repartidorId,
       });
-
-      const envioConNovedad = await crearEnvio({
-        estado: 'EN_CAMINO_A_RETIRAR',
-        repartidorId,
-      });
-
-      // Crear evento de tipo NOVEDAD
       await prisma.eventoEnvio.create({
         data: {
-          envioId: envioConNovedad.id,
+          envioId: envio.id,
           tipo: 'NOVEDAD',
-          detalle: 'Cliente ausente en primer intento',
-          actorTipo: 'REPARTIDOR',
-          actorId: repartidorId,
+          detalle: 'El operario cambió la dirección de entrega',
+          actorTipo: 'OPERARIO',
+          actorId: 1,
         },
       });
 
-      const res = await request(app.getHttpServer())
-        .get('/api/envios/panel')
-        .set('Cookie', await cookieDeOperario())
-        .expect(200);
+      const panel = await consultarPanel();
 
-      expect(res.body.totales).toEqual({
-        total: 5,
-        PENDIENTE: 3,
-        ASIGNADO: 0,
-        EN_CAMINO_A_RETIRAR: 2,
-        RETIRADO: 0,
-        EN_DOMICILIO: 0,
+      const tarjeta = grupoDe(panel, 'EN_CAMINO_A_RETIRAR').envios[0];
+      expect(tarjeta.id).toBe(envio.id);
+      expect(tarjeta).not.toHaveProperty('conNovedad');
+      expect(tarjeta).not.toHaveProperty('novedad');
+      expect(tarjeta.eventos).toEqual([]);
+    });
+
+    it('envía solo los datos que muestra la tarjeta, sin DNI ni teléfono del destinatario', async () => {
+      const envio = await crearEnvio({ estado: 'ASIGNADO', repartidorId });
+      await prisma.envio.update({
+        where: { id: envio.id },
+        data: { destinatarioDni: '30111222' },
       });
 
-      expect(res.body.grupos.PENDIENTE).toHaveLength(3);
-      expect(res.body.grupos.EN_CAMINO_A_RETIRAR).toHaveLength(2);
+      const panel = await consultarPanel();
 
-      const tarjetaNovedad = res.body.grupos.EN_CAMINO_A_RETIRAR.find(
-        (e: any) => e.id === envioConNovedad.id,
-      );
-      expect(tarjetaNovedad.conNovedad).toBe(true);
-      expect(tarjetaNovedad.novedad).toMatchObject({
-        tipo: 'NOVEDAD',
-        detalle: 'Cliente ausente en primer intento',
+      const tarjeta = grupoDe(panel, 'ASIGNADO').envios[0];
+      expect(Object.keys(tarjeta).sort()).toEqual([
+        'codigoSeguimiento',
+        'comercio',
+        'destinatarioApellido',
+        'destinatarioNombre',
+        'destinoDireccion',
+        'estado',
+        'eventos',
+        'id',
+        'repartidor',
+        'tamanio',
+      ]);
+      expect(tarjeta.comercio).toEqual({ nombre: 'Comercio Central' });
+      expect(tarjeta.repartidor).toEqual({
+        nombre: 'Ramiro',
+        apellido: 'González',
+      });
+      expect(JSON.stringify(panel)).not.toContain('30111222');
+      expect(JSON.stringify(panel)).not.toContain('221-555-1234');
+    });
+
+    it('incluye el aviso de asignación por excepción del envío (HU10)', async () => {
+      const envio = await crearEnvio({ estado: 'ASIGNADO', repartidorId });
+      await prisma.eventoEnvio.create({
+        data: {
+          envioId: envio.id,
+          tipo: 'NOVEDAD',
+          detalle: AVISO_ASIGNACION_EXCEPCION,
+          actorTipo: 'SISTEMA',
+        },
       });
 
-      const tarjetaNormal = res.body.grupos.EN_CAMINO_A_RETIRAR.find(
-        (e: any) => e.id !== envioConNovedad.id,
-      );
-      expect(tarjetaNormal.conNovedad).toBe(false);
-      expect(tarjetaNormal.novedad).toBeNull();
+      const panel = await consultarPanel();
+
+      expect(grupoDe(panel, 'ASIGNADO').envios[0].eventos).toEqual([
+        expect.objectContaining({ detalle: AVISO_ASIGNACION_EXCEPCION }),
+      ]);
     });
   });
 
@@ -200,13 +262,10 @@ describe('Panel de envíos del día - HU #4 (e2e)', () => {
       });
 
       // Primera consulta
-      const res1 = await request(app.getHttpServer())
-        .get('/api/envios/panel')
-        .set('Cookie', await cookieDeOperario())
-        .expect(200);
+      const res1 = await consultarPanel();
 
-      expect(res1.body.totales.EN_CAMINO_A_RETIRAR).toBe(1);
-      expect(res1.body.totales.RETIRADO).toBe(0);
+      expect(grupoDe(res1, 'EN_CAMINO_A_RETIRAR').cantidad).toBe(1);
+      expect(grupoDe(res1, 'RETIRADO').cantidad).toBe(0);
 
       // Transición externa a RETIRADO (paquete retirado)
       await prisma.envio.update({
@@ -215,14 +274,11 @@ describe('Panel de envíos del día - HU #4 (e2e)', () => {
       });
 
       // Segunda consulta (simulando siguiente ciclo de polling)
-      const res2 = await request(app.getHttpServer())
-        .get('/api/envios/panel')
-        .set('Cookie', await cookieDeOperario())
-        .expect(200);
+      const res2 = await consultarPanel();
 
-      expect(res2.body.totales.EN_CAMINO_A_RETIRAR).toBe(0);
-      expect(res2.body.totales.RETIRADO).toBe(1);
-      expect(res2.body.grupos.RETIRADO[0].id).toBe(envio.id);
+      expect(grupoDe(res2, 'EN_CAMINO_A_RETIRAR').cantidad).toBe(0);
+      expect(grupoDe(res2, 'RETIRADO').cantidad).toBe(1);
+      expect(grupoDe(res2, 'RETIRADO').envios[0].id).toBe(envio.id);
     });
   });
 
@@ -234,13 +290,10 @@ describe('Panel de envíos del día - HU #4 (e2e)', () => {
       });
 
       // Está en el panel
-      const resAntes = await request(app.getHttpServer())
-        .get('/api/envios/panel')
-        .set('Cookie', await cookieDeOperario())
-        .expect(200);
+      const resAntes = await consultarPanel();
 
-      expect(resAntes.body.totales.total).toBe(1);
-      expect(resAntes.body.grupos.EN_DOMICILIO).toHaveLength(1);
+      expect(resAntes.total).toBe(1);
+      expect(grupoDe(resAntes, 'EN_DOMICILIO').envios).toHaveLength(1);
 
       // Se entrega el envío (ENTREGADO)
       await prisma.envio.update({
@@ -249,13 +302,10 @@ describe('Panel de envíos del día - HU #4 (e2e)', () => {
       });
 
       // Siguiente ciclo de sondeo en el panel
-      const resDespues = await request(app.getHttpServer())
-        .get('/api/envios/panel')
-        .set('Cookie', await cookieDeOperario())
-        .expect(200);
+      const resDespues = await consultarPanel();
 
-      expect(resDespues.body.totales.total).toBe(0);
-      expect(resDespues.body.grupos.EN_DOMICILIO).toHaveLength(0);
+      expect(resDespues.total).toBe(0);
+      expect(grupoDe(resDespues, 'EN_DOMICILIO').envios).toHaveLength(0);
 
       // Pero sigue consultable en el buscador general
       const resGeneral = await request(app.getHttpServer())
@@ -276,11 +326,8 @@ describe('Panel de envíos del día - HU #4 (e2e)', () => {
       const envio = await crearEnvio({ estado: 'PENDIENTE' });
 
       // Verificar que está en el panel
-      const res1 = await request(app.getHttpServer())
-        .get('/api/envios/panel')
-        .set('Cookie', await cookieDeOperario())
-        .expect(200);
-      expect(res1.body.totales.PENDIENTE).toBe(1);
+      const res1 = await consultarPanel();
+      expect(grupoDe(res1, 'PENDIENTE').cantidad).toBe(1);
 
       // Cancelar el envío a través del endpoint oficial
       await request(app.getHttpServer())
@@ -289,14 +336,11 @@ describe('Panel de envíos del día - HU #4 (e2e)', () => {
         .expect(200);
 
       // Verificar que salió del panel inmediatamente
-      const res2 = await request(app.getHttpServer())
-        .get('/api/envios/panel')
-        .set('Cookie', await cookieDeOperario())
-        .expect(200);
+      const res2 = await consultarPanel();
 
-      expect(res2.body.totales.total).toBe(0);
-      expect(res2.body.totales.PENDIENTE).toBe(0);
-      expect(res2.body.grupos.PENDIENTE).toHaveLength(0);
+      expect(res2.total).toBe(0);
+      expect(grupoDe(res2, 'PENDIENTE').cantidad).toBe(0);
+      expect(grupoDe(res2, 'PENDIENTE').envios).toHaveLength(0);
     });
   });
 
@@ -306,25 +350,11 @@ describe('Panel de envíos del día - HU #4 (e2e)', () => {
       await crearEnvio({ estado: 'ENTREGADO' });
       await crearEnvio({ estado: 'CANCELADO' });
 
-      const res = await request(app.getHttpServer())
-        .get('/api/envios/panel')
-        .set('Cookie', await cookieDeOperario())
-        .expect(200);
+      const res = await consultarPanel();
 
-      expect(res.body.totales).toEqual({
-        total: 0,
-        PENDIENTE: 0,
-        ASIGNADO: 0,
-        EN_CAMINO_A_RETIRAR: 0,
-        RETIRADO: 0,
-        EN_DOMICILIO: 0,
-      });
-
-      expect(res.body.grupos.PENDIENTE).toEqual([]);
-      expect(res.body.grupos.ASIGNADO).toEqual([]);
-      expect(res.body.grupos.EN_CAMINO_A_RETIRAR).toEqual([]);
-      expect(res.body.grupos.RETIRADO).toEqual([]);
-      expect(res.body.grupos.EN_DOMICILIO).toEqual([]);
+      expect(res.total).toBe(0);
+      expect(res.grupos.every((g) => g.cantidad === 0)).toBe(true);
+      expect(res.grupos.every((g) => g.envios.length === 0)).toBe(true);
     });
   });
 });

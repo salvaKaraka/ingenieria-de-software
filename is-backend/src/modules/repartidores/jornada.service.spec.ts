@@ -10,7 +10,6 @@ describe('JornadaService', () => {
     iniciarJornada: jest.fn(),
     pausar: jest.fn(),
     reanudar: jest.fn(),
-    terminarJornada: jest.fn(),
     obtenerFlota: jest.fn(),
     marcarCierrePendiente: jest.fn(),
     solicitarCierreInmediato: jest.fn(),
@@ -89,39 +88,6 @@ describe('JornadaService', () => {
     );
   });
 
-  describe('terminar', () => {
-    it('termina la jornada y pasa a FUERA_DE_JORNADA', async () => {
-      repo.terminarJornada.mockResolvedValue(true);
-      estaEn('FUERA_DE_JORNADA');
-
-      await expect(servicio.terminar(1)).resolves.toEqual({
-        estado: 'FUERA_DE_JORNADA',
-      });
-      expect(repo.terminarJornada).toHaveBeenCalledWith(1);
-    });
-
-    it('no deja terminar la jornada con una oferta pendiente (409)', async () => {
-      repo.terminarJornada.mockResolvedValue(false);
-      estaEn('DISPONIBLE');
-
-      await expect(servicio.terminar(1)).rejects.toThrow('oferta pendiente');
-    });
-
-    it('no deja terminar la jornada con un viaje en curso (409)', async () => {
-      repo.terminarJornada.mockResolvedValue(false);
-      estaEn('OCUPADO');
-
-      await expect(servicio.terminar(1)).rejects.toThrow('viaje en curso');
-    });
-
-    it('terminar fuera de jornada responde 409', async () => {
-      repo.terminarJornada.mockResolvedValue(false);
-      estaEn('FUERA_DE_JORNADA');
-
-      await expect(servicio.terminar(1)).rejects.toThrow('No estás en jornada');
-    });
-  });
-
   describe('flota', () => {
     it('agrupa por vehículo y ordena primero la cola FIFO y luego el resto', async () => {
       const t1 = new Date('2026-01-01T10:00:00Z');
@@ -195,6 +161,17 @@ describe('JornadaService', () => {
         paquetesADevolver: [paquete, paquete],
         mensaje: 'Solicitud enviada al operario',
       });
+    });
+
+    it('en pausa también puede solicitar el cierre', async () => {
+      estaEn('EN_PAUSA');
+      repo.solicitarCierreInmediato.mockResolvedValue(true);
+      repo.obtenerPaquetesADevolver.mockResolvedValue([]);
+
+      await expect(servicio.solicitarCierre(1)).resolves.toMatchObject({
+        estado: 'ESPERANDO_VALIDACION_CIERRE',
+      });
+      expect(repo.solicitarCierreInmediato).toHaveBeenCalledWith(1);
     });
 
     it('con un viaje en curso queda anotado y avisa que tiene que finalizarlo', async () => {

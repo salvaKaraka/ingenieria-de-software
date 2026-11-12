@@ -16,7 +16,8 @@ export const AVISO_MOTIVO: Record<MotivoExcepcion, string> = {
 export type Excepcion = {
   envioId: number;
   motivo: MotivoExcepcion;
-  // Desde cuándo está en el panel: para "sin repartidor", el vencimiento de la última oferta.
+  // Desde cuándo espera: para "sin repartidor", el primer vencimiento de una oferta del envío.
+  // No cambia aunque después venzan más ofertas (por ejemplo, una asignación manual sin respuesta).
   esperaDesde: Date;
 };
 
