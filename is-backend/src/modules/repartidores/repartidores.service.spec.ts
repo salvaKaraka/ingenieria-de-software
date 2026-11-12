@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import {
   EstadoRepartidor,
   Prisma,
@@ -12,7 +8,6 @@ import {
 import type { AsignacionService } from '../asignacion/asignacion.service';
 import type { OfertasService } from '../asignacion/ofertas.service';
 import type { AuthService } from '../auth/auth.service';
-import type { HashingService } from '../auth/hashing.service';
 import type {
   RepartidoresRepository,
   RepartidorPublico,
@@ -24,7 +19,6 @@ describe('RepartidoresService', () => {
   let repo: jest.Mocked<RepartidoresRepository>;
   let authService: jest.Mocked<AuthService>;
   let asignacion: jest.Mocked<AsignacionService>;
-  let hashing: jest.Mocked<HashingService>;
   let ofertasService: jest.Mocked<OfertasService>;
 
   const repartidorEjemplo: RepartidorPublico = {
@@ -58,28 +52,18 @@ describe('RepartidoresService', () => {
       cambiarVehiculoSiEstaLibre: jest.fn(),
       reactivarSiEstaInactivo: jest.fn(),
       tieneViajeEnTransito: jest.fn(),
-      buscarPinHmacPorId: jest.fn(),
-      actualizarPinHmac: jest.fn(),
     } as unknown as jest.Mocked<RepartidoresRepository>;
 
     authService = {
       asignarNuevoPin: jest.fn(),
       cerrarSesiones: jest.fn(),
-      existePinHmac: jest.fn(),
+      cambiarPinPropio: jest.fn(),
     } as unknown as jest.Mocked<AuthService>;
 
     asignacion = {
       reintentarPendientes: jest.fn(),
     } as unknown as jest.Mocked<AsignacionService>;
 
-    hashing = {
-      hmacPin: jest.fn(),
-      hashearPassword: jest.fn(),
-      verificarPassword: jest.fn(),
-      generarPin: jest.fn(),
-      generarTokenAleatorio: jest.fn(),
-      hashearToken: jest.fn(),
-    } as unknown as jest.Mocked<HashingService>;
     ofertasService = {
       consultarHistorial: jest.fn(),
     } as unknown as jest.Mocked<OfertasService>;
@@ -88,7 +72,6 @@ describe('RepartidoresService', () => {
       repo,
       authService,
       asignacion,
-      hashing,
       ofertasService,
     );
   });
@@ -522,73 +505,37 @@ describe('RepartidoresService', () => {
   });
 
   describe('cambiarPin (HU #68)', () => {
-    it('cambia el PIN con éxito con PIN actual verificado y nuevo PIN válido (Escenario 2)', async () => {
+    it('delega en auth la verificación del PIN actual y devuelve el PIN nuevo generado por el sistema', async () => {
       repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
       repo.tieneViajeEnTransito.mockResolvedValue(false);
-      repo.buscarPinHmacPorId.mockResolvedValue('hmac_actual');
-      hashing.hmacPin.mockImplementation((pin: string) => `hmac_${pin}`);
-      authService.existePinHmac.mockResolvedValue(false);
-      repo.actualizarPinHmac.mockResolvedValue(undefined);
+      const generado = { pin: '4821', sesion: {} as never };
+      authService.cambiarPinPropio.mockResolvedValue(generado);
 
-      const resultado = await servicio.cambiarPin(1, {
-        pinActual: 'actual',
-        nuevoPin: '123456',
-      });
+      const resultado = await servicio.cambiarPin(1, '1234');
 
-      expect(resultado).toEqual({ mensaje: 'PIN modificado con éxito' });
-      expect(repo.actualizarPinHmac).toHaveBeenCalledWith(1, 'hmac_123456');
-    });
-
-    it('falla con BadRequestException si el PIN actual es incorrecto (Escenario 4)', async () => {
-      repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
-      repo.tieneViajeEnTransito.mockResolvedValue(false);
-      repo.buscarPinHmacPorId.mockResolvedValue('hmac_correcto');
-      hashing.hmacPin.mockImplementation((pin: string) => `hmac_${pin}`);
-
-      await expect(
-        servicio.cambiarPin(1, {
-          pinActual: 'equivocado',
-          nuevoPin: '123456',
-        }),
-      ).rejects.toThrow(
-        new BadRequestException('El PIN actual ingresado es incorrecto'),
-      );
-
-      expect(repo.actualizarPinHmac).not.toHaveBeenCalled();
+      expect(authService.cambiarPinPropio).toHaveBeenCalledWith(1, '1234');
+      expect(resultado).toBe(generado);
     });
 
     it('rechaza cambiar el PIN si el chofer posee un viaje en tránsito', async () => {
       repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
       repo.tieneViajeEnTransito.mockResolvedValue(true);
 
-      await expect(
-        servicio.cambiarPin(1, {
-          pinActual: '1234',
-          nuevoPin: '5678',
-        }),
-      ).rejects.toThrow(ConflictException);
-
-      expect(repo.buscarPinHmacPorId).not.toHaveBeenCalled();
-      expect(repo.actualizarPinHmac).not.toHaveBeenCalled();
-    });
-
-    it('rechaza con ConflictException si el nuevo PIN ya está en uso por otro repartidor', async () => {
-      repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
-      repo.tieneViajeEnTransito.mockResolvedValue(false);
-      repo.buscarPinHmacPorId.mockResolvedValue('hmac_actual');
-      hashing.hmacPin.mockImplementation((pin: string) => `hmac_${pin}`);
-      authService.existePinHmac.mockResolvedValue(true);
-
-      await expect(
-        servicio.cambiarPin(1, {
-          pinActual: 'actual',
-          nuevoPin: '9999',
-        }),
-      ).rejects.toThrow(
-        new ConflictException('El PIN ingresado ya está en uso'),
+      await expect(servicio.cambiarPin(1, '1234')).rejects.toThrow(
+        ConflictException,
       );
 
-      expect(repo.actualizarPinHmac).not.toHaveBeenCalled();
+      expect(authService.cambiarPinPropio).not.toHaveBeenCalled();
+    });
+
+    it('lanza NotFoundException si el repartidor no existe', async () => {
+      repo.buscarPorId.mockResolvedValue(null);
+
+      await expect(servicio.cambiarPin(999, '1234')).rejects.toThrow(
+        NotFoundException,
+      );
+
+      expect(authService.cambiarPinPropio).not.toHaveBeenCalled();
     });
   });
 

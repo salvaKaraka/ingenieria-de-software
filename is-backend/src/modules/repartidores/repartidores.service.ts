@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -8,11 +7,10 @@ import { Prisma, RolUsuario } from '../../generated/prisma/client';
 import { AsignacionService } from '../asignacion/asignacion.service';
 import { OfertasService } from '../asignacion/ofertas.service';
 import { AuthService } from '../auth/auth.service';
-import { HashingService } from '../auth/hashing.service';
+import type { Sesion } from '../auth/tipos';
 import {
   type ActualizarPerfilRepartidorDto,
   type ActualizarRepartidorDto,
-  type CambiarPinDto,
   type CrearRepartidorDto,
   type FiltroHistorialRespuestasDto,
   type FiltroRepartidoresDto,
@@ -39,7 +37,6 @@ export class RepartidoresService {
     private readonly repo: RepartidoresRepository,
     private readonly authService: AuthService,
     private readonly asignacion: AsignacionService,
-    private readonly hashing: HashingService,
     private readonly ofertasService: OfertasService,
   ) {}
 
@@ -240,31 +237,15 @@ export class RepartidoresService {
     return ocultarDni(repartidor);
   }
 
-  // HU #68: Cambio de PIN con validación de PIN actual y nuevo PIN numérico de 4 a 6 dígitos.
+  // HU #68: el repartidor pide un PIN nuevo demostrando que conoce el actual.
+  // Verificar el PIN, generar el nuevo y renovar la sesión es tarea del módulo auth.
   async cambiarPin(
     id: number,
-    dto: CambiarPinDto,
-  ): Promise<{ mensaje: string }> {
+    pinActual: string,
+  ): Promise<{ pin: string; sesion: Sesion }> {
     await this.buscarPorId(id);
     await this.verificarSinViajeEnTransito(id);
-
-    const pinHmacActual = await this.repo.buscarPinHmacPorId(id);
-    const pinActualHmacIngresado = this.hashing.hmacPin(dto.pinActual);
-
-    if (!pinHmacActual || pinHmacActual !== pinActualHmacIngresado) {
-      throw new BadRequestException('El PIN actual ingresado es incorrecto');
-    }
-
-    const nuevoPinHmac = this.hashing.hmacPin(dto.nuevoPin);
-    if (await this.authService.existePinHmac(nuevoPinHmac)) {
-      if (nuevoPinHmac !== pinHmacActual) {
-        throw new ConflictException('El PIN ingresado ya está en uso');
-      }
-    }
-
-    await this.repo.actualizarPinHmac(id, nuevoPinHmac);
-
-    return { mensaje: 'PIN modificado con éxito' };
+    return this.authService.cambiarPinPropio(id, pinActual);
   }
 
   // HU #28: Historial de respuestas y métricas de ofertas del repartidor

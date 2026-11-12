@@ -1,15 +1,10 @@
-import { IsNotEmpty, IsString, Matches } from 'class-validator';
+import { Matches } from 'class-validator';
 
 // Cambio de PIN por el propio repartidor (HU #68).
+// Solo viaja el PIN actual: el nuevo lo genera el sistema, el repartidor no lo elige.
 export class CambiarPinDto {
-  @IsNotEmpty({ message: 'El PIN actual es obligatorio' })
-  @IsString()
-  pinActual: string;
-
-  @IsNotEmpty({ message: 'El nuevo PIN es obligatorio' })
-  @IsString()
-  @Matches(/^\d{4,6}$/, {
-    message: 'El nuevo PIN debe ser estrictamente numérico y tener entre 4 y 6 dígitos',
+  @Matches(/^\d{4}$/, {
+    message: 'El PIN actual debe tener exactamente 4 dígitos',
   })
-  nuevoPin: string;
+  pinActual: string;
 }

@@ -120,22 +120,6 @@ export class RepartidoresRepository {
     return cantidad > 0;
   }
 
-  buscarPinHmacPorId(id: number): Promise<string | null> {
-    return this.prisma.repartidor
-      .findUnique({
-        where: { id },
-        select: { pinHmac: true },
-      })
-      .then((r) => r?.pinHmac ?? null);
-  }
-
-  async actualizarPinHmac(id: number, pinHmac: string): Promise<void> {
-    await this.prisma.repartidor.update({
-      where: { id },
-      data: { pinHmac },
-    });
-  }
-
   async tieneOfertaPendiente(repartidorId: number): Promise<boolean> {
     const cantidad = await this.prisma.oferta.count({
       where: { repartidorId, estado: 'PENDIENTE' },

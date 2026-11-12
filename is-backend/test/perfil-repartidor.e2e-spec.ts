@@ -200,83 +200,107 @@ describe('Perfil del repartidor (e2e) - HU #68', () => {
     });
   });
 
+  // Este bloque va último y con pocas llamadas: el endpoint admite 5 intentos por minuto.
   describe('POST /api/repartidor/perfil/cambiar-pin', () => {
-    it('Escenario 2: con PIN actual verificado y nuevo PIN numérico de 4 a 6 dígitos, actualiza la credencial', async () => {
-      const { id } = await crearRepartidor('1234', 'DISPONIBLE');
-
-      const res = await request(app.getHttpServer())
+    const cambiarPin = async (id: number, cuerpo: object) =>
+      request(app.getHttpServer())
         .post('/api/repartidor/perfil/cambiar-pin')
         .set('Cookie', await cookieDe(id))
-        .send({ pinActual: '1234', nuevoPin: '987654' })
-        .expect(200);
+        .send(cuerpo);
 
-      expect(res.body).toEqual({ mensaje: 'PIN modificado con éxito' });
+    const login = (pin: string) =>
+      request(app.getHttpServer())
+        .post('/api/auth/repartidor/login')
+        .send({ pin });
 
-      // Verificamos que el nuevo hash está persistido en la base
+    // Reenvía las cookies que dejó una respuesta, como haría el navegador.
+    const refrescarCon = (respuesta: request.Response) =>
+      request(app.getHttpServer())
+        .post('/api/auth/refresh')
+        .set(
+          'Cookie',
+          (respuesta.get('Set-Cookie') ?? []).map((c) => c.split(';')[0]),
+        );
+
+    it('con el PIN actual correcto el sistema genera un PIN nuevo de 4 dígitos: el viejo deja de servir, el nuevo sirve y el dispositivo sigue logueado', async () => {
+      const { id } = await crearRepartidor('1234', 'DISPONIBLE');
+      const sesionVieja = await login('1234').expect(200);
+
+      const res = await cambiarPin(id, { pinActual: '1234' });
+
+      expect(res.status).toBe(200);
+      const { pin } = res.body as { pin: string };
+      expect(Object.keys(res.body as object)).toEqual(['pin']);
+      expect(pin).toMatch(/^\d{4}$/);
+      expect(pin).not.toBe('1234');
+
       const enBase = await prisma.repartidor.findUniqueOrThrow({
         where: { id },
       });
-      expect(enBase.pinHmac).toBe(hashing.hmacPin('987654'));
+      expect(enBase.pinHmac).toBe(hashing.hmacPin(pin));
 
-      // Puede loguearse con el nuevo PIN
-      await request(app.getHttpServer())
-        .post('/api/auth/repartidor/login')
-        .send({ pin: '987654' })
-        .expect(200);
+      await login('1234').expect(401);
+      await login(pin).expect(200);
+
+      // La respuesta trae una sesión nueva para este dispositivo; las anteriores quedan cerradas.
+      await refrescarCon(res).expect(200);
+      await refrescarCon(sesionVieja).expect(401);
     });
 
-    it('Escenario 4: si introduce un PIN actual que no coincide, rechaza con HTTP 400 y mensaje literal verbatim', async () => {
+    it('con un PIN actual que no coincide responde 400 "El PIN actual ingresado es incorrecto" y no cambia el PIN', async () => {
       const { id } = await crearRepartidor('1234', 'DISPONIBLE');
 
-      const res = await request(app.getHttpServer())
-        .post('/api/repartidor/perfil/cambiar-pin')
-        .set('Cookie', await cookieDe(id))
-        .send({ pinActual: '9999', nuevoPin: '5678' })
-        .expect(400);
+      const res = await cambiarPin(id, { pinActual: '9999' });
 
-      expect(res.body.message).toBe('El PIN actual ingresado es incorrecto');
-
-      // El PIN existente no se altera
+      expect(res.status).toBe(400);
+      expect((res.body as { message: string }).message).toBe(
+        'El PIN actual ingresado es incorrecto',
+      );
       const enBase = await prisma.repartidor.findUniqueOrThrow({
         where: { id },
       });
       expect(enBase.pinHmac).toBe(hashing.hmacPin('1234'));
     });
 
-    it('valida que el nuevo PIN sea estrictamente numérico y de 4 a 6 dígitos', async () => {
-      const { id } = await crearRepartidor('1234');
+    it('un PIN elegido por el repartidor no tiene efecto: rechaza el body y el PIN queda igual', async () => {
+      const { id } = await crearRepartidor('1234', 'DISPONIBLE');
 
-      // Menos de 4 dígitos
-      await request(app.getHttpServer())
-        .post('/api/repartidor/perfil/cambiar-pin')
-        .set('Cookie', await cookieDe(id))
-        .send({ pinActual: '1234', nuevoPin: '123' })
-        .expect(400);
+      const res = await cambiarPin(id, { pinActual: '1234', nuevoPin: '5678' });
 
-      // Más de 6 dígitos
-      await request(app.getHttpServer())
-        .post('/api/repartidor/perfil/cambiar-pin')
-        .set('Cookie', await cookieDe(id))
-        .send({ pinActual: '1234', nuevoPin: '1234567' })
-        .expect(400);
-
-      // Letras
-      await request(app.getHttpServer())
-        .post('/api/repartidor/perfil/cambiar-pin')
-        .set('Cookie', await cookieDe(id))
-        .send({ pinActual: '1234', nuevoPin: 'abcd' })
-        .expect(400);
+      expect(res.status).toBe(400);
+      const enBase = await prisma.repartidor.findUniqueOrThrow({
+        where: { id },
+      });
+      expect(enBase.pinHmac).toBe(hashing.hmacPin('1234'));
     });
 
     it('rechaza cambiar el PIN si posee un viaje en tránsito', async () => {
       const { id } = await crearRepartidor('1234', 'OCUPADO');
       await crearEnvioConEstado(id, 'RETIRADO');
 
-      await request(app.getHttpServer())
-        .post('/api/repartidor/perfil/cambiar-pin')
-        .set('Cookie', await cookieDe(id))
-        .send({ pinActual: '1234', nuevoPin: '5678' })
-        .expect(409);
+      const res = await cambiarPin(id, { pinActual: '1234' });
+
+      expect(res.status).toBe(409);
+      const enBase = await prisma.repartidor.findUniqueOrThrow({
+        where: { id },
+      });
+      expect(enBase.pinHmac).toBe(hashing.hmacPin('1234'));
+    });
+
+    // Va último: agota el límite de intentos de esta ruta.
+    it('más de 5 intentos por minuto da 429, para que no sirva para adivinar el PIN actual', async () => {
+      const { id } = await crearRepartidor('1234', 'DISPONIBLE');
+      const codigos: number[] = [];
+      for (let i = 0; i < 6; i++) {
+        const res = await cambiarPin(id, { pinActual: '0000' });
+        codigos.push(res.status);
+      }
+
+      expect(codigos).toContain(429);
+      const enBase = await prisma.repartidor.findUniqueOrThrow({
+        where: { id },
+      });
+      expect(enBase.pinHmac).toBe(hashing.hmacPin('1234'));
     });
   });
 });
