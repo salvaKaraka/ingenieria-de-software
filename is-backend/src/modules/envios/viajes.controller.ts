@@ -29,6 +29,12 @@ export class ViajesController {
     return this.viajesService.adjuntarFoto(usuario.id, dto.foto);
   }
 
+  // HU 34: "Mi historial", las entregas del día en curso.
+  @Get('historial')
+  obtenerHistorial(@UsuarioActual() usuario: UsuarioAutenticado) {
+    return this.viajesService.historialDelDia(usuario.id);
+  }
+
   // Es una acción, no crea un recurso: responde 200.
   @Post('actual/avanzar')
   @HttpCode(200)

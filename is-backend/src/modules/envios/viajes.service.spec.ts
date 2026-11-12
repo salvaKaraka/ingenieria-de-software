@@ -8,6 +8,7 @@ describe('ViajesService', () => {
     buscarViajeActivoPorRepartidor: jest.fn(),
     avanzarViaje: jest.fn(),
     guardarFotoEnvio: jest.fn(),
+    listarEntregadosDelRepartidorDesde: jest.fn(),
   };
   const asignacion = { reintentarPendientes: jest.fn() };
   let service: ViajesService;
@@ -288,5 +289,42 @@ describe('ViajesService', () => {
     await expect(service.avanzarViajeActual(1)).rejects.toBeInstanceOf(
       ConflictException,
     );
+  });
+
+  describe('historial del día (HU 34)', () => {
+    // 15:00 de Argentina del 11/11 (18:00 UTC)
+    const ahora = new Date('2026-11-11T18:00:00Z');
+    const entregado = (id: number, comercio: string, entregadoEn: string) => ({
+      id,
+      codigoSeguimiento: `COD${id}`,
+      destinoDireccion: 'Calle 50 567',
+      comercio: { nombre: comercio },
+      eventos: [{ creadoEn: new Date(entregadoEn) }],
+    });
+
+    it('busca solo desde las 00:00 de Argentina de hoy (no muestra días anteriores)', async () => {
+      repository.listarEntregadosDelRepartidorDesde.mockResolvedValue([]);
+      await service.historialDelDia(7, ahora);
+      expect(
+        repository.listarEntregadosDelRepartidorDesde,
+      ).toHaveBeenCalledWith(7, new Date('2026-11-11T03:00:00Z'));
+    });
+
+    it('lista las entregas con comercio y hora, la más reciente primero', async () => {
+      repository.listarEntregadosDelRepartidorDesde.mockResolvedValue([
+        entregado(1, 'Kiosco', '2026-11-11T13:00:00Z'),
+        entregado(2, 'Farmacia', '2026-11-11T16:30:00Z'),
+      ]);
+      const { entregas } = await service.historialDelDia(7, ahora);
+      expect(entregas.map((e) => e.comercio)).toEqual(['Farmacia', 'Kiosco']);
+      expect(entregas[0].entregadoEn).toEqual(new Date('2026-11-11T16:30:00Z'));
+    });
+
+    it('sin entregas hoy devuelve la lista vacía', async () => {
+      repository.listarEntregadosDelRepartidorDesde.mockResolvedValue([]);
+      await expect(service.historialDelDia(7, ahora)).resolves.toEqual({
+        entregas: [],
+      });
+    });
   });
 });
