@@ -7,15 +7,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  EstadoEnvio,
   Prisma,
-  type EstadoEnvio,
   type TamanioPaquete,
   type TipoVehiculo,
 } from '../../generated/prisma/client';
 import { AsignacionService } from '../asignacion/asignacion.service';
 import { ComerciosService } from '../comercios/comercios.service';
 import { generarCodigoSeguimiento } from './codigo-seguimiento.util';
-import { esTransicionValida } from './domain/estado-envio';
+import { ESTADOS_FINALES, esTransicionValida } from './domain/estado-envio';
 import { armarHistorial } from './domain/historial';
 import { ActualizarEnvioDto } from './dto/actualizar-envio.dto';
 import { CrearEnvioDto } from './dto/crear-envio.dto';
@@ -212,6 +212,22 @@ export class EnviosService {
       ...envio,
       historial: armarHistorial(envio.eventos, envio.ofertas, nombres),
     };
+  }
+
+  // Panel del día (HU4): un grupo por cada estado no final, en el orden del enum y con su
+  // cantidad. Los grupos salen del enum (no de una lista fija) para que un estado nuevo
+  // aparezca solo. Cada envío viaja una única vez, dentro de su grupo.
+  async obtenerPanel() {
+    const envios = await this.enviosRepository.obtenerPanelEnvios(ESTADOS_FINALES);
+
+    const grupos = Object.values(EstadoEnvio)
+      .filter((estado) => !ESTADOS_FINALES.includes(estado))
+      .map((estado) => {
+        const delEstado = envios.filter((envio) => envio.estado === estado);
+        return { estado, cantidad: delEstado.length, envios: delEstado };
+      });
+
+    return { total: envios.length, grupos };
   }
 
   async cancelar(id: number, operarioId: number) {

@@ -44,6 +44,7 @@ describe('EnviosService', () => {
     cancelar: jest.fn(),
     buscarParaActualizar: jest.fn(),
     actualizar: jest.fn(),
+    obtenerPanelEnvios: jest.fn(),
   };
 
   const comerciosService = {
@@ -566,6 +567,80 @@ describe('EnviosService', () => {
       await expect(
         service.actualizar(99, { destinatarioNombre: 'Juan' }, OPERARIO_ID),
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('obtenerPanel', () => {
+    const envioPanel = (id: number, estado: string) => ({
+      id,
+      codigoSeguimiento: `P${id}`,
+      estado,
+      destinoDireccion: 'Calle Destino 456',
+      destinatarioNombre: 'Juan',
+      destinatarioApellido: 'Pérez',
+      tamanio: 'CHICO',
+      comercio: { nombre: 'Comercio A' },
+      repartidor: null,
+      eventos: [],
+    });
+
+    it('pide al repository todo lo que no está en un estado final', async () => {
+      repository.obtenerPanelEnvios.mockResolvedValue([]);
+
+      await service.obtenerPanel();
+
+      expect(repository.obtenerPanelEnvios).toHaveBeenCalledWith([
+        'ENTREGADO',
+        'CANCELADO',
+      ]);
+    });
+
+    it('agrupa los envíos por estado, en el orden del recorrido, con la cantidad de cada grupo', async () => {
+      repository.obtenerPanelEnvios.mockResolvedValue([
+        envioPanel(1, 'PENDIENTE'),
+        envioPanel(2, 'RETIRADO'),
+        envioPanel(3, 'PENDIENTE'),
+        envioPanel(4, 'ASIGNADO'),
+      ]);
+
+      const resultado = await service.obtenerPanel();
+
+      expect(resultado.total).toBe(4);
+      expect(
+        resultado.grupos.map((grupo) => ({
+          estado: grupo.estado,
+          cantidad: grupo.cantidad,
+          ids: grupo.envios.map((envio) => envio.id),
+        })),
+      ).toEqual([
+        { estado: 'PENDIENTE', cantidad: 2, ids: [1, 3] },
+        { estado: 'ASIGNADO', cantidad: 1, ids: [4] },
+        { estado: 'EN_CAMINO_A_RETIRAR', cantidad: 0, ids: [] },
+        { estado: 'RETIRADO', cantidad: 1, ids: [2] },
+        { estado: 'EN_DOMICILIO', cantidad: 0, ids: [] },
+      ]);
+    });
+
+    it('no arma grupos para los estados finales', async () => {
+      repository.obtenerPanelEnvios.mockResolvedValue([]);
+
+      const resultado = await service.obtenerPanel();
+
+      const estados = resultado.grupos.map((grupo) => grupo.estado);
+      expect(estados).not.toContain('ENTREGADO');
+      expect(estados).not.toContain('CANCELADO');
+    });
+
+    it('devuelve total 0 y todos los grupos vacíos cuando no hay envíos pendientes ni en curso', async () => {
+      repository.obtenerPanelEnvios.mockResolvedValue([]);
+
+      const resultado = await service.obtenerPanel();
+
+      expect(resultado.total).toBe(0);
+      expect(resultado.grupos.length).toBeGreaterThan(0);
+      expect(resultado.grupos.every((grupo) => grupo.cantidad === 0)).toBe(
+        true,
+      );
     });
   });
 });

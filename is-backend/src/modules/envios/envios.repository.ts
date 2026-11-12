@@ -491,6 +491,33 @@ export class EnviosRepository {
     });
   }
 
+  // Envíos del panel del día (HU4): todos los que no están en un estado final. Se excluye
+  // por estados finales (y no con una lista de estados activos) para que un estado nuevo
+  // del enum aparezca en el panel sin tocar esta consulta.
+  async obtenerPanelEnvios(estadosFinales: readonly EstadoEnvio[]) {
+    return this.prisma.envio.findMany({
+      where: { estado: { notIn: [...estadosFinales] } },
+      orderBy: [{ creadoEn: 'asc' }, { id: 'asc' }],
+      // Solo lo que muestra la tarjeta: el DNI y el teléfono del destinatario no viajan.
+      select: {
+        id: true,
+        codigoSeguimiento: true,
+        estado: true,
+        destinoDireccion: true,
+        destinatarioNombre: true,
+        destinatarioApellido: true,
+        tamanio: true,
+        comercio: { select: { nombre: true } },
+        repartidor: { select: { nombre: true, apellido: true } },
+        // Igual que en el listado: alcanza para el aviso de asignación por excepción (HU10).
+        eventos: {
+          where: { detalle: AVISO_ASIGNACION_EXCEPCION },
+          select: { id: true, detalle: true },
+        },
+      },
+    });
+  }
+
   // El repartidor terminó su viaje, o se lo sacaron (cancelación o cambio de vehículo). Si
   // había pedido cerrar la jornada (G-1), pasa a esperar la validación del operario en vez
   // de volver a la cola, así no le llegan más ofertas.

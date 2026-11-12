@@ -38,6 +38,11 @@ export class EnviosController {
     return this.enviosService.listar(filtros);
   }
 
+  @Get('panel')
+  async panel() {
+    return this.enviosService.obtenerPanel();
+  }
+
   @Get(':id')
   async obtener(@Param('id', ParseIntPipe) id: number) {
     return this.enviosService.obtenerDetalle(id);
