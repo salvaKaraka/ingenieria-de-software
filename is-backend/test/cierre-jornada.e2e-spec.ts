@@ -177,6 +177,30 @@ describe('Cierre de jornada (e2e)', () => {
     });
   });
 
+  it('un paquete ya rendido no vuelve a aparecer en el cierre de la jornada siguiente', async () => {
+    const repartidor = await crearRepartidor('OCUPADO');
+    const envio = await crearViaje(repartidor, 'RETIRADO');
+    await request(app.getHttpServer())
+      .post(`/api/envios/${envio}/cancelar`)
+      .set('Cookie', await cookieDe(operarioId, 'OPERARIO'))
+      .expect(200);
+    await comoRepartidor(repartidor, 'post', 'jornada/solicitar-cierre');
+    await aprobar(repartidor, 1).then((r) => expect(r.status).toBe(200));
+
+    await comoRepartidor(repartidor, 'post', 'jornada/iniciar');
+    const pedido = await comoRepartidor(
+      repartidor,
+      'post',
+      'jornada/solicitar-cierre',
+    );
+
+    expect(pedido.body).toMatchObject({
+      estado: 'ESPERANDO_VALIDACION_CIERRE',
+      paquetesADevolver: [],
+    });
+    await aprobar(repartidor, 0).then((r) => expect(r.status).toBe(200));
+  });
+
   it('no aprueba el cierre de un repartidor que no lo pidió', async () => {
     const repartidor = await crearRepartidor('DISPONIBLE');
 
