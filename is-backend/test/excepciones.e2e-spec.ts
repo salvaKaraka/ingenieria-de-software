@@ -326,8 +326,8 @@ describe('Panel de excepciones (e2e)', () => {
         .expect(200);
 
       const lista = res.body as { id: number; viajesConsecutivos: number }[];
-      expect(lista.map((r) => r.id).sort()).toEqual(
-        [dormido, auto, camionConDosViajes].sort(),
+      expect(lista.map((r) => r.id).sort((a, b) => a - b)).toEqual(
+        [dormido, auto, camionConDosViajes].sort((a, b) => a - b),
       );
       expect(
         lista.find((r) => r.id === camionConDosViajes)?.viajesConsecutivos,
@@ -588,7 +588,9 @@ describe('Panel de excepciones (e2e)', () => {
           asignar(envioId, otro),
         ]);
 
-        expect(respuestas.map((r) => r.status).sort()).toEqual([200, 409]);
+        expect(respuestas.map((r) => r.status).sort((a, b) => a - b)).toEqual([
+          200, 409,
+        ]);
         expect(await ofertasVigentesDe(envioId)).toHaveLength(1);
       });
 
@@ -602,7 +604,9 @@ describe('Panel de excepciones (e2e)', () => {
           asignar(b.envioId, elegido),
         ]);
 
-        expect(respuestas.map((r) => r.status).sort()).toEqual([200, 409]);
+        expect(respuestas.map((r) => r.status).sort((a, b) => a - b)).toEqual([
+          200, 409,
+        ]);
         expect(
           await prisma.oferta.count({
             where: { repartidorId: elegido, estado: 'PENDIENTE' },
