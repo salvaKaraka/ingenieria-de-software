@@ -34,6 +34,7 @@ describe('RepartidoresService', () => {
     enColaDesde: null,
     viajesConsecutivos: 0,
     activo: true,
+    cierreSolicitado: false,
     creadoEn: new Date('2026-01-01T10:00:00Z'),
     actualizadoEn: new Date('2026-01-01T10:00:00Z'),
   };

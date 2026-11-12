@@ -101,7 +101,7 @@ describe('Panel de envíos del día - HU #4 (e2e)', () => {
       data: {
         nombre: 'Comercio Central',
         telefono: '221 444-0000',
-        email: emailUnico('comercio-panel'),
+        email: emailUnico(),
         direccion: 'Calle 1 n° 100',
       },
     });
@@ -112,7 +112,7 @@ describe('Panel de envíos del día - HU #4 (e2e)', () => {
         nombre: 'Ramiro',
         apellido: 'González',
         telefono: '221 555-9999',
-        email: emailUnico('repartidor-panel'),
+        email: emailUnico(),
         direccion: 'Calle 2 n° 200',
         vehiculo: 'MOTO',
         estado: 'DISPONIBLE',
