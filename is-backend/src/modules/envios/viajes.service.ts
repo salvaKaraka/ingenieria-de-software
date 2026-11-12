@@ -4,6 +4,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { AsignacionService } from '../asignacion/asignacion.service';
+import { inicioDelDia } from './domain/dia';
 import { esTransicionValida, siguienteEstado } from './domain/estado-envio';
 import { AvanzarViajeDto } from './dto/avanzar-viaje.dto';
 import { EnviosRepository } from './envios.repository';
@@ -54,6 +55,28 @@ export class ViajesService {
         aviso,
       },
     };
+  }
+
+  // HU 34: entregas que el repartidor completó hoy (día de Argentina), la más reciente primero.
+  // Las novedades, cancelaciones y entregas de días anteriores no aparecen.
+  async historialDelDia(repartidorId: number, ahora: Date = new Date()) {
+    const envios =
+      await this.enviosRepository.listarEntregadosDelRepartidorDesde(
+        repartidorId,
+        inicioDelDia(ahora),
+      );
+
+    const entregas = envios
+      .map((envio) => ({
+        envioId: envio.id,
+        codigoSeguimiento: envio.codigoSeguimiento,
+        comercio: envio.comercio.nombre,
+        destinoDireccion: envio.destinoDireccion,
+        entregadoEn: envio.eventos[0].creadoEn,
+      }))
+      .sort((a, b) => b.entregadoEn.getTime() - a.entregadoEn.getTime());
+
+    return { entregas };
   }
 
   async avanzarViajeActual(

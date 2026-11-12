@@ -224,6 +224,32 @@ export class EnviosRepository {
     });
   }
 
+  // Historial del día del repartidor (HU 34): solo envíos ENTREGADOS cuya entrega fue desde `desde`.
+  // La hora de entrega sale del evento que pasó el envío a ENTREGADO.
+  async listarEntregadosDelRepartidorDesde(repartidorId: number, desde: Date) {
+    return this.prisma.envio.findMany({
+      where: {
+        repartidorId,
+        estado: 'ENTREGADO',
+        eventos: {
+          some: { estadoNuevo: 'ENTREGADO', creadoEn: { gte: desde } },
+        },
+      },
+      select: {
+        id: true,
+        codigoSeguimiento: true,
+        destinoDireccion: true,
+        comercio: { select: { nombre: true } },
+        eventos: {
+          where: { estadoNuevo: 'ENTREGADO' },
+          orderBy: { creadoEn: 'desc' },
+          take: 1,
+          select: { creadoEn: true },
+        },
+      },
+    });
+  }
+
   async buscarParaActualizar(id: number) {
     return this.prisma.envio.findUnique({
       where: { id },
