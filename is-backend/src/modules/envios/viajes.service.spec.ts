@@ -90,6 +90,7 @@ describe('ViajesService', () => {
       'EN_DOMICILIO',
       1,
       undefined,
+      undefined,
     );
     expect(asignacion.reintentarPendientes).not.toHaveBeenCalled();
   });
@@ -109,7 +110,7 @@ describe('ViajesService', () => {
     expect(asignacion.reintentarPendientes).toHaveBeenCalled();
   });
 
-  describe('evidencia de entrega (E-4)', () => {
+  describe('evidencia de entrega (E-4 / HU 18)', () => {
     const entregando = (cambios: object) =>
       repository.buscarViajeActivoPorRepartidor.mockResolvedValue({
         ...envioEn('EN_DOMICILIO'),
@@ -142,6 +143,7 @@ describe('ViajesService', () => {
         'ENTREGADO',
         1,
         'Evidencia: DNI verificado',
+        undefined,
       );
     });
 
@@ -154,24 +156,79 @@ describe('ViajesService', () => {
       );
     });
 
-    it('no entrega sin confirmar que mandó la foto por WhatsApp', async () => {
+    // Escenario 2: Finalización fallida por falta de foto con texto textual verbatim
+    it('rechaza la entrega si el comercio exige foto y no se cargó ninguna (Escenario 2)', async () => {
       entregando({ requiereDni: false, requiereFoto: true });
+      await expect(service.avanzarViajeActual(1, {})).rejects.toThrow(
+        'Este comercio exige una foto de la entrega',
+      );
+      expect(repository.avanzarViaje).not.toHaveBeenCalled();
+    });
+
+    // Escenario 1: Entrega con foto exitosa
+    it('completa la entrega exitosamente cuando se envía la foto requerida (Escenario 1)', async () => {
+      entregando({ requiereDni: false, requiereFoto: true });
+      repository.avanzarViaje.mockResolvedValue(true);
+      const fotoData = 'data:image/jpeg;base64,abc123foto';
+
       await expect(
-        service.avanzarViajeActual(1, { fotoEnviada: false }),
-      ).rejects.toThrow('Confirmá que mandaste la foto por WhatsApp');
+        service.avanzarViajeActual(1, { foto: fotoData }),
+      ).resolves.toEqual({
+        estado: 'ENTREGADO',
+        siguienteEstado: null,
+      });
+
+      expect(repository.avanzarViaje).toHaveBeenCalledWith(
+        5,
+        'EN_DOMICILIO',
+        'ENTREGADO',
+        1,
+        'Evidencia: foto adjunta',
+        fotoData,
+      );
+    });
+
+    // Escenario 3: Finalización sin foto cuando no se exige
+    it('permite finalizar entrega sin foto si el comercio solo exige DNI y ya se ingresó (Escenario 3)', async () => {
+      entregando({ requiereDni: true, requiereFoto: false });
+      repository.avanzarViaje.mockResolvedValue(true);
+
+      await expect(
+        service.avanzarViajeActual(1, { dni: '30111222' }),
+      ).resolves.toEqual({
+        estado: 'ENTREGADO',
+        siguienteEstado: null,
+      });
+
+      expect(repository.avanzarViaje).toHaveBeenCalledWith(
+        5,
+        'EN_DOMICILIO',
+        'ENTREGADO',
+        1,
+        'Evidencia: DNI verificado',
+        undefined,
+      );
     });
 
     it('con DNI y foto deja las dos cosas en el historial, sin el número de DNI', async () => {
       entregando({ requiereDni: true, requiereFoto: true });
       repository.avanzarViaje.mockResolvedValue(true);
+      const fotoData = 'data:image/png;base64,fotoprueba';
+
       await service.avanzarViajeActual(1, {
         dni: '30111222',
-        fotoEnviada: true,
+        foto: fotoData,
       });
-      const detalle = repository.avanzarViaje.mock.calls[0][4] as string;
-      expect(detalle).toBe(
-        'Evidencia: DNI verificado, foto enviada por WhatsApp',
+
+      expect(repository.avanzarViaje).toHaveBeenCalledWith(
+        5,
+        'EN_DOMICILIO',
+        'ENTREGADO',
+        1,
+        'Evidencia: DNI verificado, foto adjunta',
+        fotoData,
       );
+      const detalle = repository.avanzarViaje.mock.calls[0][4] as string;
       expect(detalle).not.toContain('30111222');
     });
 
@@ -190,6 +247,18 @@ describe('ViajesService', () => {
       await expect(service.avanzarViajeActual(1)).resolves.toMatchObject({
         estado: 'EN_DOMICILIO',
       });
+    });
+
+    it('no acepta una foto antes de llegar al domicilio de entrega', async () => {
+      repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
+        envioEn('EN_CAMINO_A_RETIRAR'),
+      );
+      await expect(
+        service.avanzarViajeActual(1, { foto: 'data:image/jpeg;base64,abc1' }),
+      ).rejects.toThrow(
+        'La fotografía solo puede capturarse en el domicilio de entrega',
+      );
+      expect(repository.avanzarViaje).not.toHaveBeenCalled();
     });
   });
 

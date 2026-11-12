@@ -94,6 +94,13 @@ export class ViajesService {
       throw new ConflictException('El viaje no se puede avanzar desde acá');
     }
 
+    // HU 18: la foto es de la entrega, así que solo se acepta en el paso que entrega.
+    if (evidencia.foto && nuevo !== 'ENTREGADO') {
+      throw new ConflictException(
+        'La fotografía solo puede capturarse en el domicilio de entrega',
+      );
+    }
+
     const detalle =
       nuevo === 'ENTREGADO'
         ? this.verificarEvidencia(envio, evidencia)
@@ -105,6 +112,7 @@ export class ViajesService {
       nuevo,
       repartidorId,
       detalle,
+      evidencia.foto,
     );
     if (!avanzado) {
       throw new ConflictException(
@@ -120,9 +128,9 @@ export class ViajesService {
     return { estado: nuevo, siguienteEstado: siguienteEstado(nuevo) };
   }
 
-  // E-4 (épica 4.3): no se entrega sin la evidencia que exige el comercio. La comparación del
-  // DNI se hace acá y no en el front para no mandarle al celular el DNI del destinatario.
-  // Devuelve el texto que queda en el historial del envío (sin el DNI, que es un dato sensible).
+  // E-4 (épica 4.3 / HU 18): no se entrega sin la evidencia que exige el comercio.
+  // La comparación del DNI se hace acá y no en el front para no mandarle al celular el DNI del destinatario.
+  // Devuelve el texto que queda en el historial del envío.
   private verificarEvidencia(
     envio: ExigenciasEntrega,
     evidencia: AvanzarViajeDto,
@@ -146,14 +154,13 @@ export class ViajesService {
       }
     }
 
-    if (envio.requiereFoto) {
-      if (!evidencia.fotoEnviada) {
-        throw new BadRequestException(
-          'Confirmá que mandaste la foto por WhatsApp',
-        );
-      }
-      registro.push('foto enviada por WhatsApp');
+    // La foto tiene que venir en este mismo pedido: no alcanza con decir que se mandó.
+    if (envio.requiereFoto && !evidencia.foto) {
+      throw new BadRequestException(
+        'Este comercio exige una foto de la entrega',
+      );
     }
+    if (evidencia.foto) registro.push('foto adjunta');
 
     return registro.length > 0
       ? `Evidencia: ${registro.join(', ')}`

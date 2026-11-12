@@ -2,6 +2,9 @@ import { ValidationPipe } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 
+// Tope del body JSON. Tiene que alcanzar para LARGO_MAXIMO_FOTO (dto/avanzar-viaje.dto.ts).
+const LIMITE_BODY_JSON = '1mb';
+
 // Configuración común de la app. La usan main.ts y los tests e2e, así se prueba lo mismo que corre en producción.
 export function configurarApp(app: NestExpressApplication) {
   // Todas las rutas quedan bajo /api (ej: GET /api/health)
@@ -9,6 +12,10 @@ export function configurarApp(app: NestExpressApplication) {
 
   // Lee las cookies del request (ahí viajan los tokens de sesión)
   app.use(cookieParser());
+
+  // La foto de la entrega (HU 18) viaja como data URI dentro del JSON y el límite por defecto
+  // de Express (100 kb) la rechazaba con 413. El front la comprime antes de mandarla.
+  app.useBodyParser('json', { limit: LIMITE_BODY_JSON });
 
   // En producción la API está detrás de proxies (Vercel, Railway): para saber la IP real del
   // cliente (límite de intentos de login) hay que confiar en el header X-Forwarded-For.

@@ -157,6 +157,8 @@ model Envio {
   // Copiados del comercio al crear el envío: un cambio posterior del comercio no afecta envíos en curso (riesgo 15)
   requiereFoto         Boolean        @map("requiere_foto")
   requiereDni          Boolean        @map("requiere_dni")
+  // Foto de la entrega (HU 18) como data URI. Pesa cientos de kb: solo la devuelve el detalle del envío.
+  fotoUrl              String?        @map("foto_url")
   estado               EstadoEnvio    @default(PENDIENTE)
   repartidorId         Int?           @map("repartidor_id")
   // Restrict: un repartidor con envíos no se puede borrar (las bajas son lógicas) y no se pierde el historial
