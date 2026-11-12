@@ -1,4 +1,4 @@
-// "Hoy" para el negocio es el día en Argentina, no el del servidor: en producción (Render)
+// "Hoy" para el negocio es el día en Argentina, no el del servidor: en producción (Railway)
 // el servidor corre en UTC, y a partir de las 21 h de Argentina en UTC ya es "mañana".
 // Argentina no tiene horario de verano, así que el desfase es siempre -03:00.
 const ZONA_HORARIA = 'America/Argentina/Buenos_Aires';
