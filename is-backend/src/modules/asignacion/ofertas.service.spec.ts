@@ -45,7 +45,7 @@ describe('OfertasService - consultarHistorial (HU #28)', () => {
         creadaEn: new Date(`2026-11-01T10:0${i}:00Z`),
         expiraEn: new Date(`2026-11-01T10:0${i + 5}:00Z`),
         respondidaEn: new Date(`2026-11-01T10:0${i + 1}:00Z`),
-        envio: { id: 100 + i, codigoSeguimiento: `ENV${i}` },
+        envio: { id: 100 + i, codigoSeguimiento: `ENV${i}`, eventos: [] },
       })),
       ...Array.from({ length: 2 }, (_, i) => ({
         id: 9 + i,
@@ -55,7 +55,7 @@ describe('OfertasService - consultarHistorial (HU #28)', () => {
         creadaEn: new Date(`2026-11-02T10:0${i}:00Z`),
         expiraEn: new Date(`2026-11-02T10:0${i + 5}:00Z`),
         respondidaEn: new Date(`2026-11-02T10:0${i + 1}:00Z`),
-        envio: { id: 200 + i, codigoSeguimiento: `ENV-RECH${i}` },
+        envio: { id: 200 + i, codigoSeguimiento: `ENV-RECH${i}`, eventos: [] },
       })),
       {
         id: 11,
@@ -65,7 +65,7 @@ describe('OfertasService - consultarHistorial (HU #28)', () => {
         creadaEn: new Date('2026-11-03T10:00:00Z'),
         expiraEn: new Date('2026-11-03T10:05:00Z'),
         respondidaEn: null,
-        envio: { id: 300, codigoSeguimiento: 'ENV-VENC' },
+        envio: { id: 300, codigoSeguimiento: 'ENV-VENC', eventos: [] },
       },
     ];
 
@@ -85,58 +85,102 @@ describe('OfertasService - consultarHistorial (HU #28)', () => {
     expect(resultado.detalle[0].estado).toBe('VENCIDA');
   });
 
-  it('Escenario 2: si se define un rango temporal, filtra respuestas y totales dentro del período', async () => {
-    const ofertasMock = [
-      {
-        id: 1,
-        envioId: 101,
-        repartidorId: 1,
-        estado: EstadoOferta.ACEPTADA,
-        creadaEn: new Date('2026-10-25T10:00:00Z'),
-        expiraEn: new Date('2026-10-25T10:05:00Z'),
-        respondidaEn: new Date('2026-10-25T10:02:00Z'),
-        envio: { id: 101, codigoSeguimiento: 'ENV-VIEJO' },
-      },
-      {
-        id: 2,
-        envioId: 102,
-        repartidorId: 1,
-        estado: EstadoOferta.RECHAZADA,
-        creadaEn: new Date('2026-11-02T12:00:00Z'),
-        expiraEn: new Date('2026-11-02T12:05:00Z'),
-        respondidaEn: new Date('2026-11-02T12:01:00Z'),
-        envio: { id: 102, codigoSeguimiento: 'ENV-SEMANA' },
-      },
-      {
-        id: 3,
-        envioId: 103,
-        repartidorId: 1,
-        estado: EstadoOferta.VENCIDA,
-        creadaEn: new Date('2026-11-03T15:00:00Z'),
-        expiraEn: new Date('2026-11-03T15:05:00Z'),
-        respondidaEn: null,
-        envio: { id: 103, codigoSeguimiento: 'ENV-SEMANA2' },
-      },
-    ];
-
-    repo.buscarHistorialPorRepartidor.mockResolvedValue(ofertasMock);
+  it('Escenario 2: si se define un rango, pide al repositorio las respuestas de esos días de Argentina', async () => {
+    repo.buscarHistorialPorRepartidor.mockResolvedValue([]);
 
     const resultado = await service.consultarHistorial(1, {
       desde: '2026-11-01',
       hasta: '2026-11-05',
     });
 
+    // 00:00 del 1/11 y 23:59:59.999 del 5/11 en Argentina (UTC-3): "hasta" es inclusivo.
+    expect(repo.buscarHistorialPorRepartidor).toHaveBeenCalledWith(
+      1,
+      new Date('2026-11-01T03:00:00.000Z'),
+      new Date('2026-11-06T02:59:59.999Z'),
+    );
     expect(resultado.rango).toEqual({
       desde: '2026-11-01',
       hasta: '2026-11-05',
     });
+  });
+
+  it('sin rango no limita las fechas de la consulta', async () => {
+    repo.buscarHistorialPorRepartidor.mockResolvedValue([]);
+
+    await service.consultarHistorial(1);
+
+    expect(repo.buscarHistorialPorRepartidor).toHaveBeenCalledWith(
+      1,
+      undefined,
+      undefined,
+    );
+  });
+
+  it('no cuenta ni muestra como vencida una oferta que se cerró porque se canceló el envío o se le cambió el vehículo', async () => {
+    const oferta = (id: number, cierres: string[]) => ({
+      id,
+      envioId: 100 + id,
+      repartidorId: 1,
+      estado: EstadoOferta.VENCIDA,
+      creadaEn: new Date('2026-11-03T15:00:00Z'),
+      expiraEn: new Date('2026-11-03T15:05:00Z'),
+      respondidaEn: null,
+      envio: {
+        id: 100 + id,
+        codigoSeguimiento: `ENV-${id}`,
+        eventos: cierres.map((creadoEn) => ({ creadoEn: new Date(creadoEn) })),
+      },
+    });
+    repo.buscarHistorialPorRepartidor.mockResolvedValue([
+      // Venció sola: el repartidor no respondió.
+      oferta(1, []),
+      // El operario canceló el envío a los 2 minutos, con la oferta todavía abierta.
+      oferta(2, ['2026-11-03T15:02:00Z']),
+      // Venció sola y el envío se canceló más tarde: sigue siendo inactividad.
+      oferta(3, ['2026-11-03T16:00:00Z']),
+    ]);
+
+    const resultado = await service.consultarHistorial(1);
+
     expect(resultado.totales).toEqual({
       aceptadas: 0,
-      rechazadas: 1,
-      vencidas: 1,
+      rechazadas: 0,
+      vencidas: 2,
     });
-    expect(resultado.detalle).toHaveLength(2);
-    expect(resultado.detalle.map((d) => d.id)).toEqual([3, 2]);
+    expect(resultado.detalle.map((d) => d.id).sort()).toEqual([1, 3]);
+  });
+
+  it('la fecha de cada respuesta es el momento en que respondió, o en que venció la oferta', async () => {
+    repo.buscarHistorialPorRepartidor.mockResolvedValue([
+      {
+        id: 1,
+        envioId: 101,
+        repartidorId: 1,
+        estado: EstadoOferta.RECHAZADA,
+        creadaEn: new Date('2026-11-03T15:00:00Z'),
+        expiraEn: new Date('2026-11-03T15:05:00Z'),
+        respondidaEn: new Date('2026-11-03T15:01:00Z'),
+        envio: { id: 101, codigoSeguimiento: 'ENV-1', eventos: [] },
+      },
+      {
+        id: 2,
+        envioId: 102,
+        repartidorId: 1,
+        estado: EstadoOferta.VENCIDA,
+        creadaEn: new Date('2026-11-03T16:00:00Z'),
+        expiraEn: new Date('2026-11-03T16:05:00Z'),
+        respondidaEn: null,
+        envio: { id: 102, codigoSeguimiento: 'ENV-2', eventos: [] },
+      },
+    ]);
+
+    const resultado = await service.consultarHistorial(1);
+
+    expect(resultado.detalle).toEqual([
+      expect.objectContaining({ id: 2, fecha: '2026-11-03T16:05:00.000Z' }),
+      expect.objectContaining({ id: 1, fecha: '2026-11-03T15:01:00.000Z' }),
+    ]);
   });
 
   it('Escenario 3: repartidor sin ofertas devuelve lista vacía y totales en 0 sin errores', async () => {
