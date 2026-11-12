@@ -26,7 +26,7 @@ import { JornadaService } from './jornada.service';
 import { RepartidoresService } from './repartidores.service';
 
 @Roles('OPERARIO')
-@Controller(['repartidores', 'operario/repartidores'])
+@Controller('repartidores')
 export class RepartidoresController {
   constructor(
     private readonly repartidoresService: RepartidoresService,

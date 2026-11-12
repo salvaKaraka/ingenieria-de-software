@@ -36,12 +36,8 @@ export class JornadaController {
     return this.jornada.reanudar(usuario.id);
   }
 
-  @Post('terminar')
-  @HttpCode(200)
-  terminar(@UsuarioActual() usuario: UsuarioAutenticado) {
-    return this.jornada.terminar(usuario.id);
-  }
-
+  // Única forma de terminar la jornada (G-1): no hay un "terminar" directo, para que el
+  // repartidor no pueda irse sin que el operario valide la rendición.
   @Post('solicitar-cierre')
   @HttpCode(200)
   solicitarCierre(@UsuarioActual() usuario: UsuarioAutenticado) {

@@ -4,8 +4,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import {
+  convertirMedianocheArgentinaAUTC,
+  finDelDiaArgentina,
+} from '../../common/dia-argentina';
 import type { EstadoOferta } from '../../generated/prisma/client';
 import { AsignacionService } from './asignacion.service';
+import { cerradaAntesDeVencer } from './domain/cierre-oferta';
 import { type OfertaBloqueada, OfertasRepository } from './ofertas.repository';
 
 // Lo que ve el repartidor de una oferta. Sin datos del destinatario: recién los ve si acepta.
@@ -45,32 +50,18 @@ export type HistorialRespuestasResultado = {
   detalle: DetalleHistorialRespuesta[];
 };
 
-function parsearFechaDesde(valor?: string): Date | undefined {
+// Una fecha AAAA-MM-DD es un día de Argentina; con hora, es ese instante exacto.
+function inicioDelRango(valor?: string): Date | undefined {
   if (!valor) return undefined;
-  const d = new Date(valor);
-  return isNaN(d.getTime()) ? undefined : d;
+  return valor.length === 10
+    ? convertirMedianocheArgentinaAUTC(valor)
+    : new Date(valor);
 }
 
-function parsearFechaHasta(valor?: string): Date | undefined {
+// "hasta" es inclusivo: abarca todo ese día de Argentina.
+function finDelRango(valor?: string): Date | undefined {
   if (!valor) return undefined;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
-    const d = new Date(`${valor}T23:59:59.999Z`);
-    if (!isNaN(d.getTime())) return d;
-  }
-  const d = new Date(valor);
-  return isNaN(d.getTime()) ? undefined : d;
-}
-
-function obtenerFechaEvento(oferta: {
-  estado: EstadoOferta;
-  creadaEn: Date;
-  expiraEn: Date;
-  respondidaEn: Date | null;
-}): Date {
-  return (
-    oferta.respondidaEn ??
-    (oferta.estado === 'VENCIDA' ? oferta.expiraEn : oferta.creadaEn)
-  );
+  return valor.length === 10 ? finDelDiaArgentina(valor) : new Date(valor);
 }
 
 // Respuestas del repartidor a las ofertas (épica 3.3) y su vencimiento.
@@ -148,51 +139,52 @@ export class OfertasService {
       throw new ConflictException('La oferta venció');
   }
 
-  // HU #28: Historial de respuestas y métricas de ofertas de un repartidor
+  // HU 28: cuántas ofertas aceptó, rechazó y dejó vencer un repartidor, con el detalle.
   async consultarHistorial(
     repartidorId: number,
     filtro?: { desde?: string; hasta?: string },
   ): Promise<HistorialRespuestasResultado> {
-    const fechaDesde = parsearFechaDesde(filtro?.desde);
-    const fechaHasta = parsearFechaHasta(filtro?.hasta);
-
     const ofertas = await this.repo.buscarHistorialPorRepartidor(
       repartidorId,
-      fechaDesde,
-      fechaHasta,
+      inicioDelRango(filtro?.desde),
+      finDelRango(filtro?.hasta),
     );
 
-    const filtradas = ofertas.filter((o) => {
-      const fecha = obtenerFechaEvento(o);
-      if (fechaDesde && fecha < fechaDesde) return false;
-      if (fechaHasta && fecha > fechaHasta) return false;
-      return true;
-    });
+    const totales = { aceptadas: 0, rechazadas: 0, vencidas: 0 };
+    const detalle: DetalleHistorialRespuesta[] = [];
 
-    filtradas.sort(
-      (a, b) =>
-        obtenerFechaEvento(b).getTime() - obtenerFechaEvento(a).getTime(),
-    );
+    for (const oferta of ofertas) {
+      let momento: Date;
+      if (oferta.estado === 'VENCIDA') {
+        // Es una métrica de desempeño: si la oferta se cerró porque el operario canceló el
+        // envío o le cambió el vehículo, el repartidor no la dejó vencer y no se le cuenta.
+        const cierres = oferta.envio.eventos.map((evento) => evento.creadoEn);
+        if (cerradaAntesDeVencer(oferta, cierres)) continue;
+        momento = oferta.expiraEn;
+        totales.vencidas++;
+      } else if (oferta.respondidaEn) {
+        momento = oferta.respondidaEn;
+        if (oferta.estado === 'ACEPTADA') totales.aceptadas++;
+        else totales.rechazadas++;
+      } else {
+        continue;
+      }
 
-    let aceptadas = 0;
-    let rechazadas = 0;
-    let vencidas = 0;
-
-    for (const o of filtradas) {
-      if (o.estado === 'ACEPTADA') aceptadas++;
-      else if (o.estado === 'RECHAZADA') rechazadas++;
-      else if (o.estado === 'VENCIDA') vencidas++;
+      detalle.push({
+        id: oferta.id,
+        estado: oferta.estado,
+        fecha: momento.toISOString(),
+        envioId: oferta.envioId,
+        ...(oferta.envio.codigoSeguimiento && {
+          codigoSeguimiento: oferta.envio.codigoSeguimiento,
+        }),
+      });
     }
 
-    const detalle: DetalleHistorialRespuesta[] = filtradas.map((o) => ({
-      id: o.id,
-      estado: o.estado,
-      fecha: obtenerFechaEvento(o).toISOString(),
-      envioId: o.envioId,
-      ...(o.envio?.codigoSeguimiento && {
-        codigoSeguimiento: o.envio.codigoSeguimiento,
-      }),
-    }));
+    // De la más reciente a la más antigua. Se ordena acá porque la fecha de cada respuesta
+    // sale de una columna distinta según el estado.
+    // Las fechas ISO en UTC se ordenan igual como texto que como fecha.
+    detalle.sort((a, b) => b.fecha.localeCompare(a.fecha));
 
     return {
       repartidorId,
@@ -200,11 +192,7 @@ export class OfertasService {
         desde: filtro?.desde ?? null,
         hasta: filtro?.hasta ?? null,
       },
-      totales: {
-        aceptadas,
-        rechazadas,
-        vencidas,
-      },
+      totales,
       detalle,
     };
   }
