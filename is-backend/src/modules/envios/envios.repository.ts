@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { AVISO_ASIGNACION_EXCEPCION } from '../asignacion/asignacion.constants';
 import type {
   EstadoEnvio,
   Prisma,
@@ -132,6 +133,10 @@ export class EnviosRepository {
         include: {
           comercio: { select: { id: true, nombre: true } },
           repartidor: { select: { id: true, nombre: true, apellido: true } },
+          eventos: {
+            where: { detalle: AVISO_ASIGNACION_EXCEPCION },
+            select: { id: true, detalle: true },
+          },
         },
       }),
       this.prisma.envio.count({ where }),

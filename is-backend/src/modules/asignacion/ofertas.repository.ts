@@ -102,13 +102,13 @@ export class OfertasRepository {
         where: { id: { in: vencidas.map((oferta) => oferta.id) } },
         data: { estado: 'VENCIDA' },
       });
-      // No respondió en 5 minutos: queda en pausa hasta que se reactive (supuesto 4).
+      // No respondió en 5 minutos: queda en pausa hasta que se reactive (supuesto 4) y reinicia contador.
       await tx.repartidor.updateMany({
         where: {
           id: { in: vencidas.map((oferta) => oferta.repartidorId) },
           estado: 'DISPONIBLE',
         },
-        data: { estado: 'EN_PAUSA', enColaDesde: null },
+        data: { estado: 'EN_PAUSA', enColaDesde: null, viajesConsecutivos: 0 },
       });
       return vencidas.length;
     });

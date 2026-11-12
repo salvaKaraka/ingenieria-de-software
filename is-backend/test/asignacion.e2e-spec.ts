@@ -199,16 +199,20 @@ describe('Motor de asignación (e2e)', () => {
     expect(oferta?.repartidorId).toBe(otro);
   });
 
-  it('con 2 viajes consecutivos el repartidor descansa y pasa al final de la cola', async () => {
+  it('Escenario 1 y 3: con 2 viajes consecutivos y otro disponible, el repartidor descansa, es salteado y su contador vuelve a 0', async () => {
     const cansado = await crearRepartidor({
       llegoEnMinuto: 0,
       viajesConsecutivos: 2,
     });
     const siguiente = await crearRepartidor({ llegoEnMinuto: 1 });
 
-    const oferta = await motor.asignar(await crearEnvio());
+    const envioId = await crearEnvio();
+    const oferta = await motor.asignar(envioId);
 
+    // Escenario 1: salteado y ofrecido al segundo repartidor
     expect(oferta?.repartidorId).toBe(siguiente);
+
+    // Escenario 3: contador vuelve a 0 y pasa al final de la cola
     const despues = await prisma.repartidor.findUniqueOrThrow({
       where: { id: cansado },
     });
@@ -216,14 +220,34 @@ describe('Motor de asignación (e2e)', () => {
     expect(despues.enColaDesde!.getTime()).toBeGreaterThan(
       enMinuto(1).getTime(),
     );
+
+    // No debe haber aviso de excepción
+    const eventoExcepcion = await prisma.eventoEnvio.findFirst({
+      where: {
+        envioId,
+        detalle: 'Asignación por excepción: único repartidor disponible',
+      },
+    });
+    expect(eventoExcepcion).toBeNull();
   });
 
-  it('si el único disponible tiene 2 consecutivos, descansa y se le ofrece igual', async () => {
+  it('Escenario 2: si el único disponible tiene 2 consecutivos, se le asigna igual y se avisa al operario', async () => {
     const unico = await crearRepartidor({ viajesConsecutivos: 2 });
+    const envioId = await crearEnvio();
 
-    const oferta = await motor.asignar(await crearEnvio());
+    const oferta = await motor.asignar(envioId);
 
     expect(oferta?.repartidorId).toBe(unico);
+
+    // Aviso al operario en EventoEnvio
+    const eventoExcepcion = await prisma.eventoEnvio.findFirst({
+      where: {
+        envioId,
+        detalle: 'Asignación por excepción: único repartidor disponible',
+      },
+    });
+    expect(eventoExcepcion).not.toBeNull();
+    expect(eventoExcepcion?.actorTipo).toBe('SISTEMA');
   });
 
   it('sin candidatos no crea oferta y el envío queda pendiente', async () => {

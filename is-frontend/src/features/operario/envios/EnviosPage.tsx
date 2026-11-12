@@ -7,6 +7,7 @@ import { EtiquetaEstado } from '../../../shared/ui/EtiquetaEstado'
 import { Campo } from '../../../shared/ui/Campo'
 import { Tabla } from '../../../shared/ui/Tabla'
 import { usePolling } from '../../../shared/usePolling'
+import { AVISO_EXCEPCION, esAsignacionPorExcepcion } from './excepcion.ts'
 
 interface ComercioOpcion {
   id: number
@@ -20,6 +21,7 @@ interface EnvioResumen {
   destinoDireccion: string
   comercio: { nombre: string }
   repartidor: { nombre: string; apellido: string } | null
+  eventos?: { id: number; detalle: string | null }[]
 }
 
 interface RespuestaPaginada {
@@ -155,8 +157,15 @@ export function EnviosPage() {
     {
       titulo: 'Estado actual',
       celda: (envio: EnvioResumen) => (
-        // Mismos nombres que ve el repartidor en sus botones y el destinatario en el seguimiento.
-        <EtiquetaEstado estado={envio.estado} />
+        <div className="space-y-1">
+          {/* Mismos nombres que ve el repartidor en sus botones y el destinatario en el seguimiento. */}
+          <EtiquetaEstado estado={envio.estado} />
+          {esAsignacionPorExcepcion(envio.estado, envio.eventos ?? []) && (
+            <span className="block rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+              ⚠️ {AVISO_EXCEPCION}
+            </span>
+          )}
+        </div>
       ),
     },
     {
