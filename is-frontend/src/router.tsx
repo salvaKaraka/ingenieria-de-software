@@ -10,9 +10,11 @@ import { ComerciosPage } from './features/operario/comercios/ComerciosPage.tsx'
 import { DetalleEnvioPage } from './features/operario/envios/DetalleEnvioPage.tsx'
 import { EnviosPage } from './features/operario/envios/EnviosPage.tsx'
 import { NuevoEnvioPage } from './features/operario/envios/NuevoEnvioPage.tsx'
+import { PanelEnviosPage } from './features/operario/envios/PanelEnviosPage.tsx'
 import { ExcepcionesPage } from './features/operario/excepciones/ExcepcionesPage.tsx'
 import { FlotaPage } from './features/operario/flota/FlotaPage.tsx'
 import { RepartidoresPage } from './features/operario/repartidores/RepartidoresPage.tsx'
+import { MiHistorialPage } from './features/repartidor/historial/MiHistorialPage.tsx'
 import { InicioRepartidorPage } from './features/repartidor/jornada/InicioRepartidorPage.tsx'
 import { BuscarSeguimientoPage } from './features/seguimiento/BuscarSeguimientoPage.tsx'
 import { SeguimientoPage } from './features/seguimiento/SeguimientoPage.tsx'
@@ -35,6 +37,8 @@ const rutas: RouteObject[] = [
     ),
     children: [
       { index: true, element: <Navigate to="envios" replace /> },
+      { path: 'panel', element: <PanelEnviosPage /> },
+      { path: 'envios/panel', element: <PanelEnviosPage /> },
       { path: 'envios', element: <EnviosPage /> },
       { path: 'envios/nuevo', element: <NuevoEnvioPage /> },
       { path: 'envios/:id', element: <DetalleEnvioPage /> },
@@ -56,6 +60,7 @@ const rutas: RouteObject[] = [
     ),
     children: [
       { index: true, element: <InicioRepartidorPage /> },
+      { path: 'historial', element: <MiHistorialPage /> },
     ],
   },
 

@@ -10,19 +10,28 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { Roles } from '../../common/auth';
+import {
+  Roles,
+  UsuarioActual,
+  type UsuarioAutenticado,
+} from '../../common/auth';
 import {
   ActualizarRepartidorDto,
+  AprobarCierreDto,
   CrearRepartidorDto,
   FiltroHistorialRespuestasDto,
   FiltroRepartidoresDto,
 } from './dto';
+import { JornadaService } from './jornada.service';
 import { RepartidoresService } from './repartidores.service';
 
 @Roles('OPERARIO')
 @Controller(['repartidores', 'operario/repartidores'])
 export class RepartidoresController {
-  constructor(private readonly repartidoresService: RepartidoresService) {}
+  constructor(
+    private readonly repartidoresService: RepartidoresService,
+    private readonly jornadaService: JornadaService,
+  ) {}
 
   @Get()
   listar(@Query() filtros: FiltroRepartidoresDto) {
@@ -74,5 +83,20 @@ export class RepartidoresController {
     @Query() filtro: FiltroHistorialRespuestasDto,
   ) {
     return this.repartidoresService.historialRespuestas(id, filtro);
+  }
+
+  @Get(':id/rendicion')
+  rendicion(@Param('id', ParseIntPipe) id: number) {
+    return this.jornadaService.rendicion(id);
+  }
+
+  @Post(':id/aprobar-cierre')
+  @HttpCode(200)
+  aprobarCierre(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AprobarCierreDto,
+    @UsuarioActual() operario: UsuarioAutenticado,
+  ) {
+    return this.jornadaService.aprobarCierre(id, dto, operario.id);
   }
 }
