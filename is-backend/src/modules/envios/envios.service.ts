@@ -12,6 +12,10 @@ import {
   type TamanioPaquete,
   type TipoVehiculo,
 } from '../../generated/prisma/client';
+import {
+  convertirMedianocheArgentinaAUTC,
+  finDelDiaArgentina,
+} from '../../common/dia-argentina';
 import { AsignacionService } from '../asignacion/asignacion.service';
 import { ComerciosService } from '../comercios/comercios.service';
 import { generarCodigoSeguimiento } from './codigo-seguimiento.util';
@@ -28,47 +32,6 @@ const VEHICULO_MINIMO: Record<TamanioPaquete, TipoVehiculo> = {
   MEDIANO: 'AUTO',
   GRANDE: 'CAMION',
 };
-
-const ZONA_HORARIA_OPERATIVA = 'America/Argentina/Buenos_Aires';
-const FORMATEADOR_OPERATIVO = new Intl.DateTimeFormat('en-US', {
-  timeZone: ZONA_HORARIA_OPERATIVA,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: 'h23',
-});
-
-function convertirMedianocheArgentinaAUTC(fecha: string): Date {
-  const [anio, mes, dia] = fecha.split('-').map(Number);
-  const medianocheComoUTC = Date.UTC(anio, mes - 1, dia);
-  let instanteUTC = medianocheComoUTC;
-
-  // Recalcular el desfase en el instante resultante contempla cambios horarios de la zona.
-  for (let intento = 0; intento < 3; intento++) {
-    const partes = new Map(
-      FORMATEADOR_OPERATIVO.formatToParts(new Date(instanteUTC)).map(
-        (parte) => [parte.type, parte.value],
-      ),
-    );
-    const fechaLocalComoUTC = Date.UTC(
-      Number(partes.get('year')),
-      Number(partes.get('month')) - 1,
-      Number(partes.get('day')),
-      Number(partes.get('hour')),
-      Number(partes.get('minute')),
-      Number(partes.get('second')),
-    );
-    const desfase = fechaLocalComoUTC - instanteUTC;
-    const siguienteInstanteUTC = medianocheComoUTC - desfase;
-    if (siguienteInstanteUTC === instanteUTC) break;
-    instanteUTC = siguienteInstanteUTC;
-  }
-
-  return new Date(instanteUTC);
-}
 
 // Cómo se nombra cada dato en el historial cuando el operario lo modifica (HU 31).
 const ETIQUETA_CAMPO: Record<keyof ActualizarEnvioDto, string> = {
@@ -415,15 +378,7 @@ export class EnviosService {
   }
 
   private finDelDia(fecha: string): Date {
-    if (fecha.length !== 10) return new Date(fecha);
-
-    const [anio, mes, dia] = fecha.split('-').map(Number);
-    const diaSiguiente = new Date(Date.UTC(anio, mes - 1, dia + 1))
-      .toISOString()
-      .slice(0, 10);
-    return new Date(
-      convertirMedianocheArgentinaAUTC(diaSiguiente).getTime() - 1,
-    );
+    return fecha.length === 10 ? finDelDiaArgentina(fecha) : new Date(fecha);
   }
 
   private inicioDelDia(fecha: string): Date {
