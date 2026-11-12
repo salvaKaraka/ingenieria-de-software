@@ -44,6 +44,7 @@ describe('EnviosService', () => {
     cancelar: jest.fn(),
     buscarParaActualizar: jest.fn(),
     actualizar: jest.fn(),
+    obtenerPanelEnvios: jest.fn(),
   };
 
   const comerciosService = {
@@ -566,6 +567,138 @@ describe('EnviosService', () => {
       await expect(
         service.actualizar(99, { destinatarioNombre: 'Juan' }, OPERARIO_ID),
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('obtenerPanel', () => {
+    it('agrupa los envíos activos por estado y calcula totales correctamente', async () => {
+      repository.obtenerPanelEnvios.mockResolvedValue([
+        {
+          id: 1,
+          codigoSeguimiento: 'P1',
+          estado: 'PENDIENTE',
+          tamanio: 'CHICO',
+          vehiculoRequerido: 'MOTO',
+          comercio: { id: 1, nombre: 'Comercio A', telefono: '111' },
+          repartidor: null,
+          eventos: [],
+        },
+        {
+          id: 2,
+          codigoSeguimiento: 'P2',
+          estado: 'PENDIENTE',
+          tamanio: 'MEDIANO',
+          vehiculoRequerido: 'AUTO',
+          comercio: { id: 1, nombre: 'Comercio A', telefono: '111' },
+          repartidor: null,
+          eventos: [],
+        },
+        {
+          id: 3,
+          codigoSeguimiento: 'A1',
+          estado: 'ASIGNADO',
+          tamanio: 'CHICO',
+          vehiculoRequerido: 'MOTO',
+          comercio: { id: 1, nombre: 'Comercio A', telefono: '111' },
+          repartidor: { id: 10, nombre: 'Carlos', apellido: 'Gómez', telefono: '222', vehiculo: 'MOTO' },
+          eventos: [],
+        },
+        {
+          id: 4,
+          codigoSeguimiento: 'R1',
+          estado: 'RETIRADO',
+          tamanio: 'GRANDE',
+          vehiculoRequerido: 'CAMION',
+          comercio: { id: 2, nombre: 'Comercio B', telefono: '333' },
+          repartidor: { id: 11, nombre: 'Martín', apellido: 'López', telefono: '444', vehiculo: 'CAMION' },
+          eventos: [],
+        },
+      ]);
+
+      const resultado = await service.obtenerPanel();
+
+      expect(resultado.totales).toEqual({
+        total: 4,
+        PENDIENTE: 2,
+        ASIGNADO: 1,
+        EN_CAMINO_A_RETIRAR: 0,
+        RETIRADO: 1,
+        EN_DOMICILIO: 0,
+      });
+
+      expect(resultado.grupos.PENDIENTE).toHaveLength(2);
+      expect(resultado.grupos.ASIGNADO).toHaveLength(1);
+      expect(resultado.grupos.EN_CAMINO_A_RETIRAR).toHaveLength(0);
+      expect(resultado.grupos.RETIRADO).toHaveLength(1);
+      expect(resultado.grupos.EN_DOMICILIO).toHaveLength(0);
+    });
+
+    it('identifica y resalta los envíos con novedad o incidente', async () => {
+      repository.obtenerPanelEnvios.mockResolvedValue([
+        {
+          id: 5,
+          codigoSeguimiento: 'NOV1',
+          estado: 'EN_CAMINO_A_RETIRAR',
+          tamanio: 'CHICO',
+          vehiculoRequerido: 'MOTO',
+          comercio: { id: 1, nombre: 'Comercio A', telefono: '111' },
+          repartidor: { id: 10, nombre: 'Carlos', apellido: 'Gómez', telefono: '222', vehiculo: 'MOTO' },
+          eventos: [
+            {
+              tipo: 'NOVEDAD',
+              detalle: 'Demorado por lluvia intensa',
+              creadoEn: new Date('2026-11-03T10:00:00Z'),
+            },
+          ],
+        },
+        {
+          id: 6,
+          codigoSeguimiento: 'OK1',
+          estado: 'EN_CAMINO_A_RETIRAR',
+          tamanio: 'CHICO',
+          vehiculoRequerido: 'MOTO',
+          comercio: { id: 1, nombre: 'Comercio A', telefono: '111' },
+          repartidor: { id: 12, nombre: 'Lucía', apellido: 'Díaz', telefono: '555', vehiculo: 'MOTO' },
+          eventos: [],
+        },
+      ]);
+
+      const resultado = await service.obtenerPanel();
+
+      const conNovedad = resultado.envios.find((e) => e.codigoSeguimiento === 'NOV1');
+      const sinNovedad = resultado.envios.find((e) => e.codigoSeguimiento === 'OK1');
+
+      expect(conNovedad?.conNovedad).toBe(true);
+      expect(conNovedad?.novedad).toEqual({
+        tipo: 'NOVEDAD',
+        detalle: 'Demorado por lluvia intensa',
+        creadoEn: expect.any(Date),
+      });
+
+      expect(sinNovedad?.conNovedad).toBe(false);
+      expect(sinNovedad?.novedad).toBeNull();
+    });
+
+    it('devuelve contadores en 0 y agrupaciones vacías cuando no hay envíos activos', async () => {
+      repository.obtenerPanelEnvios.mockResolvedValue([]);
+
+      const resultado = await service.obtenerPanel();
+
+      expect(resultado.totales).toEqual({
+        total: 0,
+        PENDIENTE: 0,
+        ASIGNADO: 0,
+        EN_CAMINO_A_RETIRAR: 0,
+        RETIRADO: 0,
+        EN_DOMICILIO: 0,
+      });
+
+      expect(resultado.grupos.PENDIENTE).toEqual([]);
+      expect(resultado.grupos.ASIGNADO).toEqual([]);
+      expect(resultado.grupos.EN_CAMINO_A_RETIRAR).toEqual([]);
+      expect(resultado.grupos.RETIRADO).toEqual([]);
+      expect(resultado.grupos.EN_DOMICILIO).toEqual([]);
+      expect(resultado.envios).toEqual([]);
     });
   });
 });

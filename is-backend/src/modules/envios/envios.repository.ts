@@ -365,10 +365,7 @@ export class EnviosRepository {
 
       // Si cambia el vehículo y tenía repartidor asignado, queda DISPONIBLE al final de la cola
       if (opciones.cambiaVehiculo && repartidorAnteriorId !== null) {
-        await tx.repartidor.updateMany({
-          where: { id: repartidorAnteriorId, estado: 'OCUPADO' },
-          data: { estado: 'DISPONIBLE', enColaDesde: new Date() },
-        });
+        await this.liberarRepartidor(tx, repartidorAnteriorId);
       }
 
       if (opciones.cambiaVehiculo && datos.tamanio && datos.vehiculoRequerido) {
@@ -448,13 +445,8 @@ export class EnviosRepository {
       });
 
       if (estadoNuevo === 'ENTREGADO') {
-        await tx.repartidor.updateMany({
-          where: { id: repartidorId, estado: 'OCUPADO' },
-          data: {
-            estado: 'DISPONIBLE',
-            enColaDesde: new Date(),
-            viajesConsecutivos: { increment: 1 },
-          },
+        await this.liberarRepartidor(tx, repartidorId, {
+          viajesConsecutivos: { increment: 1 },
         });
       }
       return true;
@@ -519,12 +511,78 @@ export class EnviosRepository {
       const envio = await tx.envio.findUniqueOrThrow({ where: { id } });
       // Si ya tenía repartidor, el viaje terminó: queda libre y vuelve al final de la cola.
       if (envio.repartidorId !== null) {
-        await tx.repartidor.updateMany({
-          where: { id: envio.repartidorId, estado: 'OCUPADO' },
-          data: { estado: 'DISPONIBLE', enColaDesde: new Date() },
-        });
+        await this.liberarRepartidor(tx, envio.repartidorId);
       }
       return envio;
+    });
+  }
+
+  // Envíos del panel diario: activos (no entregados ni cancelados) con novedad o incidente si existe
+  async obtenerPanelEnvios() {
+    return this.prisma.envio.findMany({
+      where: {
+        estado: {
+          in: [
+            'PENDIENTE',
+            'ASIGNADO',
+            'EN_CAMINO_A_RETIRAR',
+            'RETIRADO',
+            'EN_DOMICILIO',
+          ],
+        },
+      },
+      orderBy: {
+        creadoEn: 'asc',
+      },
+      include: {
+        comercio: {
+          select: {
+            id: true,
+            nombre: true,
+            telefono: true,
+            direccion: true,
+          },
+        },
+        repartidor: {
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true,
+            telefono: true,
+            vehiculo: true,
+          },
+        },
+        eventos: {
+          where: {
+            tipo: {
+              in: ['NOVEDAD', 'INCIDENTE'],
+            },
+          },
+          orderBy: {
+            creadoEn: 'desc',
+          },
+          take: 1,
+        },
+      },
+    });
+  }
+
+  // El repartidor terminó su viaje, o se lo sacaron (cancelación o cambio de vehículo). Si
+  // había pedido cerrar la jornada (G-1), pasa a esperar la validación del operario en vez
+  // de volver a la cola, así no le llegan más ofertas.
+  private async liberarRepartidor(
+    tx: Prisma.TransactionClient,
+    repartidorId: number,
+    extra: Prisma.RepartidorUpdateManyMutationInput = {},
+  ) {
+    await tx.repartidor.updateMany({
+      where: { id: repartidorId, estado: 'OCUPADO', cierreSolicitado: true },
+      data: { estado: 'ESPERANDO_VALIDACION_CIERRE', enColaDesde: null },
+    });
+    // Si el UPDATE anterior aplicó, ya no está OCUPADO y este no hace nada.
+    await tx.repartidor.updateMany({
+      where: { id: repartidorId, estado: 'OCUPADO' },
+      data: { estado: 'DISPONIBLE', enColaDesde: new Date(), ...extra },
     });
   }
 }
