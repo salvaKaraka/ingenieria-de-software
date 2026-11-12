@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router'
 import { useSesion } from '../../features/auth/sesion.ts'
 
 const SECCIONES = [
+  { ruta: '/operario/panel', nombre: 'Panel del día' },
   { ruta: '/operario/envios', nombre: 'Envíos' },
   { ruta: '/operario/comercios', nombre: 'Comercios' },
   { ruta: '/operario/repartidores', nombre: 'Repartidores' },
