@@ -7,6 +7,7 @@ describe('ExcepcionesService', () => {
   const repo = {
     transaccion: jest.fn((trabajo: (t: object) => unknown) => trabajo(tx)),
     listarSinRepartidor: jest.fn(),
+    listarIncidentesActivos: jest.fn(),
     buscarEnvio: jest.fn(),
     listarRepartidoresAsignables: jest.fn(),
     bloquearEnvio: jest.fn(),
@@ -14,6 +15,7 @@ describe('ExcepcionesService', () => {
     envioTieneOfertaVigente: jest.fn(),
     repartidorTieneOfertaVigente: jest.fn(),
     ofrecerManual: jest.fn(),
+    reactivarEnvioParado: jest.fn(),
   };
   let service: ExcepcionesService;
 
@@ -36,6 +38,8 @@ describe('ExcepcionesService', () => {
     repo.transaccion.mockImplementation((trabajo: (t: object) => unknown) =>
       trabajo(tx),
     );
+    repo.listarIncidentesActivos.mockResolvedValue([]);
+    repo.reactivarEnvioParado.mockResolvedValue(true);
     service = new ExcepcionesService(repo as unknown as ExcepcionesRepository);
   });
 
@@ -64,6 +68,31 @@ describe('ExcepcionesService', () => {
       repo.listarSinRepartidor.mockResolvedValue([]);
       await expect(service.listar(ahora)).resolves.toEqual({
         excepciones: [],
+      });
+    });
+
+    it('muestra el incidente activo en el panel para el operario', async () => {
+      repo.listarSinRepartidor.mockResolvedValue([]);
+      repo.listarIncidentesActivos.mockResolvedValue([
+        {
+          ...sinRepartidor(1, 5),
+          estado: 'PARADO',
+          eventos: [
+            {
+              creadoEn: haceMinutos(5),
+              detalle: 'Incidente reportado. Ubicación informada: Calle 7',
+            },
+          ],
+          ofertas: [],
+        },
+      ]);
+
+      const { excepciones } = await service.listar(ahora);
+      expect(excepciones[0]).toMatchObject({
+        estado: 'PARADO',
+        motivo: 'PARADO',
+        puedeAsignar: true,
+        aviso: 'Envío parado: no hay repartidores compatibles',
       });
     });
   });
@@ -103,6 +132,19 @@ describe('ExcepcionesService', () => {
         3,
         'Asignación manual del operario a Ana Paz',
       );
+    });
+
+    it('permite reactivar un envío parado para asignarlo manualmente', async () => {
+      repo.bloquearEnvio.mockResolvedValue({
+        id: 1,
+        estado: 'PARADO',
+        vehiculoRequerido: 'MOTO',
+      });
+
+      await service.asignarManual(1, 9, 3);
+
+      expect(repo.reactivarEnvioParado).toHaveBeenCalledWith(tx, 1, 3);
+      expect(repo.ofrecerManual).toHaveBeenCalled();
     });
 
     it('no mira la cola ni los viajes consecutivos (HU 22, escenario 5)', async () => {

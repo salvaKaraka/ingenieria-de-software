@@ -76,6 +76,12 @@ export class RepartidoresController {
     return this.repartidoresService.reactivar(id);
   }
 
+  @Post(':id/rehabilitar')
+  @HttpCode(200)
+  rehabilitar(@Param('id', ParseIntPipe) id: number) {
+    return this.repartidoresService.rehabilitar(id);
+  }
+
   // HU #28: Historial de respuestas de ofertas y métricas acumuladas
   @Get(':id/historial-respuestas')
   historialRespuestas(

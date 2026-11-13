@@ -3,6 +3,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { AVISO_ASIGNACION_EXCEPCION } from '../asignacion/asignacion.constants';
 import type {
   EstadoEnvio,
+  EstadoRepartidor,
   Prisma,
   TamanioPaquete,
   TipoVehiculo,
@@ -259,6 +260,60 @@ export class EnviosRepository {
           select: { creadoEn: true },
         },
       },
+    });
+  }
+
+  async reportarIncidente(
+    repartidorId: number,
+    ubicacion?: string,
+  ): Promise<{ envioId: number; estadoAnterior: EstadoEnvio } | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const envios = await tx.$queryRaw<{ id: number; estado: EstadoEnvio }[]>`
+        SELECT id, estado
+        FROM envios
+        WHERE repartidor_id = ${repartidorId}
+          AND estado IN ('ASIGNADO', 'EN_CAMINO_A_RETIRAR', 'RETIRADO', 'EN_DOMICILIO')
+        ORDER BY id
+        LIMIT 1
+        FOR UPDATE`;
+      const envio = envios[0];
+      if (!envio) return null;
+
+      const repartidores = await tx.$queryRaw<{ estado: EstadoRepartidor }[]>`
+        SELECT estado
+        FROM repartidores
+        WHERE id = ${repartidorId}
+        FOR UPDATE`;
+      if (repartidores[0]?.estado !== 'OCUPADO') return null;
+
+      const paqueteRetirado =
+        envio.estado === 'RETIRADO' || envio.estado === 'EN_DOMICILIO';
+      const ubicacionActual = ubicacion?.trim();
+      if (paqueteRetirado && !ubicacionActual) return null;
+      await tx.envio.update({
+        where: { id: envio.id },
+        data: {
+          estado: 'INTERRUMPIDO',
+          repartidorId: null,
+          ...(paqueteRetirado && { origenDireccion: ubicacionActual }),
+        },
+      });
+      await tx.repartidor.update({
+        where: { id: repartidorId },
+        data: { estado: 'EMERGENCIA', enColaDesde: null },
+      });
+      await tx.eventoEnvio.create({
+        data: {
+          envioId: envio.id,
+          tipo: 'INCIDENTE',
+          estadoAnterior: envio.estado,
+          estadoNuevo: 'INTERRUMPIDO',
+          detalle: 'Incidente reportado en ruta',
+          actorTipo: 'REPARTIDOR',
+          actorId: repartidorId,
+        },
+      });
+      return { envioId: envio.id, estadoAnterior: envio.estado };
     });
   }
 

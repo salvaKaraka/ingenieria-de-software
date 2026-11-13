@@ -100,6 +100,15 @@ describe('JornadaService', () => {
     );
   });
 
+  it('bloquea la reanudación del repartidor en emergencia con el mensaje indicado', async () => {
+    estaEn('EMERGENCIA');
+
+    await expect(servicio.reanudar(1)).rejects.toThrow(
+      'Comunicate con el operario para volver a trabajar',
+    );
+    expect(repo.reanudar).not.toHaveBeenCalled();
+  });
+
   describe('flota', () => {
     it('agrupa por vehículo y ordena primero la cola FIFO y luego el resto', async () => {
       const t1 = new Date('2026-01-01T10:00:00Z');

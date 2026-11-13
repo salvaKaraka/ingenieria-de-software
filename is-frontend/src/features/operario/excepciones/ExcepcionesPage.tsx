@@ -1,14 +1,17 @@
 import { useCallback, useState } from 'react'
 import { Link } from 'react-router'
 import { api, ErrorApi } from '../../../shared/api.ts'
-import { ETIQUETA_VEHICULO, type TipoVehiculo } from '../../../shared/tipos.ts'
+import {
+  ETIQUETA_VEHICULO,
+  type EstadoEnvio,
+  type TipoVehiculo,
+} from '../../../shared/tipos.ts'
 import { Boton, Modal, Selector, Tabla, type Columna } from '../../../shared/ui/index.ts'
+import { EtiquetaEstado } from '../../../shared/ui/EtiquetaEstado.tsx'
 import { usePolling } from '../../../shared/usePolling.ts'
 import { ETIQUETA_ESTADO_REPARTIDOR, type EstadoRepartidor } from '../repartidores/tipos.ts'
 
-// Panel de excepciones · HU 12 y HU 22: envíos que el motor no pudo resolver solo.
-// Hoy entran los que quedaron sin repartidor tras un vencimiento de oferta; cuando exista
-// el estado "Parado" (HU 20/21) el backend los suma a la misma lista.
+// Panel de excepciones · HU 12, HU 20/21 y HU 22: envíos y alertas que requieren atención.
 
 type Excepcion = {
   envioId: number
@@ -17,6 +20,8 @@ type Excepcion = {
   origenDireccion: string
   destinoDireccion: string
   vehiculoRequerido: TipoVehiculo
+  estado: EstadoEnvio
+  puedeAsignar: boolean
   aviso: string
   minutosEspera: number
 }
@@ -83,6 +88,7 @@ export function ExcepcionesPage() {
         </Link>
       ),
     },
+    { titulo: 'Estado', celda: (e) => <EtiquetaEstado estado={e.estado} /> },
     { titulo: 'Comercio', celda: (e) => e.comercio },
     {
       titulo: 'Recorrido',
@@ -97,7 +103,7 @@ export function ExcepcionesPage() {
       titulo: 'Acciones',
       celda: (e) => (
         <div className="flex gap-2">
-          <Boton onClick={() => setAsignando(e)}>Asignar</Boton>
+          {e.puedeAsignar && <Boton onClick={() => setAsignando(e)}>Asignar</Boton>}
           <Boton variante="peligro" onClick={() => setCancelando(e)}>
             Cancelar envío
           </Boton>
@@ -111,7 +117,7 @@ export function ExcepcionesPage() {
       <div>
         <h1 className="text-2xl font-bold">Excepciones</h1>
         <p className="text-sm text-gray-600">
-          Envíos que el sistema no pudo asignar solo. Los que esperan hace más tiempo aparecen primero.
+          Envíos sin repartidor y alertas de incidentes en ruta. Los que requieren atención aparecen primero.
         </p>
       </div>
 

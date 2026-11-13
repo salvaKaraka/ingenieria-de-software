@@ -7,6 +7,7 @@ import { AsignacionService } from '../asignacion/asignacion.service';
 import { inicioDelDia } from './domain/dia';
 import { esTransicionValida, siguienteEstado } from './domain/estado-envio';
 import { AvanzarViajeDto } from './dto/avanzar-viaje.dto';
+import { ReportarIncidenteDto } from './dto/reportar-incidente.dto';
 import { EnviosRepository } from './envios.repository';
 
 const punto = (lat: number | null, lon: number | null) =>
@@ -132,6 +133,46 @@ export class ViajesService {
       await this.asignacionService.reintentarPendientes();
     }
     return { estado: nuevo, siguienteEstado: siguienteEstado(nuevo) };
+  }
+
+  async reportarIncidente(repartidorId: number, dto: ReportarIncidenteDto) {
+    const envio =
+      await this.enviosRepository.buscarViajeActivoPorRepartidor(repartidorId);
+    if (
+      !envio ||
+      !esTransicionValida(envio.estado, 'INTERRUMPIDO', 'REPARTIDOR')
+    ) {
+      throw new ConflictException(
+        'No tenés un viaje activo para reportar un incidente',
+      );
+    }
+
+    const paqueteRetirado =
+      envio.estado === 'RETIRADO' || envio.estado === 'EN_DOMICILIO';
+    const ubicacion = dto.ubicacion?.trim();
+    if (paqueteRetirado && (!ubicacion || ubicacion.length < 3)) {
+      throw new BadRequestException(
+        'Ingresá la ubicación actual para reasignar el paquete',
+      );
+    }
+    const interrumpido = await this.enviosRepository.reportarIncidente(
+      repartidorId,
+      ubicacion,
+    );
+    if (!interrumpido) {
+      throw new ConflictException(
+        'El viaje cambió mientras reportabas el incidente. Actualizá la pantalla e intentá de nuevo.',
+      );
+    }
+
+    const oferta = await this.asignacionService.asignar(interrumpido.envioId);
+    return {
+      estado: 'INTERRUMPIDO' as const,
+      estadoEnvio: oferta ? ('PENDIENTE' as const) : ('PARADO' as const),
+      mensaje: oferta
+        ? 'Incidente reportado. El envío se ofreció a otro repartidor.'
+        : 'Incidente reportado. No hay repartidores compatibles; el envío quedó parado.',
+    };
   }
 
   // E-4 (épica 4.3 / HU 18): no se entrega sin la evidencia que exige el comercio.

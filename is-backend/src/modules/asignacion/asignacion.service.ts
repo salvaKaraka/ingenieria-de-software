@@ -26,8 +26,15 @@ export class AsignacionService {
     // Todo en una transacción: los bloqueos de fila duran hasta que termina.
     return this.repo.transaccion(async (tx) => {
       const envio = await this.repo.bloquearEnvio(tx, envioId);
-      if (!envio || envio.estado !== 'PENDIENTE') return null;
+      if (
+        !envio ||
+        (envio.estado !== 'PENDIENTE' && envio.estado !== 'INTERRUMPIDO')
+      )
+        return null;
       if (await this.repo.tieneOfertaVigente(tx, envioId)) return null;
+      const esReasignacionPorIncidente =
+        envio.estado === 'INTERRUMPIDO' ||
+        (await this.repo.tieneIncidente(tx, envioId));
 
       for (let intento = 0; intento < MAX_INTENTOS; intento++) {
         const candidato = await this.repo.tomarCandidato(
@@ -39,6 +46,9 @@ export class AsignacionService {
           this.logger.log(
             `Envío ${envioId}: sin repartidores disponibles (vehículo mínimo: ${envio.vehiculoRequerido})`,
           );
+          if (esReasignacionPorIncidente) {
+            await this.repo.marcarParado(tx, envioId, envio.estado);
+          }
           return null;
         }
 
@@ -58,6 +68,12 @@ export class AsignacionService {
             continue;
           }
           esAsignacionExcepcional = true;
+        }
+
+        if (envio.estado === 'INTERRUMPIDO') {
+          const pasoAPendiente =
+            await this.repo.marcarInterrumpidoComoPendiente(tx, envioId);
+          if (!pasoAPendiente) return null;
         }
 
         const expiraEn = new Date(Date.now() + OFERTA_SEGUNDOS * 1000);
@@ -84,6 +100,9 @@ export class AsignacionService {
         }
 
         return oferta;
+      }
+      if (esReasignacionPorIncidente) {
+        await this.repo.marcarParado(tx, envioId, envio.estado);
       }
       return null;
     });

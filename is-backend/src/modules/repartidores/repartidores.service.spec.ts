@@ -52,6 +52,7 @@ describe('RepartidoresService', () => {
       darDeBajaSiEstaLibre: jest.fn(),
       cambiarVehiculoSiEstaLibre: jest.fn(),
       reactivarSiEstaInactivo: jest.fn(),
+      rehabilitar: jest.fn(),
       tieneViajeEnTransito: jest.fn(),
     } as unknown as jest.Mocked<RepartidoresRepository>;
 
@@ -228,6 +229,31 @@ describe('RepartidoresService', () => {
       await expect(
         servicio.actualizar(999, { nombre: 'Otro' }),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('rehabilitar', () => {
+    it.each([EstadoRepartidor.EMERGENCIA, EstadoRepartidor.EN_PAUSA])(
+      'devuelve a la cola al repartidor en %s y reintenta pendientes',
+      async (estado) => {
+        repo.buscarPorId.mockResolvedValue({ ...repartidorEjemplo, estado });
+        repo.rehabilitar.mockResolvedValue(true);
+
+        await expect(servicio.rehabilitar(1)).resolves.toEqual({
+          estado: 'DISPONIBLE',
+        });
+        expect(repo.rehabilitar).toHaveBeenCalledWith(1);
+        expect(asignacion.reintentarPendientes).toHaveBeenCalled();
+      },
+    );
+
+    it('rechaza rehabilitar un repartidor que no está en emergencia ni en pausa', async () => {
+      repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
+
+      await expect(servicio.rehabilitar(1)).rejects.toThrow(
+        'Solo se puede rehabilitar a un repartidor en emergencia o en pausa',
+      );
+      expect(repo.rehabilitar).not.toHaveBeenCalled();
     });
   });
 
@@ -567,7 +593,9 @@ describe('RepartidoresService', () => {
       };
       ofertasService.consultarHistorial.mockResolvedValue(resultadoMock);
 
-      const res = await servicio.historialRespuestas(1, { desde: '2026-11-01' });
+      const res = await servicio.historialRespuestas(1, {
+        desde: '2026-11-01',
+      });
 
       expect(repo.buscarPorId).toHaveBeenCalledWith(1);
       expect(ofertasService.consultarHistorial).toHaveBeenCalledWith(1, {

@@ -7,6 +7,8 @@ export type EstadoEnvio =
   | 'EN_CAMINO_A_RETIRAR'
   | 'RETIRADO'
   | 'EN_DOMICILIO'
+  | 'INTERRUMPIDO'
+  | 'PARADO'
   | 'ENTREGADO'
   | 'CANCELADO'
 
@@ -16,6 +18,8 @@ export const ETIQUETA_ESTADO_ENVIO: Record<EstadoEnvio, string> = {
   EN_CAMINO_A_RETIRAR: 'En camino a retirar',
   RETIRADO: 'Paquete retirado',
   EN_DOMICILIO: 'En domicilio de entrega',
+  INTERRUMPIDO: 'Interrumpido',
+  PARADO: 'Parado',
   ENTREGADO: 'Entregado',
   CANCELADO: 'Cancelado',
 }

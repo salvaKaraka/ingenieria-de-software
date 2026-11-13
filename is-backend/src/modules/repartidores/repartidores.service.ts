@@ -189,6 +189,26 @@ export class RepartidoresService {
     return { pin: nuevoPin };
   }
 
+  async rehabilitar(id: number): Promise<{ estado: 'DISPONIBLE' }> {
+    const repartidor = await this.buscarPorId(id);
+    if (
+      repartidor.estado !== 'EMERGENCIA' &&
+      repartidor.estado !== 'EN_PAUSA'
+    ) {
+      throw new ConflictException(
+        'Solo se puede rehabilitar a un repartidor en emergencia o en pausa',
+      );
+    }
+
+    if (!(await this.repo.rehabilitar(id))) {
+      throw new ConflictException(
+        'El estado del repartidor cambió. Actualizá la flota e intentá de nuevo.',
+      );
+    }
+    await this.asignacion.reintentarPendientes();
+    return { estado: 'DISPONIBLE' };
+  }
+
   // Vuelve a habilitar a un repartidor dado de baja: es la única forma de que regrese, porque
   // su DNI y su email siguen ocupados y no se lo puede dar de alta otra vez.
   async reactivar(id: number): Promise<RepartidorConPin> {
@@ -249,10 +269,7 @@ export class RepartidoresService {
   }
 
   // HU #28: Historial de respuestas y métricas de ofertas del repartidor
-  async historialRespuestas(
-    id: number,
-    filtro?: FiltroHistorialRespuestasDto,
-  ) {
+  async historialRespuestas(id: number, filtro?: FiltroHistorialRespuestasDto) {
     await this.buscarPorId(id);
     return this.ofertasService.consultarHistorial(id, filtro);
   }

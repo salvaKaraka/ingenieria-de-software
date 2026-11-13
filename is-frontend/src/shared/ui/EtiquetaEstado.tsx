@@ -6,6 +6,8 @@ const COLORES: Record<EstadoEnvio, string> = {
   EN_CAMINO_A_RETIRAR: 'bg-indigo-100 text-indigo-800',
   RETIRADO: 'bg-violet-100 text-violet-800',
   EN_DOMICILIO: 'bg-blue-100 text-blue-800',
+  INTERRUMPIDO: 'bg-red-100 text-red-800',
+  PARADO: 'bg-orange-100 text-orange-800',
   ENTREGADO: 'bg-green-100 text-green-800',
   CANCELADO: 'bg-gray-200 text-gray-700',
 }

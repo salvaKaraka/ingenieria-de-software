@@ -52,7 +52,7 @@ const PANTALLA: Record<
   },
   EMERGENCIA: {
     titulo: 'Emergencia',
-    detalle: 'La central está al tanto.',
+    detalle: 'Comunicate con el operario para volver a trabajar.',
   },
   ESPERANDO_VALIDACION_CIERRE: {
     titulo: 'Esperando validación de cierre',

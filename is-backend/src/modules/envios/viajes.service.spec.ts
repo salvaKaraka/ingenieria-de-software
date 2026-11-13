@@ -8,8 +8,12 @@ describe('ViajesService', () => {
     buscarViajeActivoPorRepartidor: jest.fn(),
     avanzarViaje: jest.fn(),
     listarEntregadosDelRepartidorDesde: jest.fn(),
+    reportarIncidente: jest.fn(),
   };
-  const asignacion = { reintentarPendientes: jest.fn() };
+  const asignacion = {
+    asignar: jest.fn(),
+    reintentarPendientes: jest.fn(),
+  };
   let service: ViajesService;
 
   const envioEn = (estado: string) => ({
@@ -72,6 +76,62 @@ describe('ViajesService', () => {
     );
     const { viaje } = await service.obtenerViajeActual(1);
     expect(viaje?.aviso).toBeNull();
+  });
+
+  it('reporta un incidente, interrumpe el viaje y dispara la reasignación', async () => {
+    repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
+      envioEn('RETIRADO'),
+    );
+    repository.reportarIncidente.mockResolvedValue({
+      envioId: 5,
+      estadoAnterior: 'RETIRADO',
+    });
+    asignacion.asignar.mockResolvedValue({ id: 8 });
+
+    await expect(
+      service.reportarIncidente(1, { ubicacion: '  Calle 9 123  ' }),
+    ).resolves.toMatchObject({
+      estado: 'INTERRUMPIDO',
+      estadoEnvio: 'PENDIENTE',
+    });
+    expect(repository.reportarIncidente).toHaveBeenCalledWith(1, 'Calle 9 123');
+    expect(asignacion.asignar).toHaveBeenCalledWith(5);
+  });
+
+  it('deja parado el envío si el motor no encuentra reemplazo', async () => {
+    repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
+      envioEn('EN_CAMINO_A_RETIRAR'),
+    );
+    repository.reportarIncidente.mockResolvedValue({
+      envioId: 5,
+      estadoAnterior: 'EN_CAMINO_A_RETIRAR',
+    });
+    asignacion.asignar.mockResolvedValue(null);
+
+    await expect(
+      service.reportarIncidente(1, {}),
+    ).resolves.toMatchObject({ estadoEnvio: 'PARADO' });
+    expect(repository.reportarIncidente).toHaveBeenCalledWith(1, undefined);
+  });
+
+  it('exige ubicación si el repartidor ya retiró el paquete', async () => {
+    repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
+      envioEn('RETIRADO'),
+    );
+
+    await expect(service.reportarIncidente(1, {})).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(repository.reportarIncidente).not.toHaveBeenCalled();
+  });
+
+  it('rechaza reportar un incidente sin viaje en curso', async () => {
+    repository.buscarViajeActivoPorRepartidor.mockResolvedValue(null);
+
+    await expect(
+      service.reportarIncidente(1, { ubicacion: 'Calle 9 123' }),
+    ).rejects.toThrow('No tenés un viaje activo para reportar un incidente');
+    expect(repository.reportarIncidente).not.toHaveBeenCalled();
   });
 
   it('avanza un paso y no dispara el motor si todavía no entregó', async () => {
