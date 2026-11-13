@@ -1,18 +1,32 @@
 import { NotFoundException } from '@nestjs/common';
 import { SeguimientoService } from './seguimiento.service';
 import { SeguimientoRepository } from './seguimiento.repository';
+import type { MapasService } from '../mapas/mapas.service';
 import type { EstadoEnvio } from '../../generated/prisma/client';
 
 describe('SeguimientoService', () => {
   let service: SeguimientoService;
-  let repository: { buscarPorCodigo: jest.Mock };
+  let repository: {
+    buscarPorCodigo: jest.Mock;
+    entregasAnteriores: jest.Mock;
+    guardarDuracionEstimada: jest.Mock;
+  };
+  let mapas: { duracionDelViajeMin: jest.Mock };
 
   beforeEach(() => {
     repository = {
       buscarPorCodigo: jest.fn(),
+      entregasAnteriores: jest.fn().mockResolvedValue([]),
+      // Devuelve lo mismo que recibe: como si nadie lo hubiera guardado antes.
+      guardarDuracionEstimada: jest.fn((_id: number, minutos: number) =>
+        Promise.resolve(minutos),
+      ),
     };
+    // Por defecto el mapa falla: cada test que lo necesita lo pisa.
+    mapas = { duracionDelViajeMin: jest.fn().mockResolvedValue(null) };
     service = new SeguimientoService(
       repository as unknown as SeguimientoRepository,
+      mapas as unknown as MapasService,
     );
   });
 
@@ -141,5 +155,118 @@ describe('SeguimientoService', () => {
         fecha: fechaRetirado.toISOString(),
       });
     });
+  });
+
+  describe('Franja estimada de llegada (HU 70)', () => {
+    const salida = new Date('2026-11-12T14:00:00Z');
+    const entregaDe40 = {
+      retiradoEn: new Date('2026-11-12T10:00:00Z'),
+      entregadoEn: new Date('2026-11-12T10:40:00Z'),
+    };
+
+    // Envío mínimo en `estado`; si `salio`, tiene el evento de RETIRADO a las 14:00.
+    const envioEn = (
+      estado: EstadoEnvio,
+      { salio = true, duracionEstimadaMin = null as number | null } = {},
+    ) => ({
+      id: 7,
+      codigoSeguimiento: 'TRK1',
+      estado,
+      origenDireccion: 'Calle 50 567',
+      origenLat: -34.914,
+      origenLon: -57.949,
+      destinoDireccion: 'Avenida 7 1234',
+      destinoLat: null,
+      destinoLon: null,
+      vehiculoRequerido: 'MOTO',
+      duracionEstimadaMin,
+      creadoEn: new Date('2026-11-12T12:00:00Z'),
+      comercio: { nombre: 'Kiosco' },
+      eventos: salio ? [{ estadoNuevo: 'RETIRADO', creadoEn: salida }] : [],
+    });
+
+    it('calcula la franja con la ruta del mapa más 10 minutos para entregar, y la guarda', async () => {
+      repository.buscarPorCodigo.mockResolvedValue(envioEn('RETIRADO'));
+      mapas.duracionDelViajeMin.mockResolvedValue(30);
+
+      const resultado = await service.consultar('TRK1');
+
+      // El origen tiene el punto que marcó el operario; el destino no, y se busca por dirección.
+      expect(mapas.duracionDelViajeMin).toHaveBeenCalledWith(
+        {
+          direccion: 'Calle 50 567',
+          coordenadas: { lat: -34.914, lon: -57.949 },
+        },
+        { direccion: 'Avenida 7 1234', coordenadas: null },
+        'MOTO',
+      );
+      // 30 de manejo + 10 para entregar
+      expect(repository.guardarDuracionEstimada).toHaveBeenCalledWith(7, 40);
+      expect(repository.entregasAnteriores).not.toHaveBeenCalled();
+      expect(resultado.franjaEstimadaInicio).toBe('2026-11-12T14:25:00.000Z');
+      expect(resultado.franjaEstimadaFin).toBe('2026-11-12T14:55:00.000Z');
+    });
+
+    it('si el mapa falla, usa el promedio de las entregas anteriores a la salida', async () => {
+      repository.buscarPorCodigo.mockResolvedValue(envioEn('RETIRADO'));
+      repository.entregasAnteriores.mockResolvedValue(
+        Array(5).fill(entregaDe40),
+      );
+
+      const resultado = await service.consultar('TRK1');
+
+      expect(repository.entregasAnteriores).toHaveBeenCalledWith(
+        'MOTO',
+        salida,
+      );
+      expect(repository.guardarDuracionEstimada).toHaveBeenCalledWith(7, 40);
+      expect(resultado.franjaEstimadaInicio).toBe('2026-11-12T14:25:00.000Z');
+    });
+
+    it('si el mapa falla y hay pocas entregas, usa 60 minutos', async () => {
+      repository.buscarPorCodigo.mockResolvedValue(envioEn('EN_DOMICILIO'));
+
+      const resultado = await service.consultar('TRK1');
+
+      expect(resultado.franjaEstimadaInicio).toBe('2026-11-12T14:45:00.000Z');
+      expect(resultado.franjaEstimadaFin).toBe('2026-11-12T15:15:00.000Z');
+    });
+
+    it('si la duración ya estaba guardada, no vuelve a calcularla', async () => {
+      repository.buscarPorCodigo.mockResolvedValue(
+        envioEn('RETIRADO', { duracionEstimadaMin: 40 }),
+      );
+
+      const resultado = await service.consultar('TRK1');
+
+      expect(mapas.duracionDelViajeMin).not.toHaveBeenCalled();
+      expect(repository.guardarDuracionEstimada).not.toHaveBeenCalled();
+      expect(resultado.franjaEstimadaInicio).toBe('2026-11-12T14:25:00.000Z');
+    });
+
+    it('no la muestra si el envío todavía no salió', async () => {
+      repository.buscarPorCodigo.mockResolvedValue(
+        envioEn('ASIGNADO', { salio: false }),
+      );
+
+      const resultado = await service.consultar('TRK1');
+
+      expect(resultado.franjaEstimadaInicio).toBeUndefined();
+      expect(resultado.horaSalida).toBeUndefined();
+      expect(mapas.duracionDelViajeMin).not.toHaveBeenCalled();
+    });
+
+    it.each(['ENTREGADO', 'CANCELADO'] as EstadoEnvio[])(
+      'no la muestra si el envío está %s',
+      async (estado) => {
+        repository.buscarPorCodigo.mockResolvedValue(envioEn(estado));
+
+        const resultado = await service.consultar('TRK1');
+
+        expect(resultado.franjaEstimadaInicio).toBeUndefined();
+        expect(resultado.franjaEstimadaFin).toBeUndefined();
+        expect(mapas.duracionDelViajeMin).not.toHaveBeenCalled();
+      },
+    );
   });
 });

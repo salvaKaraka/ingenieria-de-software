@@ -5,6 +5,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../app.module';
 import { PrismaService } from '../database/prisma.service';
 import { verificarBaseLocal } from '../dev/dev.constants';
+import { puntoDe } from './puntos-demo';
 import type {
   EstadoEnvio,
   TamanioPaquete,
@@ -23,7 +24,7 @@ const VEHICULO_MINIMO: Record<TamanioPaquete, TipoVehiculo> = {
 const COMERCIOS = [
   {
     nombre: 'Kiosco Don Pepe',
-    direccion: 'Calle 7 1234',
+    direccion: 'Avenida 7 1234',
     foto: false,
     dni: false,
   },
@@ -99,14 +100,14 @@ const ENVIOS: EnvioSeed[] = [
   {
     comercio: 4,
     tamanio: 'CHICO',
-    destino: 'Calle 13 1450',
+    destino: 'Avenida 13 1450',
     destinatario: ['Diego', 'Funes'],
     final: 'PENDIENTE',
   },
   {
     comercio: 1,
     tamanio: 'MEDIANO',
-    destino: 'Calle 60 300',
+    destino: 'Avenida 60 300',
     destinatario: ['Laura', 'Méndez'],
     final: 'PENDIENTE',
   },
@@ -122,7 +123,7 @@ const ENVIOS: EnvioSeed[] = [
   {
     comercio: 0,
     tamanio: 'CHICO',
-    destino: 'Calle 44 980',
+    destino: 'Avenida 44 980',
     destinatario: ['Julia', 'Castro'],
     final: 'ASIGNADO',
     repartidor: 0,
@@ -130,7 +131,7 @@ const ENVIOS: EnvioSeed[] = [
   {
     comercio: 2,
     tamanio: 'CHICO',
-    destino: 'Calle 1 220',
+    destino: 'Avenida 1 220',
     destinatario: ['Ramiro', 'Vega'],
     final: 'RETIRADO',
     repartidor: 1,
@@ -146,7 +147,7 @@ const ENVIOS: EnvioSeed[] = [
   {
     comercio: 3,
     tamanio: 'GRANDE',
-    destino: 'Calle 32 715',
+    destino: 'Avenida 32 715',
     destinatario: ['Hernán', 'Molina'],
     final: 'EN_DOMICILIO',
     repartidor: 6,
@@ -163,7 +164,7 @@ const ENVIOS: EnvioSeed[] = [
   {
     comercio: 0,
     tamanio: 'CHICO',
-    destino: 'Calle 19 540',
+    destino: 'Avenida 19 540',
     destinatario: ['Nicolás', 'Acosta'],
     final: 'ENTREGADO',
     repartidor: 0,
@@ -179,7 +180,7 @@ const ENVIOS: EnvioSeed[] = [
   {
     comercio: 1,
     tamanio: 'MEDIANO',
-    destino: 'Calle 66 410',
+    destino: 'Avenida 66 410',
     destinatario: ['Agustín', 'Navarro'],
     final: 'ENTREGADO',
     repartidor: 5,
@@ -187,7 +188,7 @@ const ENVIOS: EnvioSeed[] = [
   {
     comercio: 3,
     tamanio: 'GRANDE',
-    destino: 'Calle 137 2200',
+    destino: 'Avenida 137 2200',
     destinatario: ['Rocío', 'Medina'],
     final: 'ENTREGADO',
     repartidor: 7,
@@ -204,7 +205,7 @@ const ENVIOS: EnvioSeed[] = [
   {
     comercio: 2,
     tamanio: 'MEDIANO',
-    destino: 'Calle 38 505',
+    destino: 'Avenida 38 505',
     destinatario: ['Paula', 'Ortiz'],
     final: 'CANCELADO',
     canceladoDesde: 'ASIGNADO',
@@ -322,6 +323,8 @@ async function main() {
               comercioId: comercio.id,
               origenDireccion: comercio.direccion,
               destinoDireccion: e.destino,
+              ...puntoDe('origen', comercio.direccion),
+              ...puntoDe('destino', e.destino),
               destinatarioNombre: e.destinatario[0],
               destinatarioApellido: e.destinatario[1],
               destinatarioTelefono: `221 600-0${String(i).padStart(3, '0')}`,

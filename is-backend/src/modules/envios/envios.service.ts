@@ -36,6 +36,8 @@ const VEHICULO_MINIMO: Record<TamanioPaquete, TipoVehiculo> = {
 // Cómo se nombra cada dato en el historial cuando el operario lo modifica (HU 31).
 const ETIQUETA_CAMPO: Record<keyof ActualizarEnvioDto, string> = {
   destinoDireccion: 'dirección de entrega',
+  destinoLat: 'punto de entrega en el mapa',
+  destinoLon: 'punto de entrega en el mapa',
   destinatarioNombre: 'nombre del destinatario',
   destinatarioApellido: 'apellido del destinatario',
   destinatarioDni: 'DNI del destinatario',
@@ -100,6 +102,10 @@ export class EnviosService {
           comercioId: dto.comercioId,
           origenDireccion: delComercio.origenDireccion,
           destinoDireccion: dto.destinoDireccion,
+          origenLat: dto.origenLat,
+          origenLon: dto.origenLon,
+          destinoLat: dto.destinoLat,
+          destinoLon: dto.destinoLon,
           destinatarioNombre: dto.destinatarioNombre,
           destinatarioApellido: dto.destinatarioApellido,
           destinatarioDni: dto.destinatarioDni,
@@ -251,6 +257,15 @@ export class EnviosService {
           valor !== undefined && valor !== envio[campo as keyof typeof dto],
       ),
     ) as Pick<ActualizarEnvioDto, keyof ActualizarEnvioDto>;
+    // Una dirección nueva sin punto en el mapa: el punto viejo ya no le corresponde.
+    if (
+      cambios.destinoDireccion !== undefined &&
+      dto.destinoLat === undefined &&
+      envio.destinoLat !== null
+    ) {
+      cambios.destinoLat = null;
+      cambios.destinoLon = null;
+    }
     const camposCambiados = Object.keys(
       cambios,
     ) as (keyof ActualizarEnvioDto)[];
@@ -269,8 +284,12 @@ export class EnviosService {
     const cambiaVehiculo =
       nuevoVehiculo !== undefined && nuevoVehiculo !== envio.vehiculoRequerido;
 
+    // Mover el punto en el mapa también le cambia el destino al repartidor.
     const avisoDireccion =
-      cambios.destinoDireccion !== undefined && envio.repartidorId !== null;
+      (cambios.destinoDireccion !== undefined ||
+        cambios.destinoLat !== undefined ||
+        cambios.destinoLon !== undefined) &&
+      envio.repartidorId !== null;
 
     const actualizado = await this.enviosRepository.actualizar(
       id,
@@ -284,7 +303,8 @@ export class EnviosService {
         cambiaVehiculo,
         avisoDireccion,
         // Sin los valores: el historial no tiene por qué mostrar el DNI.
-        detalle: `Datos modificados: ${camposCambiados.map((campo) => ETIQUETA_CAMPO[campo]).join(', ')}`,
+        // Set: la latitud y la longitud se nombran igual y no tienen que salir dos veces.
+        detalle: `Datos modificados: ${[...new Set(camposCambiados.map((campo) => ETIQUETA_CAMPO[campo]))].join(', ')}`,
       },
     );
 

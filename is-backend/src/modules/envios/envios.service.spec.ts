@@ -381,6 +381,8 @@ describe('EnviosService', () => {
       tamanio: 'CHICO',
       vehiculoRequerido: 'MOTO',
       destinoDireccion: 'Calle 50 123',
+      destinoLat: null,
+      destinoLon: null,
       destinatarioNombre: 'Ana',
       destinatarioApellido: 'Paz',
       destinatarioDni: '30111222',
@@ -544,6 +546,88 @@ describe('EnviosService', () => {
           detalle: 'Datos modificados: dirección de entrega',
         },
       );
+    });
+
+    describe('punto de entrega en el mapa (HU 70)', () => {
+      const conPunto = { destinoLat: -34.91, destinoLon: -57.95 };
+
+      beforeEach(() => repository.actualizar.mockResolvedValue({ id: 5 }));
+
+      it('guarda la dirección nueva con el punto que marcó el operario', async () => {
+        repository.buscarParaActualizar.mockResolvedValue(envioEditable());
+        await service.actualizar(
+          5,
+          {
+            destinoDireccion: 'Avenida 7 1234',
+            destinoLat: -34.92,
+            destinoLon: -57.94,
+          },
+          OPERARIO_ID,
+        );
+
+        expect(repository.actualizar).toHaveBeenCalledWith(
+          5,
+          'PENDIENTE',
+          {
+            destinoDireccion: 'Avenida 7 1234',
+            destinoLat: -34.92,
+            destinoLon: -57.94,
+          },
+          OPERARIO_ID,
+          expect.objectContaining({
+            detalle:
+              'Datos modificados: dirección de entrega, punto de entrega en el mapa',
+          }),
+        );
+      });
+
+      it('borra el punto viejo si cambia la dirección y no viene uno nuevo', async () => {
+        repository.buscarParaActualizar.mockResolvedValue(
+          envioEditable(conPunto),
+        );
+
+        await service.actualizar(
+          5,
+          { destinoDireccion: 'Avenida 7 1234' },
+          OPERARIO_ID,
+        );
+
+        expect(repository.actualizar).toHaveBeenCalledWith(
+          5,
+          'PENDIENTE',
+          {
+            destinoDireccion: 'Avenida 7 1234',
+            destinoLat: null,
+            destinoLon: null,
+          },
+          OPERARIO_ID,
+          expect.anything(),
+        );
+      });
+
+      it('mover solo el punto le avisa al repartidor asignado', async () => {
+        repository.buscarParaActualizar.mockResolvedValue(
+          envioEditable({ ...conPunto, estado: 'ASIGNADO', repartidorId: 8 }),
+        );
+
+        await service.actualizar(
+          5,
+          { destinoLat: -34.92, destinoLon: -57.95 },
+          OPERARIO_ID,
+        );
+
+        expect(repository.actualizar).toHaveBeenCalledWith(
+          5,
+          'ASIGNADO',
+          { destinoLat: -34.92 },
+          OPERARIO_ID,
+          {
+            cambiaVehiculo: false,
+            avisoDireccion: true,
+            detalle: 'Datos modificados: punto de entrega en el mapa',
+          },
+        );
+      });
     });
 
     it('rechaza con 409 y mensaje exacto si el paquete ya fue retirado', async () => {

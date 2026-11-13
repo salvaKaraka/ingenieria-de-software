@@ -147,6 +147,12 @@ model Envio {
   comercio             Comercio       @relation(fields: [comercioId], references: [id])
   origenDireccion      String         @map("origen_direccion")
   destinoDireccion     String         @map("destino_direccion")
+  // Dónde está cada dirección en el mapa (HU 70). El operario confirma el punto al cargar el
+  // envío; quedan vacías si el mapa no encontró la dirección y nadie marcó el punto.
+  origenLat            Float?         @map("origen_lat")
+  origenLon            Float?         @map("origen_lon")
+  destinoLat           Float?         @map("destino_lat")
+  destinoLon           Float?         @map("destino_lon")
   destinatarioNombre   String?        @map("destinatario_nombre")
   destinatarioApellido String?        @map("destinatario_apellido")
   destinatarioDni      String?        @map("destinatario_dni")
@@ -159,6 +165,9 @@ model Envio {
   requiereDni          Boolean        @map("requiere_dni")
   // Foto de la entrega (HU 18) como data URI. Pesa cientos de kb: solo la devuelve el detalle del envío.
   fotoUrl              String?        @map("foto_url")
+  // Minutos que se estima que tarda el viaje del retiro a la entrega (HU 70). Se calcula una
+  // sola vez y se guarda: así la franja que ve el destinatario no cambia entre consultas.
+  duracionEstimadaMin  Int?           @map("duracion_estimada_min")
   estado               EstadoEnvio    @default(PENDIENTE)
   repartidorId         Int?           @map("repartidor_id")
   // Restrict: un repartidor con envíos no se puede borrar (las bajas son lógicas) y no se pierde el historial

@@ -10,6 +10,8 @@ export interface TrackingPublicoDto {
   destinatario: string; // Enmascarado: Nombre e inicial de apellido (ej: "Juan P.")
   direccionDestino: string; // Enmascarada: Calle sin altura (ej: "Av. Corrientes")
   horaSalida?: string; // Momento en que pasó a RETIRADO (Supuesto 7)
+  // Franja estimada de llegada (HU 70), en ISO: el navegador la muestra en su hora local.
+  // Solo viene mientras el paquete va hacia el domicilio.
   franjaEstimadaInicio?: string;
   franjaEstimadaFin?: string;
   fechaEntrega?: string;

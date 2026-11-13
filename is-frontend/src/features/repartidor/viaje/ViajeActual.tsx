@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { api, ErrorApi } from '../../../shared/api.ts'
 import type { EstadoEnvio } from '../../../shared/tipos.ts'
-import { BotonGrande } from '../../../shared/ui/index.ts'
+import { BotonGrande, Mapa, type Coordenadas, type PuntoMapa } from '../../../shared/ui/index.ts'
 import { usePolling } from '../../../shared/usePolling.ts'
 
 // Lo que devuelve GET /api/repartidor/viajes/actual (E-2).
@@ -15,6 +15,9 @@ type Viaje = {
   comercio: { nombre: string; telefono: string }
   origenDireccion: string
   destinoDireccion: string
+  // Puntos en el mapa (HU 70); null si la dirección no se ubicó al cargar el envío.
+  origen: Coordenadas | null
+  destino: Coordenadas | null
   destinatario: { nombre: string | null; apellido: string | null; telefono: string | null }
   observaciones: string | null
   requiereFoto: boolean
@@ -219,6 +222,52 @@ function EvidenciaEntrega({
 // E-3: viaje activo, en la pantalla principal del repartidor. Arriba va lo de la etapa actual
 // (adónde ir ahora) y un único botón con la próxima acción, con confirmación: 2 toques (RNF-10).
 // El resto de los datos del viaje queda en un desplegable para no saturar la pantalla.
+// Las direcciones se cargan sin ciudad ("Calle 50 567"): sin esto Google podría buscarlas en otra.
+const CIUDAD = 'La Plata, Buenos Aires'
+
+// Link de navegación de Google Maps hacia la próxima parada. Es un link común: abre la app de
+// Google Maps del celular, sin API ni costo. Usa el punto del mapa si lo hay y si no, la dirección.
+function linkNavegacion(punto: Coordenadas | null, direccion: string): string {
+  const destino = punto ? `${punto.lat},${punto.lon}` : `${direccion}, ${CIUDAD}`
+  return `https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=${encodeURIComponent(destino)}`
+}
+
+function MapaDelViaje({ viaje, enRetiro }: { viaje: Viaje; enRetiro: boolean }) {
+  const puntos: PuntoMapa[] = []
+  if (viaje.origen) puntos.push({ ...viaje.origen, etiqueta: `Retiro: ${viaje.comercio.nombre}`, color: 'azul' })
+  if (viaje.destino) puntos.push({ ...viaje.destino, etiqueta: 'Entrega', color: 'verde' })
+  const proxima = enRetiro
+    ? linkNavegacion(viaje.origen, viaje.origenDireccion)
+    : linkNavegacion(viaje.destino, viaje.destinoDireccion)
+
+  return (
+    <div className="space-y-3">
+      {puntos.length > 0 && (
+        <>
+          <Mapa puntos={puntos} alto={220} />
+          <p className="flex gap-4 text-base text-slate-300">
+            <span>
+              <span className="mr-1 inline-block size-3 rounded-full bg-blue-600" /> Retiro
+            </span>
+            <span>
+              <span className="mr-1 inline-block size-3 rounded-full bg-green-600" /> Entrega
+            </span>
+          </p>
+        </>
+      )}
+      {/* Mismo aspecto que BotonGrande, pero es un link: abre Google Maps en una pestaña nueva. */}
+      <a
+        href={proxima}
+        target="_blank"
+        rel="noreferrer"
+        className="flex min-h-16 w-full items-center justify-center rounded-2xl bg-white px-6 text-xl font-bold text-black active:bg-gray-200"
+      >
+        {enRetiro ? 'Cómo llegar al comercio' : 'Cómo llegar a la entrega'}
+      </a>
+    </div>
+  )
+}
+
 export function ViajeActual({ alEntregar }: { alEntregar: () => void }) {
   // undefined = todavía cargando; null = no hay viaje activo.
   const [viaje, setViaje] = useState<Viaje | null | undefined>(undefined)
@@ -328,6 +377,8 @@ export function ViajeActual({ alEntregar }: { alEntregar: () => void }) {
         )}
         {viaje.observaciones && <Dato titulo="Observaciones">{viaje.observaciones}</Dato>}
       </dl>
+
+      <MapaDelViaje viaje={viaje} enRetiro={enRetiro} />
 
       {entregando ? (
         <EvidenciaEntrega
