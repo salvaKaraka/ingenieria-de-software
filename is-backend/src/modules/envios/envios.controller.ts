@@ -1,3 +1,4 @@
+import { CrearNovedadDto } from './dto/crear-novedad.dto';
 import {
   Body,
   Controller,
@@ -65,5 +66,11 @@ export class EnviosController {
     @UsuarioActual() usuario: UsuarioAutenticado,
   ) {
     return this.enviosService.cancelar(id, usuario.id);
+  }
+
+  @Post(':id/novedad')
+  async registrarNovedad(@Param('id') id: string, @Body() dto: CrearNovedadDto) {
+    const repartidorId = 1; 
+    return this.enviosService.registrarNovedad(+id, repartidorId, dto);
   }
 }

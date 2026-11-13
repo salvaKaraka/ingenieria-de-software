@@ -1,3 +1,4 @@
+import { CrearNovedadDto } from './dto/crear-novedad.dto';
 import {
   BadRequestException,
   ConflictException,
@@ -348,5 +349,9 @@ export class EnviosService {
     return fecha.length === 10
       ? convertirMedianocheArgentinaAUTC(fecha)
       : new Date(fecha);
+  }
+
+  async registrarNovedad(envioId: number, repartidorId: number, dto: CrearNovedadDto) {
+    return this.enviosRepository.registrarNovedad(envioId, repartidorId, dto.tipo, dto.comentario);
   }
 }

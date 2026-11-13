@@ -595,4 +595,17 @@ export class EnviosRepository {
       data: { estado: 'DISPONIBLE', enColaDesde: new Date(), ...extra },
     });
   }
+
+  async registrarNovedad(envioId: number, repartidorId: number, tipo: string, comentario?: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const envio = await tx.envio.findUnique({ where: { id: envioId } });
+      if (!envio || envio.estado !== 'EN_DOMICILIO_ENTREGA') {
+        throw new Error('El envío no se encuentra en domicilio de entrega');
+      }
+      const novedad = await tx.novedad.create({ data: { envioId, tipo, comentario } });
+      await tx.envio.update({ where: { id: envioId }, data: { estado: 'CON_NOVEDAD' } });
+      await tx.repartidor.update({ where: { id: repartidorId }, data: { estado: 'DISPONIBLE' } });
+      return novedad;
+    });
+  }
 }

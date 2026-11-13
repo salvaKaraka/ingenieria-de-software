@@ -41,6 +41,7 @@ enum EstadoEnvio {
   EN_DOMICILIO
   ENTREGADO
   CANCELADO
+  CON_NOVEDAD
 }
 
 // Estado operativo del repartidor durante la jornada (épica 3.1).
@@ -174,9 +175,10 @@ model Envio {
   repartidor           Repartidor?    @relation(fields: [repartidorId], references: [id], onDelete: Restrict)
   creadoEn             DateTime       @default(now()) @map("creado_en")
   actualizadoEn        DateTime       @updatedAt @map("actualizado_en")
-
+  
   eventos EventoEnvio[]
   ofertas Oferta[]
+  novedades  Novedad[]
 
   @@index([estado])
   @@index([comercioId])
@@ -258,4 +260,13 @@ model RefreshToken {
   // Revocar todas las sesiones de un usuario (logout, baja, fin de jornada)
   @@index([rol, usuarioId])
   @@map("refresh_tokens")
+}
+
+model Novedad {
+  id         Int      @id @default(autoincrement())
+  envioId    Int      @map("envio_id")
+  envio      Envio    @relation(fields: [envioId], references: [id])
+  tipo       String   // "Cliente ausente" o "Dirección incorrecta"
+  comentario String?
+  fecha      DateTime @default(now())
 }
