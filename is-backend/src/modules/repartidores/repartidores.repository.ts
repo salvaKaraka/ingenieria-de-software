@@ -219,6 +219,18 @@ export class RepartidoresRepository {
     return count > 0;
   }
 
+  async rehabilitar(id: number): Promise<boolean> {
+    const { count } = await this.prisma.repartidor.updateMany({
+      where: {
+        id,
+        activo: true,
+        estado: { in: ['EMERGENCIA', 'EN_PAUSA'] },
+      },
+      data: { estado: 'DISPONIBLE', enColaDesde: new Date() },
+    });
+    return count > 0;
+  }
+
   // Flota en jornada (C-3): repartidores activos que no están FUERA_DE_JORNADA
   async obtenerFlota(): Promise<RepartidorPublico[]> {
     return this.prisma.repartidor.findMany({

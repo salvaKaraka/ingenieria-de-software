@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { EstadoEnvio } from '../../generated/prisma/client';
 import { OFERTA_SEGUNDOS } from '../asignacion/asignacion.constants';
 import {
   AVISO_MOTIVO,
@@ -22,14 +23,15 @@ export type ExcepcionListada = {
   destinoDireccion: string;
   tamanio: string;
   vehiculoRequerido: string;
-  estado: string;
+  estado: EstadoEnvio;
   motivo: MotivoExcepcion;
   aviso: string;
+  puedeAsignar: boolean;
   esperaDesde: Date;
   minutosEspera: number;
 };
 
-// Panel de excepciones del operario (HU 22) y aviso de envío sin repartidor (HU 12).
+// Panel de excepciones del operario (HU 12, HU 20/21 y HU 22).
 @Injectable()
 export class ExcepcionesService {
   constructor(private readonly repo: ExcepcionesRepository) {}
@@ -37,11 +39,15 @@ export class ExcepcionesService {
   async listar(
     ahora: Date = new Date(),
   ): Promise<{ excepciones: ExcepcionListada[] }> {
-    const sinRepartidor = await this.repo.listarSinRepartidor();
+    const [sinRepartidor, incidentes] = await Promise.all([
+      this.repo.listarSinRepartidor(),
+      this.repo.listarIncidentesActivos(),
+    ]);
 
-    const excepciones = sinRepartidor.map((envio): ExcepcionListada => {
+    const excepciones = new Map<number, ExcepcionListada>();
+    for (const envio of sinRepartidor) {
       const esperaDesde = envio.ofertas[0].expiraEn;
-      return {
+      excepciones.set(envio.id, {
         envioId: envio.id,
         codigoSeguimiento: envio.codigoSeguimiento,
         comercio: envio.comercio.nombre,
@@ -52,12 +58,38 @@ export class ExcepcionesService {
         estado: envio.estado,
         motivo: 'SIN_REPARTIDOR',
         aviso: AVISO_MOTIVO.SIN_REPARTIDOR,
+        puedeAsignar: true,
         esperaDesde,
         minutosEspera: minutosDeEspera(esperaDesde, ahora),
-      };
-    });
+      });
+    }
 
-    return { excepciones: ordenarPorEspera(excepciones) };
+    for (const envio of incidentes) {
+      const incidente = envio.eventos[0];
+      if (!incidente) continue;
+      const parado = envio.estado === 'PARADO';
+      excepciones.set(envio.id, {
+        envioId: envio.id,
+        codigoSeguimiento: envio.codigoSeguimiento,
+        comercio: envio.comercio.nombre,
+        origenDireccion: envio.origenDireccion,
+        destinoDireccion: envio.destinoDireccion,
+        tamanio: envio.tamanio,
+        vehiculoRequerido: envio.vehiculoRequerido,
+        estado: envio.estado,
+        motivo: parado ? 'PARADO' : 'INCIDENTE',
+        aviso: parado
+          ? AVISO_MOTIVO.PARADO
+          : (incidente.detalle ?? AVISO_MOTIVO.INCIDENTE),
+        puedeAsignar:
+          parado ||
+          (envio.estado === 'PENDIENTE' && envio.ofertas.length === 0),
+        esperaDesde: incidente.creadoEn,
+        minutosEspera: minutosDeEspera(incidente.creadoEn, ahora),
+      });
+    }
+
+    return { excepciones: ordenarPorEspera([...excepciones.values()]) };
   }
 
   async repartidoresAsignables(envioId: number) {
@@ -77,7 +109,7 @@ export class ExcepcionesService {
     return this.repo.transaccion(async (tx) => {
       const envio = await this.repo.bloquearEnvio(tx, envioId);
       if (!envio) throw new NotFoundException('El envío no existe');
-      if (envio.estado !== 'PENDIENTE')
+      if (envio.estado !== 'PENDIENTE' && envio.estado !== 'PARADO')
         throw new ConflictException('El envío ya no espera repartidor');
       if (await this.repo.envioTieneOfertaVigente(tx, envioId))
         throw new ConflictException(
@@ -96,6 +128,15 @@ export class ExcepcionesService {
         ),
       });
       if (motivo) throw new ConflictException(motivo);
+
+      if (
+        envio.estado === 'PARADO' &&
+        !(await this.repo.reactivarEnvioParado(tx, envioId, operarioId))
+      ) {
+        throw new ConflictException(
+          'El envío cambió de estado. Actualizá el panel e intentá de nuevo.',
+        );
+      }
 
       const oferta = await this.repo.ofrecerManual(
         tx,

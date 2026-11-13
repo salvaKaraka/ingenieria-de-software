@@ -5,12 +5,13 @@ import type {
 } from '../../../generated/prisma/client';
 import { vehiculosQuePuedenLlevar } from '../../asignacion/domain/vehiculos';
 
-// Por qué un envío está en el panel. Cuando exista el estado "Parado" (HU 20/21) se suma 'PARADO'.
-export type MotivoExcepcion = 'SIN_REPARTIDOR';
+export type MotivoExcepcion = 'SIN_REPARTIDOR' | 'INCIDENTE' | 'PARADO';
 
-// Texto que ve el operario para cada motivo (HU 12, escenario 2).
+// Texto que ve el operario para cada motivo.
 export const AVISO_MOTIVO: Record<MotivoExcepcion, string> = {
   SIN_REPARTIDOR: 'Envío sin repartidor disponible',
+  INCIDENTE: 'Incidente en ruta reportado',
+  PARADO: 'Envío parado: no hay repartidores compatibles',
 };
 
 export type Excepcion = {

@@ -39,6 +39,7 @@ const MOTIVO: Record<Accion, Partial<Record<EstadoRepartidor, string>>> = {
     FUERA_DE_JORNADA: 'No estás en jornada: iniciala',
     DISPONIBLE: 'Ya estás en jornada',
     OCUPADO: 'Ya estás en jornada',
+    EMERGENCIA: 'Comunicate con el operario para volver a trabajar',
     ESPERANDO_VALIDACION_CIERRE: 'Ya solicitaste el cierre de jornada',
   },
   cerrar: {
@@ -131,6 +132,13 @@ export class JornadaService {
   }
 
   async reanudar(repartidorId: number) {
+    const repartidor = await this.repo.buscarPorId(repartidorId);
+    if (!repartidor) throw new NotFoundException('El repartidor no existe');
+    if (repartidor.estado === 'EMERGENCIA') {
+      throw new ConflictException(
+        'Comunicate con el operario para volver a trabajar',
+      );
+    }
     if (!(await this.repo.reanudar(repartidorId))) {
       throw await this.conflicto(repartidorId, 'reanudar');
     }

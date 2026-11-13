@@ -618,6 +618,8 @@ describe('EnviosService', () => {
         { estado: 'EN_CAMINO_A_RETIRAR', cantidad: 0, ids: [] },
         { estado: 'RETIRADO', cantidad: 1, ids: [2] },
         { estado: 'EN_DOMICILIO', cantidad: 0, ids: [] },
+        { estado: 'INTERRUMPIDO', cantidad: 0, ids: [] },
+        { estado: 'PARADO', cantidad: 0, ids: [] },
       ]);
     });
 

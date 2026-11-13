@@ -14,7 +14,17 @@ const SIGUIENTE: Partial<Record<EstadoEnvio, EstadoEnvio>> = {
 
 // Estados en los que el envío ya terminó: no admite más cambios y sale del panel del día
 // (HU4). Si se agrega otro estado final al enum, se suma acá.
-export const ESTADOS_FINALES: readonly EstadoEnvio[] = ['ENTREGADO', 'CANCELADO'];
+export const ESTADOS_FINALES: readonly EstadoEnvio[] = [
+  'ENTREGADO',
+  'CANCELADO',
+];
+
+const ESTADOS_VIAJE_INTERRUMPIBLES: readonly EstadoEnvio[] = [
+  'ASIGNADO',
+  'EN_CAMINO_A_RETIRAR',
+  'RETIRADO',
+  'EN_DOMICILIO',
+];
 
 export function esTransicionValida(
   estadoActual: EstadoEnvio,
@@ -29,6 +39,24 @@ export function esTransicionValida(
       estadoActual !== 'ENTREGADO' &&
       estadoActual !== 'CANCELADO'
     );
+  }
+  if (actor === 'REPARTIDOR' && estadoDestino === 'INTERRUMPIDO') {
+    return ESTADOS_VIAJE_INTERRUMPIBLES.includes(estadoActual);
+  }
+  if (
+    actor === 'SISTEMA' &&
+    ((estadoActual === 'INTERRUMPIDO' &&
+      (estadoDestino === 'PENDIENTE' || estadoDestino === 'PARADO')) ||
+      (estadoActual === 'PENDIENTE' && estadoDestino === 'PARADO'))
+  ) {
+    return true;
+  }
+  if (
+    actor === 'OPERARIO' &&
+    estadoActual === 'PARADO' &&
+    estadoDestino === 'PENDIENTE'
+  ) {
+    return true;
   }
   return actor === 'REPARTIDOR' && SIGUIENTE[estadoActual] === estadoDestino;
 }

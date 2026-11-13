@@ -76,6 +76,8 @@ export function FlotaPage() {
   const [flota, setFlota] = useState<Flota | null>(null)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [mensaje, setMensaje] = useState<string | null>(null)
+  const [rehabilitandoId, setRehabilitandoId] = useState<number | null>(null)
   const [repartidorParaCierre, setRepartidorParaCierre] = useState<Repartidor | null>(null)
 
   const cargar = useCallback(async () => {
@@ -97,6 +99,21 @@ export function FlotaPage() {
   // Refresco cada 15 s para el panel del operario (AGENTS.md)
   usePolling(cargar, 15_000)
 
+  async function rehabilitar(repartidor: Repartidor) {
+    setRehabilitandoId(repartidor.id)
+    setMensaje(null)
+    setError(null)
+    try {
+      await api(`/repartidores/${repartidor.id}/rehabilitar`, { metodo: 'POST' })
+      setMensaje(`${repartidor.nombre} ${repartidor.apellido} volvió a la cola de su vehículo.`)
+      await cargar()
+    } catch (err) {
+      setError(err instanceof ErrorApi ? err.mensajes[0] : 'No se pudo rehabilitar al repartidor.')
+    } finally {
+      setRehabilitandoId(null)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       {/* Cabecera */}
@@ -112,6 +129,7 @@ export function FlotaPage() {
           {error}
         </div>
       )}
+      {mensaje && <p className="rounded-lg bg-green-50 p-3 text-sm text-green-800">{mensaje}</p>}
 
       {cargando && !flota ? (
         <div className="rounded-lg border border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
@@ -185,6 +203,16 @@ export function FlotaPage() {
                           <div className="flex justify-end border-t border-gray-100 pt-2">
                             <Boton variante="secundario" onClick={() => setRepartidorParaCierre(r)}>
                               Aprobar cierre
+                            </Boton>
+                          </div>
+                        )}
+                        {(r.estado === 'EMERGENCIA' || r.estado === 'EN_PAUSA') && (
+                          <div className="flex justify-end border-t border-gray-100 pt-2">
+                            <Boton
+                              onClick={() => void rehabilitar(r)}
+                              disabled={rehabilitandoId !== null}
+                            >
+                              {rehabilitandoId === r.id ? 'Rehabilitando…' : 'Rehabilitar'}
                             </Boton>
                           </div>
                         )}

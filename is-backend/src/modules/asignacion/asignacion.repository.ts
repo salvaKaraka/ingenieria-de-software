@@ -47,6 +47,52 @@ export class AsignacionRepository {
     return cantidad > 0;
   }
 
+  tieneIncidente(tx: Tx, envioId: number): Promise<boolean> {
+    return tx.eventoEnvio
+      .count({ where: { envioId, tipo: 'INCIDENTE' } })
+      .then((cantidad) => cantidad > 0);
+  }
+
+  async marcarInterrumpidoComoPendiente(tx: Tx, envioId: number) {
+    const { count } = await tx.envio.updateMany({
+      where: { id: envioId, estado: 'INTERRUMPIDO' },
+      data: { estado: 'PENDIENTE', repartidorId: null },
+    });
+    if (count === 0) return false;
+
+    await tx.eventoEnvio.create({
+      data: {
+        envioId,
+        tipo: 'REASIGNACION',
+        estadoAnterior: 'INTERRUMPIDO',
+        estadoNuevo: 'PENDIENTE',
+        detalle: 'Envío devuelto al motor para su reasignación',
+        actorTipo: 'SISTEMA',
+      },
+    });
+    return true;
+  }
+
+  async marcarParado(tx: Tx, envioId: number, estadoAnterior: EstadoEnvio) {
+    const { count } = await tx.envio.updateMany({
+      where: { id: envioId, estado: estadoAnterior },
+      data: { estado: 'PARADO', repartidorId: null },
+    });
+    if (count === 0) return false;
+
+    await tx.eventoEnvio.create({
+      data: {
+        envioId,
+        tipo: 'CAMBIO_ESTADO',
+        estadoAnterior,
+        estadoNuevo: 'PARADO',
+        detalle: 'Sin repartidores compatibles para reasignar',
+        actorTipo: 'SISTEMA',
+      },
+    });
+    return true;
+  }
+
   // Primer repartidor de la cola FIFO que puede recibir este envío.
   // SKIP LOCKED: si otra transacción está ofreciéndole un viaje a alguien, lo saltea en vez de
   // esperar. Así dos envíos simultáneos nunca terminan ofrecidos al mismo repartidor (riesgo 7).

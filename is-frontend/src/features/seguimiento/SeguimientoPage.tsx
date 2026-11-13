@@ -143,6 +143,15 @@ const CONFIG_BADGE: Record<EstadoEnvio, { clases: string; dotClases: string; pul
     dotClases: 'bg-blue-500',
     pulsante: true,
   },
+  INTERRUMPIDO: {
+    clases: 'bg-red-100 text-red-800 border-red-200',
+    dotClases: 'bg-red-500',
+    pulsante: true,
+  },
+  PARADO: {
+    clases: 'bg-orange-100 text-orange-800 border-orange-200',
+    dotClases: 'bg-orange-500',
+  },
   ENTREGADO: {
     clases: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     dotClases: 'bg-emerald-500',
@@ -178,6 +187,8 @@ function LineaProgreso({
   historial: { estado: EstadoEnvio; fecha: string }[]
 }) {
   const esCancelado = estadoActual === 'CANCELADO'
+  const estadoDetenido =
+    estadoActual === 'INTERRUMPIDO' || estadoActual === 'PARADO'
   const indiceActual = PASOS_PROGRESO.findIndex((p) => p.estado === estadoActual)
 
   const mapaFechas = new Map<EstadoEnvio, string>()
@@ -199,6 +210,17 @@ function LineaProgreso({
           </span>
         )}
       </div>
+
+      {estadoDetenido && (
+        <p
+          role="status"
+          className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm font-medium text-orange-900"
+        >
+          {estadoActual === 'INTERRUMPIDO'
+            ? 'Se reportó un incidente en ruta y el envío está siendo reasignado.'
+            : 'El envío está detenido mientras el operario coordina cómo continuar.'}
+        </p>
+      )}
 
       {/* Versión Desktop / Tablet (horizontal responsive) */}
       <div className="hidden sm:block">

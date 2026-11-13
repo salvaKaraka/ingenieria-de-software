@@ -223,8 +223,10 @@ export function ViajeActual({ alEntregar }: { alEntregar: () => void }) {
   // undefined = todavía cargando; null = no hay viaje activo.
   const [viaje, setViaje] = useState<Viaje | null | undefined>(undefined)
   const [confirmando, setConfirmando] = useState(false)
+  const [confirmandoIncidente, setConfirmandoIncidente] = useState(false)
   const [enviando, setEnviando] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
+  const [ubicacionIncidente, setUbicacionIncidente] = useState('')
   const [dni, setDni] = useState('')
   const [foto, setFoto] = useState('')
   const envioDeLaEvidencia = useRef<number | null>(null)
@@ -279,6 +281,35 @@ export function ViajeActual({ alEntregar }: { alEntregar: () => void }) {
     }
   }
 
+  async function reportarIncidente() {
+    setEnviando(true)
+    setAviso(null)
+    try {
+      const respuesta = await api<{ mensaje: string }>(
+        '/repartidor/viajes/actual/incidente',
+        {
+          metodo: 'POST',
+          datos: requiereUbicacionIncidente
+            ? { ubicacion: ubicacionIncidente.trim() }
+            : {},
+        },
+      )
+      setConfirmandoIncidente(false)
+      setUbicacionIncidente('')
+      setViaje(null)
+      setAviso(respuesta.mensaje)
+    } catch (error) {
+      setAviso(
+        error instanceof ErrorApi && (error.status === 400 || error.status === 409)
+          ? error.message
+          : 'No se pudo reportar el incidente. Probá de nuevo.',
+      )
+      void consultar().catch(() => undefined)
+    } finally {
+      setEnviando(false)
+    }
+  }
+
   if (viaje === undefined) return null
 
   if (viaje === null) {
@@ -295,6 +326,8 @@ export function ViajeActual({ alEntregar }: { alEntregar: () => void }) {
   const destinatario = [viaje.destinatario.nombre, viaje.destinatario.apellido].filter(Boolean).join(' ') || '—'
   const entregando = viaje.estado === 'EN_DOMICILIO'
   const faltaEvidencia = entregando && ((viaje.requiereDni && dni.length < 7) || (viaje.requiereFoto && !foto))
+  const requiereUbicacionIncidente =
+    viaje.estado === 'RETIRADO' || viaje.estado === 'EN_DOMICILIO'
 
   return (
     <section className="space-y-5 rounded-2xl border-4 border-yellow-400 bg-slate-900 p-5" aria-live="polite">
@@ -372,7 +405,43 @@ export function ViajeActual({ alEntregar }: { alEntregar: () => void }) {
 
       {aviso && <p className="rounded-xl bg-slate-800 p-4">{aviso}</p>}
 
-      {confirmando ? (
+      {confirmandoIncidente ? (
+        <div className="space-y-3 rounded-xl border border-red-500/50 p-4">
+          <p className="text-center text-lg font-semibold" role="alert">
+            ¿Confirmás reportar el incidente? El viaje se interrumpirá y el operario tendrá que rehabilitarte.
+          </p>
+          {requiereUbicacionIncidente && (
+            <label className="block space-y-2">
+              <span className="block text-lg font-semibold text-red-200">Ubicación actual</span>
+              <input
+                value={ubicacionIncidente}
+                onChange={(evento) => setUbicacionIncidente(evento.target.value)}
+                maxLength={250}
+                autoComplete="street-address"
+                placeholder="Ingresá una dirección o referencia"
+                className="min-h-14 w-full rounded-xl bg-white px-4 text-lg font-semibold text-black"
+              />
+            </label>
+          )}
+          <BotonGrande
+            variante="peligro"
+            onClick={() => void reportarIncidente()}
+            disabled={
+              enviando ||
+              (requiereUbicacionIncidente && ubicacionIncidente.trim().length < 3)
+            }
+          >
+            {enviando ? 'Reportando…' : 'Sí, reportar incidente'}
+          </BotonGrande>
+          <BotonGrande
+            variante="secundario"
+            onClick={() => setConfirmandoIncidente(false)}
+            disabled={enviando}
+          >
+            Cancelar
+          </BotonGrande>
+        </div>
+      ) : confirmando ? (
         <div className="space-y-3 rounded-xl border border-yellow-400/40 p-4">
           <p className="text-center text-lg font-semibold">¿Confirmás «{accion}»?</p>
           <BotonGrande onClick={() => void avanzar()} disabled={enviando}>
@@ -393,6 +462,16 @@ export function ViajeActual({ alEntregar }: { alEntregar: () => void }) {
           )}
           <BotonGrande onClick={() => setConfirmando(true)} disabled={enviando || faltaEvidencia}>
             {accion}
+          </BotonGrande>
+          <BotonGrande
+            variante="peligro"
+            onClick={() => {
+              setConfirmando(false)
+              setConfirmandoIncidente(true)
+            }}
+            disabled={enviando}
+          >
+            Reportar incidente
           </BotonGrande>
         </>
       )}

@@ -25,7 +25,7 @@ type RepartidorBloqueado = {
   vehiculo: TipoVehiculo;
 };
 
-// Acceso a datos del panel de excepciones (HU 12 y HU 22).
+// Acceso a datos del panel de excepciones (HU 12, HU 20/21 y HU 22).
 // No modifica el motor (asignacion/): la asignación manual crea la oferta por su cuenta,
 // con los mismos bloqueos de fila que usa el motor para no pisarse con el job de reintentos.
 @Injectable()
@@ -64,6 +64,47 @@ export class ExcepcionesRepository {
           orderBy: [{ expiraEn: 'asc' }, { id: 'asc' }],
           take: 1,
           select: { expiraEn: true },
+        },
+      },
+    });
+  }
+
+  listarIncidentesActivos() {
+    return this.prisma.envio.findMany({
+      where: {
+        estado: {
+          in: [
+            'PENDIENTE',
+            'INTERRUMPIDO',
+            'ASIGNADO',
+            'EN_CAMINO_A_RETIRAR',
+            'RETIRADO',
+            'EN_DOMICILIO',
+            'PARADO',
+          ],
+        },
+        eventos: { some: { tipo: 'INCIDENTE' } },
+      },
+      orderBy: [{ actualizadoEn: 'desc' }, { id: 'desc' }],
+      select: {
+        id: true,
+        codigoSeguimiento: true,
+        origenDireccion: true,
+        destinoDireccion: true,
+        tamanio: true,
+        vehiculoRequerido: true,
+        estado: true,
+        comercio: { select: { nombre: true } },
+        eventos: {
+          where: { tipo: 'INCIDENTE' },
+          orderBy: [{ creadoEn: 'desc' }, { id: 'desc' }],
+          take: 1,
+          select: { creadoEn: true, detalle: true },
+        },
+        ofertas: {
+          where: { estado: 'PENDIENTE' },
+          take: 1,
+          select: { id: true },
         },
       },
     });
@@ -124,6 +165,31 @@ export class ExcepcionesRepository {
     return (
       (await tx.oferta.count({ where: { envioId, estado: 'PENDIENTE' } })) > 0
     );
+  }
+
+  async reactivarEnvioParado(
+    tx: Tx,
+    envioId: number,
+    operarioId: number,
+  ): Promise<boolean> {
+    const { count } = await tx.envio.updateMany({
+      where: { id: envioId, estado: 'PARADO' },
+      data: { estado: 'PENDIENTE' },
+    });
+    if (count === 0) return false;
+
+    await tx.eventoEnvio.create({
+      data: {
+        envioId,
+        tipo: 'REASIGNACION',
+        estadoAnterior: 'PARADO',
+        estadoNuevo: 'PENDIENTE',
+        detalle: 'Envío reactivado para asignación manual',
+        actorTipo: 'OPERARIO',
+        actorId: operarioId,
+      },
+    });
+    return true;
   }
 
   async repartidorTieneOfertaVigente(tx: Tx, repartidorId: number) {

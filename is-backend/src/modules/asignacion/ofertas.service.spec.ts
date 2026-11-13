@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { EstadoOferta } from '../../generated/prisma/client';
+import { EstadoOferta, Prisma } from '../../generated/prisma/client';
 import { AsignacionService } from './asignacion.service';
 import { OfertasRepository } from './ofertas.repository';
 import { OfertasService } from './ofertas.service';
@@ -198,5 +198,41 @@ describe('OfertasService - consultarHistorial (HU #28)', () => {
       },
       detalle: [],
     });
+  });
+
+  it('tras rechazar una oferta de reemplazo, vuelve a intentar con el siguiente de la cola (HU 21)', async () => {
+    const tx = {} as Prisma.TransactionClient;
+    const oferta = {
+      id: 12,
+      envioId: 5,
+      repartidorId: 9,
+      estado: EstadoOferta.PENDIENTE,
+      expiraEn: new Date(Date.now() + 60_000),
+    };
+    repo.transaccion.mockImplementation((trabajo) => trabajo(tx));
+    repo.bloquear.mockResolvedValue(oferta);
+
+    await service.rechazar(oferta.id, oferta.repartidorId);
+
+    expect(repo.rechazar).toHaveBeenCalledWith(tx, oferta);
+    expect(asignacion.reintentarPendientes).toHaveBeenCalled();
+  });
+
+  it('tras rechazar una oferta de reemplazo, vuelve a intentar con el siguiente de la cola (HU 21)', async () => {
+    const tx = {} as Prisma.TransactionClient;
+    const oferta = {
+      id: 12,
+      envioId: 5,
+      repartidorId: 9,
+      estado: EstadoOferta.PENDIENTE,
+      expiraEn: new Date(Date.now() + 60_000),
+    };
+    repo.transaccion.mockImplementation((trabajo) => trabajo(tx));
+    repo.bloquear.mockResolvedValue(oferta);
+
+    await service.rechazar(oferta.id, oferta.repartidorId);
+
+    expect(repo.rechazar).toHaveBeenCalledWith(tx, oferta);
+    expect(asignacion.reintentarPendientes).toHaveBeenCalled();
   });
 });

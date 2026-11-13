@@ -6,7 +6,8 @@ export const LARGO_MAXIMO_FOTO = 900_000;
 
 // Solo una imagen embebida: nunca una URL externa ni otro tipo de contenido, porque el
 // panel del operario la muestra tal cual.
-const FOTO_DATA_URI = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+const FOTO_DATA_URI =
+  /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
 
 // Evidencia de entrega (E-4 / HU 18). Solo se mira al pasar a ENTREGADO, y solo lo que exige el comercio.
 export class AvanzarViajeDto {
