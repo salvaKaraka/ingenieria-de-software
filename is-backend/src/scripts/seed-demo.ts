@@ -9,6 +9,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../app.module';
 import { PrismaService } from '../database/prisma.service';
 import { verificarBaseLocal } from '../dev/dev.constants';
+import { puntoDe } from './puntos-demo';
 import type {
   EstadoEnvio,
   EstadoRepartidor,
@@ -29,7 +30,7 @@ const VEHICULO_MINIMO: Record<TamanioPaquete, TipoVehiculo> = {
 const COMERCIOS = [
   {
     nombre: 'Kiosco Don Pepe',
-    direccion: 'Calle 7 1234',
+    direccion: 'Avenida 7 1234',
     foto: false,
     dni: false,
   },
@@ -124,7 +125,7 @@ const ENVIOS: EnvioDemo[] = [
   {
     comercio: 1,
     tamanio: 'MEDIANO',
-    destino: 'Calle 60 300',
+    destino: 'Avenida 60 300',
     destinatario: ['Laura', 'Méndez'],
     dni: '26222333',
     final: 'ENTREGADO',
@@ -156,7 +157,7 @@ const ENVIOS: EnvioDemo[] = [
   {
     comercio: 0,
     tamanio: 'CHICO',
-    destino: 'Calle 19 540',
+    destino: 'Avenida 19 540',
     destinatario: ['Nicolás', 'Acosta'],
     dni: '29555666',
     final: 'ENTREGADO',
@@ -174,7 +175,7 @@ const ENVIOS: EnvioDemo[] = [
   {
     comercio: 1,
     tamanio: 'CHICO',
-    destino: 'Calle 44 980',
+    destino: 'Avenida 44 980',
     destinatario: ['Julia', 'Castro'],
     dni: '31777888',
     final: 'ENTREGADO',
@@ -184,7 +185,7 @@ const ENVIOS: EnvioDemo[] = [
   {
     comercio: 0,
     tamanio: 'CHICO',
-    destino: 'Calle 1 220',
+    destino: 'Avenida 1 220',
     destinatario: ['Ramiro', 'Vega'],
     dni: '32888999',
     final: 'ENTREGADO',
@@ -316,6 +317,8 @@ async function main() {
               comercioId: comercio.id,
               origenDireccion: comercio.direccion,
               destinoDireccion: e.destino,
+              ...puntoDe('origen', comercio.direccion),
+              ...puntoDe('destino', e.destino),
               destinatarioNombre: e.destinatario[0],
               destinatarioApellido: e.destinatario[1],
               destinatarioTelefono: `221 600-0${String(i).padStart(3, '0')}`,

@@ -16,8 +16,8 @@ const DEMO_ENVIOS: Record<string, TrackingResponseDto> = {
     destinatario: 'Carlos M.',
     direccionDestino: 'Av. Corrientes',
     horaSalida: '2026-10-18T11:30:00Z',
-    franjaEstimadaInicio: '14:00',
-    franjaEstimadaFin: '17:00',
+    franjaEstimadaInicio: '2026-10-18T12:15:00Z',
+    franjaEstimadaFin: '2026-10-18T12:45:00Z',
     historial: [
       { estado: 'PENDIENTE', fecha: '2026-10-18T09:15:00Z' },
       { estado: 'ASIGNADO', fecha: '2026-10-18T10:00:00Z' },
@@ -42,8 +42,6 @@ const DEMO_ENVIOS: Record<string, TrackingResponseDto> = {
     destinatario: 'Ana R.',
     direccionDestino: 'Belgrano',
     horaSalida: '2026-10-18T09:00:00Z',
-    franjaEstimadaInicio: '11:00',
-    franjaEstimadaFin: '13:00',
     fechaEntrega: '2026-10-18T12:45:00Z',
     historial: [
       { estado: 'PENDIENTE', fecha: '2026-10-18T08:00:00Z' },
@@ -115,6 +113,15 @@ function formatearHora(horaStr?: string): string {
     // ignore
   }
   return horaStr
+}
+
+// "14:25": la franja llega en ISO y se muestra en la hora local del destinatario.
+function horaYMinutos(isoString: string): string {
+  return new Intl.DateTimeFormat('es-AR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date(isoString))
 }
 
 const CONFIG_BADGE: Record<EstadoEnvio, { clases: string; dotClases: string; pulsante?: boolean }> = {
@@ -671,13 +678,18 @@ export function SeguimientoPage() {
                     </div>
                   )}
 
-                  {(tracking.franjaEstimadaInicio || tracking.franjaEstimadaFin) && (
+                  {/* HU 70: solo viene mientras el paquete va hacia el domicilio */}
+                  {tracking.franjaEstimadaInicio && tracking.franjaEstimadaFin && (
                     <div>
                       <span className="text-xs font-semibold uppercase tracking-wider text-blue-700 block">
-                        Franja estimada de entrega
+                        Llegada estimada
                       </span>
-                      <p className="text-sm font-semibold text-blue-950 mt-0.5">
-                        {formatearHora(tracking.franjaEstimadaInicio)} - {formatearHora(tracking.franjaEstimadaFin)}
+                      <p className="text-base font-semibold text-blue-950 mt-0.5">
+                        Llegada estimada entre {horaYMinutos(tracking.franjaEstimadaInicio)} y{' '}
+                        {horaYMinutos(tracking.franjaEstimadaFin)}
+                      </p>
+                      <p className="text-xs text-blue-800 mt-1">
+                        Es una estimación: puede variar según el tránsito.
                       </p>
                     </div>
                   )}

@@ -5,7 +5,9 @@ import { ETIQUETA_VEHICULO, type EstadoEnvio, type TipoVehiculo } from '../../..
 import { Boton } from '../../../shared/ui/Boton'
 import { Campo } from '../../../shared/ui/Campo'
 import { EtiquetaEstado } from '../../../shared/ui/EtiquetaEstado'
+import type { Coordenadas } from '../../../shared/ui/index.ts'
 import { describirEvidencia } from './evidencia'
+import { SelectorDireccion } from './SelectorDireccion'
 
 interface Comercio {
   id: number
@@ -29,7 +31,9 @@ interface EnvioCreado {
 interface FormularioEnvio {
   comercioId: string
   origenDireccion: string
+  origenUbicacion: Coordenadas | null
   destinoDireccion: string
+  destinoUbicacion: Coordenadas | null
   destinatarioNombre: string
   destinatarioApellido: string
   destinatarioTelefono: string
@@ -41,7 +45,9 @@ interface FormularioEnvio {
 const FORMULARIO_VACIO: FormularioEnvio = {
   comercioId: '',
   origenDireccion: '',
+  origenUbicacion: null,
   destinoDireccion: '',
+  destinoUbicacion: null,
   destinatarioNombre: '',
   destinatarioApellido: '',
   destinatarioTelefono: '',
@@ -83,7 +89,7 @@ export function NuevoEnvioPage() {
   // si ese día el paquete sale de otro lado.
   const elegirComercio = (comercioId: string) => {
     const comercio = comercios.find((c) => String(c.id) === comercioId)
-    setForm({ ...form, comercioId, origenDireccion: comercio?.direccion ?? '' })
+    setForm({ ...form, comercioId, origenDireccion: comercio?.direccion ?? '', origenUbicacion: null })
   }
 
   const guardarEnvio = async (evento: FormEvent) => {
@@ -105,6 +111,11 @@ export function NuevoEnvioPage() {
           // Vacío = el backend usa la dirección del comercio.
           origenDireccion: form.origenDireccion.trim() || undefined,
           destinoDireccion: form.destinoDireccion,
+          // Los puntos del mapa son opcionales: sin ellos el envío se carga igual.
+          origenLat: form.origenUbicacion?.lat,
+          origenLon: form.origenUbicacion?.lon,
+          destinoLat: form.destinoUbicacion?.lat,
+          destinoLon: form.destinoUbicacion?.lon,
           destinatarioNombre: form.destinatarioNombre,
           destinatarioApellido: form.destinatarioApellido,
           destinatarioTelefono: form.destinatarioTelefono,
@@ -234,10 +245,14 @@ export function NuevoEnvioPage() {
             {comercioElegido && (
               <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="md:col-span-2">
-                  <Campo
+                  {/* key: al cambiar de comercio se arma de nuevo y busca la dirección del nuevo. */}
+                  <SelectorDireccion
+                    key={form.comercioId}
                     etiqueta="Dirección de retiro *"
-                    value={form.origenDireccion}
-                    onChange={(evento) => setForm({ ...form, origenDireccion: evento.target.value })}
+                    direccion={form.origenDireccion}
+                    alCambiarDireccion={(origenDireccion) => setForm((f) => ({ ...f, origenDireccion }))}
+                    ubicacion={form.origenUbicacion}
+                    alCambiarUbicacion={(origenUbicacion) => setForm((f) => ({ ...f, origenUbicacion }))}
                     required
                   />
                 </div>
@@ -258,11 +273,13 @@ export function NuevoEnvioPage() {
             </h2>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="md:col-span-2">
-                <Campo
+                <SelectorDireccion
                   etiqueta="Dirección *"
                   placeholder="Calle, número, piso o departamento"
-                  value={form.destinoDireccion}
-                  onChange={(evento) => setForm({ ...form, destinoDireccion: evento.target.value })}
+                  direccion={form.destinoDireccion}
+                  alCambiarDireccion={(destinoDireccion) => setForm((f) => ({ ...f, destinoDireccion }))}
+                  ubicacion={form.destinoUbicacion}
+                  alCambiarUbicacion={(destinoUbicacion) => setForm((f) => ({ ...f, destinoUbicacion }))}
                   required
                 />
               </div>

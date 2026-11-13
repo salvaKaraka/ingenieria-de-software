@@ -8,6 +8,7 @@ import {
   Min,
 } from 'class-validator';
 import { TamanioPaquete } from '../../../generated/prisma/client';
+import { Latitud, Longitud } from './coordenadas';
 
 export class CrearEnvioDto {
   @IsInt({ message: 'El ID del comercio es obligatorio' })
@@ -23,6 +24,19 @@ export class CrearEnvioDto {
   @IsString()
   @IsNotEmpty({ message: 'La dirección de origen no puede estar vacía' })
   origenDireccion?: string;
+
+  // Puntos que confirmó el operario en el mapa. Sin ellos el envío se crea igual.
+  @Latitud('origen')
+  origenLat?: number;
+
+  @Longitud('origen')
+  origenLon?: number;
+
+  @Latitud('destino')
+  destinoLat?: number;
+
+  @Longitud('destino')
+  destinoLon?: number;
 
   // Obligatorios: el repartidor necesita saber a quién entregar y poder llamarlo.
   @IsString()

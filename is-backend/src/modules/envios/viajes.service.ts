@@ -9,6 +9,9 @@ import { esTransicionValida, siguienteEstado } from './domain/estado-envio';
 import { AvanzarViajeDto } from './dto/avanzar-viaje.dto';
 import { EnviosRepository } from './envios.repository';
 
+const punto = (lat: number | null, lon: number | null) =>
+  lat !== null && lon !== null ? { lat, lon } : null;
+
 type ExigenciasEntrega = {
   requiereDni: boolean;
   requiereFoto: boolean;
@@ -44,6 +47,9 @@ export class ViajesService {
         comercio: envio.comercio,
         origenDireccion: envio.origenDireccion,
         destinoDireccion: envio.destinoDireccion,
+        // Para el mapa del repartidor: null si la dirección no se ubicó al cargar el envío.
+        origen: punto(envio.origenLat, envio.origenLon),
+        destino: punto(envio.destinoLat, envio.destinoLon),
         destinatario: {
           nombre: envio.destinatarioNombre,
           apellido: envio.destinatarioApellido,

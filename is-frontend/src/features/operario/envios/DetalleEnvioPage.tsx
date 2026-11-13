@@ -8,7 +8,8 @@ import {
   type TamanioPaquete,
   type TipoVehiculo,
 } from '../../../shared/tipos.ts'
-import { Boton, Campo, EtiquetaEstado, Modal, Selector } from '../../../shared/ui/index.ts'
+import { Boton, Campo, EtiquetaEstado, Modal, Selector, type Coordenadas } from '../../../shared/ui/index.ts'
+import { SelectorDireccion } from './SelectorDireccion'
 import { usePolling } from '../../../shared/usePolling.ts'
 import { describirEvidencia } from './evidencia.ts'
 import { AVISO_EXCEPCION, esAsignacionPorExcepcion } from './excepcion.ts'
@@ -32,6 +33,8 @@ interface DetalleEnvio {
   estado: EstadoEnvio
   origenDireccion: string
   destinoDireccion: string
+  destinoLat: number | null
+  destinoLon: number | null
   destinatarioNombre: string | null
   destinatarioApellido: string | null
   destinatarioDni: string | null
@@ -96,6 +99,7 @@ export function DetalleEnvioPage() {
   const [errorModificacion, setErrorModificacion] = useState<string | null>(null)
   const [formEdicion, setFormEdicion] = useState<{
     destinoDireccion: string
+    destinoUbicacion: Coordenadas | null
     destinatarioNombre: string
     destinatarioApellido: string
     destinatarioDni: string
@@ -104,6 +108,7 @@ export function DetalleEnvioPage() {
     observaciones: string
   }>({
     destinoDireccion: '',
+    destinoUbicacion: null,
     destinatarioNombre: '',
     destinatarioApellido: '',
     destinatarioDni: '',
@@ -155,6 +160,8 @@ export function DetalleEnvioPage() {
     }
     setFormEdicion({
       destinoDireccion: envio.destinoDireccion,
+      destinoUbicacion:
+        envio.destinoLat !== null && envio.destinoLon !== null ? { lat: envio.destinoLat, lon: envio.destinoLon } : null,
       destinatarioNombre: envio.destinatarioNombre ?? '',
       destinatarioApellido: envio.destinatarioApellido ?? '',
       destinatarioDni: envio.destinatarioDni ?? '',
@@ -173,6 +180,8 @@ export function DetalleEnvioPage() {
     // vacíos se mandan igual y el backend explica qué falta.
     const nuevos = {
       destinoDireccion: formEdicion.destinoDireccion.trim(),
+      destinoLat: formEdicion.destinoUbicacion?.lat ?? null,
+      destinoLon: formEdicion.destinoUbicacion?.lon ?? null,
       destinatarioNombre: formEdicion.destinatarioNombre.trim(),
       destinatarioApellido: formEdicion.destinatarioApellido.trim(),
       destinatarioDni: formEdicion.destinatarioDni.replace(/\D/g, '') || null,
@@ -182,6 +191,8 @@ export function DetalleEnvioPage() {
     }
     const actuales = {
       destinoDireccion: envio.destinoDireccion,
+      destinoLat: envio.destinoLat,
+      destinoLon: envio.destinoLon,
       destinatarioNombre: envio.destinatarioNombre ?? '',
       destinatarioApellido: envio.destinatarioApellido ?? '',
       destinatarioDni: envio.destinatarioDni,
@@ -196,6 +207,11 @@ export function DetalleEnvioPage() {
     if (Object.keys(cambios).length === 0) {
       setEditando(false)
       return
+    }
+    // El punto viaja completo: el backend rechaza una latitud sin su longitud.
+    if ('destinoLat' in cambios || 'destinoLon' in cambios) {
+      cambios.destinoLat = nuevos.destinoLat
+      cambios.destinoLon = nuevos.destinoLon
     }
 
     setGuardandoEdicion(true)
@@ -356,12 +372,15 @@ export function DetalleEnvioPage() {
       </section>
 
       {/* Modal de edición */}
-      <Modal abierto={editando} onCerrar={() => setEditando(false)} titulo="Modificar datos del envío">
+      <Modal abierto={editando} onCerrar={() => setEditando(false)} titulo="Modificar datos del envío" ancho="max-w-xl">
         <form onSubmit={guardarEdicion} className="space-y-4">
-          <Campo
+          <SelectorDireccion
             etiqueta="Dirección de destino"
-            value={formEdicion.destinoDireccion}
-            onChange={(e) => setFormEdicion((prev) => ({ ...prev, destinoDireccion: e.target.value }))}
+            direccion={formEdicion.destinoDireccion}
+            alCambiarDireccion={(destinoDireccion) => setFormEdicion((prev) => ({ ...prev, destinoDireccion }))}
+            ubicacion={formEdicion.destinoUbicacion}
+            alCambiarUbicacion={(destinoUbicacion) => setFormEdicion((prev) => ({ ...prev, destinoUbicacion }))}
+            buscarAlMontar={false}
             required
           />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

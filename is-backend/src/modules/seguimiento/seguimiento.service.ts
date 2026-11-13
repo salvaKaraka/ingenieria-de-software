@@ -1,6 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { SeguimientoRepository } from './seguimiento.repository';
 import type { HistorialEstadoDto, TrackingPublicoDto } from './seguimiento.dto';
+import {
+  calcularFranja,
+  duracionTipicaMin,
+  MINUTOS_PARA_ENTREGAR,
+} from './domain/franja-estimada';
+import { MapasService } from '../mapas/mapas.service';
+import type { EstadoEnvio, TipoVehiculo } from '../../generated/prisma/client';
 
 // Piso o departamento escritos sin coma: "Belgrano 456 piso 2 B".
 const PISO_O_DEPTO = /\s+(piso|dpto\.?|depto\.?|departamento|dto\.?)\b.*$/i;
@@ -11,9 +18,19 @@ const ALTURA_AL_FINAL =
 const PALABRA_DE_CALLE_NUMERADA =
   /^(calle|diagonal|diag\.?|ruta|avenida|av\.?|camino|pasaje)$/i;
 
+const coordenadas = (lat: number | null, lon: number | null) =>
+  lat !== null && lon !== null ? { lat, lon } : null;
+
+// La franja solo tiene sentido mientras el paquete va hacia el domicilio (HU 70):
+// antes no salió, y después ya se entregó o se canceló.
+const ESTADOS_CON_FRANJA: EstadoEnvio[] = ['RETIRADO', 'EN_DOMICILIO'];
+
 @Injectable()
 export class SeguimientoService {
-  constructor(private readonly repository: SeguimientoRepository) {}
+  constructor(
+    private readonly repository: SeguimientoRepository,
+    private readonly mapas: MapasService,
+  ) {}
 
   /**
    * Enmascara el nombre del destinatario (Épica 2.5):
@@ -64,13 +81,20 @@ export class SeguimientoService {
       throw new NotFoundException('Código de seguimiento no encontrado');
     }
 
-    // Supuesto 7: Hora de salida = momento en que el envío pasó a RETIRADO
-    const eventoRetirado = envio.eventos.find(
+    // Supuesto 7: Hora de salida = momento en que el envío pasó a RETIRADO.
+    // Se toma el último: si el envío se reasignó, la salida que vale es la del viaje actual.
+    const eventoRetirado = envio.eventos.findLast(
       (ev) => ev.estadoNuevo === 'RETIRADO',
     );
-    const horaSalida = eventoRetirado
-      ? eventoRetirado.creadoEn.toISOString()
-      : undefined;
+    const horaSalida = eventoRetirado?.creadoEn;
+
+    let franja: { inicio: Date; fin: Date } | undefined;
+    if (horaSalida && ESTADOS_CON_FRANJA.includes(envio.estado)) {
+      const duracionMin =
+        envio.duracionEstimadaMin ??
+        (await this.estimarDuracion(envio, horaSalida));
+      franja = calcularFranja(horaSalida, duracionMin);
+    }
 
     // Fecha de entrega efectiva
     const eventoEntregado = envio.eventos.find(
@@ -105,9 +129,55 @@ export class SeguimientoService {
         envio.destinatarioApellido,
       ),
       direccionDestino: this.enmascararDireccion(envio.destinoDireccion),
-      horaSalida,
+      horaSalida: horaSalida?.toISOString(),
+      franjaEstimadaInicio: franja?.inicio.toISOString(),
+      franjaEstimadaFin: franja?.fin.toISOString(),
       fechaEntrega,
       historial,
     };
+  }
+
+  /**
+   * Cuánto se estima que tarda el viaje (HU 70): primero con el mapa (ruta real entre
+   * el comercio y el domicilio) y, si el mapa falla, con el promedio de las últimas
+   * entregas del mismo vehículo. Se guarda para que la franja no cambie entre consultas.
+   */
+  private async estimarDuracion(
+    envio: {
+      id: number;
+      origenDireccion: string;
+      origenLat: number | null;
+      origenLon: number | null;
+      destinoDireccion: string;
+      destinoLat: number | null;
+      destinoLon: number | null;
+      vehiculoRequerido: TipoVehiculo;
+    },
+    horaSalida: Date,
+  ): Promise<number> {
+    const manejo = await this.mapas.duracionDelViajeMin(
+      {
+        direccion: envio.origenDireccion,
+        coordenadas: coordenadas(envio.origenLat, envio.origenLon),
+      },
+      {
+        direccion: envio.destinoDireccion,
+        coordenadas: coordenadas(envio.destinoLat, envio.destinoLon),
+      },
+      envio.vehiculoRequerido,
+    );
+    const segunMapa = manejo === null ? null : manejo + MINUTOS_PARA_ENTREGAR;
+    const minutos =
+      segunMapa ??
+      duracionTipicaMin(
+        await this.repository.entregasAnteriores(
+          envio.vehiculoRequerido,
+          horaSalida,
+        ),
+      );
+    return this.repository.guardarDuracionEstimada(
+      envio.id,
+      Math.ceil(minutos),
+    );
   }
 }
