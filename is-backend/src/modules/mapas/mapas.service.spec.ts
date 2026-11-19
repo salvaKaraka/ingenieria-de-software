@@ -188,4 +188,63 @@ describe('MapasService', () => {
 
     expect(await crearServicio().buscar('Calle Inventada 99')).toBeNull();
   });
+
+  describe('si Nominatim no responde', () => {
+    // Photon devuelve GeoJSON: coordenadas [lon, lat] y la altura en housenumber.
+    const lugarPhoton = (lat: number, lon: number, conAltura = true) => ({
+      features: [
+        {
+          geometry: { coordinates: [lon, lat] },
+          properties: conAltura ? { housenumber: '1234' } : {},
+        },
+      ],
+    });
+
+    it('busca la dirección en Photon', async () => {
+      fetchFalso.mockImplementation((url: URL | string) =>
+        String(url).includes('nominatim')
+          ? respuesta({}, false)
+          : respuesta(lugarPhoton(-34.92, -57.96)),
+      );
+
+      expect(await crearServicio().buscar('Calle 50 1234')).toEqual({
+        lat: -34.92,
+        lon: -57.96,
+        exacta: true,
+      });
+      expect(String(fetchFalso.mock.calls[1][0])).toContain('photon');
+    });
+
+    it('marca como aproximado un resultado de Photon sin altura', async () => {
+      fetchFalso.mockImplementation((url: URL | string) =>
+        String(url).includes('nominatim')
+          ? Promise.reject(new Error('timeout'))
+          : respuesta(lugarPhoton(-34.9, -58.08, false)),
+      );
+
+      expect(await crearServicio().buscar('Calle 60')).toEqual({
+        lat: -34.9,
+        lon: -58.08,
+        exacta: false,
+      });
+    });
+
+    it('devuelve null si Photon tampoco la encuentra', async () => {
+      fetchFalso.mockImplementation((url: URL | string) =>
+        String(url).includes('nominatim')
+          ? respuesta({}, false)
+          : respuesta({ features: [] }),
+      );
+
+      expect(await crearServicio().buscar('Zzzz 99999')).toBeNull();
+    });
+
+    it('lanza error si los dos servicios fallan', async () => {
+      fetchFalso.mockImplementation(() => respuesta({}, false));
+
+      await expect(crearServicio().buscar('Calle 50 1234')).rejects.toThrow(
+        'Photon respondió 500',
+      );
+    });
+  });
 });

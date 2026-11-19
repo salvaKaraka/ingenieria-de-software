@@ -21,11 +21,16 @@ export interface PuntaDelViaje {
 // Nominatim (OpenStreetMap) convierte direcciones en coordenadas. Es gratis y sin key;
 // se probó contra OpenRouteService y Georef, y es el que mejor ubica las calles de La Plata.
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
-// La política de Nominatim pide identificar la aplicación en el User-Agent.
-const USER_AGENT = 'is-backend (TP Ingenieria de Software)';
+// Plan B si Nominatim no responde: Photon (komoot), gratis, sin key y con los mismos datos.
+const PHOTON_URL = 'https://photon.komoot.io/api/';
+// La política de Nominatim pide identificar la aplicación en el User-Agent, con un contacto.
+const USER_AGENT =
+  'is-backend/1.0 (TP Ingenieria de Software; +https://github.com/salvaKaraka/ingenieria-de-software)';
 // Zona de reparto: La Plata, Berisso y Ensenada. Sin este límite, "Calle 50 567"
 // puede caer en cualquier ciudad del país con una calle 50.
 const ZONA_DE_REPARTO = '-58.25,-34.75,-57.75,-35.10'; // lon,lat de dos esquinas
+// La misma zona en el formato de Photon: lon,lat mínimos y después máximos.
+const ZONA_DE_REPARTO_PHOTON = '-58.25,-35.10,-57.75,-34.75';
 
 // OpenRouteService calcula la ruta y cuánto se tarda. Gratis con key (ORS_API_KEY).
 const ORS_URL = 'https://api.openrouteservice.org/v2/directions';
@@ -63,6 +68,32 @@ export class MapasService {
     const enCache = this.cacheDirecciones.get(clave);
     if (enCache !== undefined) return enCache;
 
+    let encontrado: LugarEncontrado | null;
+    try {
+      encontrado = await this.buscarEnNominatim(direccion);
+    } catch (error) {
+      // Nominatim a veces rechaza a los servidores en la nube (le pasó a Render): se
+      // pregunta a Photon, que usa los mismos datos de OpenStreetMap.
+      this.logger.warn(
+        `Nominatim no respondió, se usa Photon: ${String(error)}`,
+      );
+      try {
+        encontrado = await this.buscarEnPhoton(direccion);
+      } catch (errorPhoton) {
+        this.logger.warn(`Photon tampoco respondió: ${String(errorPhoton)}`);
+        throw errorPhoton;
+      }
+    }
+
+    if (this.cacheDirecciones.size >= MAXIMO_EN_CACHE)
+      this.cacheDirecciones.clear();
+    this.cacheDirecciones.set(clave, encontrado);
+    return encontrado;
+  }
+
+  private async buscarEnNominatim(
+    direccion: string,
+  ): Promise<LugarEncontrado | null> {
     await this.esperarTurnoNominatim();
     const url = new URL(NOMINATIM_URL);
     url.search = new URLSearchParams({
@@ -86,17 +117,41 @@ export class MapasService {
       lon: string;
       address?: { house_number?: string };
     }[];
-    const encontrado = lugar
+    return lugar
       ? {
           lat: Number(lugar.lat),
           lon: Number(lugar.lon),
           exacta: lugar.address?.house_number !== undefined,
         }
       : null;
-    if (this.cacheDirecciones.size >= MAXIMO_EN_CACHE)
-      this.cacheDirecciones.clear();
-    this.cacheDirecciones.set(clave, encontrado);
-    return encontrado;
+  }
+
+  private async buscarEnPhoton(
+    direccion: string,
+  ): Promise<LugarEncontrado | null> {
+    const url = new URL(PHOTON_URL);
+    url.search = new URLSearchParams({
+      q: direccion,
+      bbox: ZONA_DE_REPARTO_PHOTON,
+      limit: '1',
+    }).toString();
+    const respuesta = await fetch(url, {
+      headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!respuesta.ok) throw new Error(`Photon respondió ${respuesta.status}`);
+
+    const { features } = (await respuesta.json()) as {
+      features?: {
+        geometry: { coordinates: [number, number] };
+        properties?: { housenumber?: string };
+      }[];
+    };
+    const lugar = features?.[0];
+    if (!lugar) return null;
+    // Photon devuelve [lon, lat].
+    const [lon, lat] = lugar.geometry.coordinates;
+    return { lat, lon, exacta: lugar.properties?.housenumber !== undefined };
   }
 
   /**
