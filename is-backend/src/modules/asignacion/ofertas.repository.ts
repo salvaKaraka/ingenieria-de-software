@@ -29,7 +29,19 @@ export class OfertasRepository {
         expiraEn: { gt: new Date() },
       },
       include: {
-        envio: { include: { comercio: { select: { nombre: true } } } },
+        envio: {
+          include: {
+            comercio: { select: { nombre: true, direccion: true } },
+            ordenDevolucion: {
+              select: {
+                envios: {
+                  where: { estado: 'EN_DEVOLUCION' },
+                  select: { tamanio: true },
+                },
+              },
+            },
+          },
+        },
       },
     });
   }
@@ -53,13 +65,44 @@ export class OfertasRepository {
       where: { id: oferta.id },
       data: { estado: 'ACEPTADA', respondidaEn: new Date() },
     });
-    await tx.envio.update({
-      where: { id: oferta.envioId },
-      data: { estado: 'ASIGNADO', repartidorId: oferta.repartidorId },
-    });
     await tx.repartidor.update({
       where: { id: oferta.repartidorId },
       data: { estado: 'OCUPADO', enColaDesde: null },
+    });
+
+    // Orden de devolución (HU 38): el repartidor se lleva todos los paquetes de la orden.
+    // Siguen "En devolución" hasta que el comercio los recibe (HU 39).
+    if (envio.estado === 'EN_DEVOLUCION' && envio.ordenDevolucionId !== null) {
+      await tx.ordenDevolucion.update({
+        where: { id: envio.ordenDevolucionId },
+        data: { repartidorId: oferta.repartidorId },
+      });
+      const paquetes = await tx.envio.findMany({
+        where: {
+          ordenDevolucionId: envio.ordenDevolucionId,
+          estado: 'EN_DEVOLUCION',
+        },
+        select: { id: true },
+      });
+      await tx.envio.updateMany({
+        where: { id: { in: paquetes.map((paquete) => paquete.id) } },
+        data: { repartidorId: oferta.repartidorId },
+      });
+      await tx.eventoEnvio.createMany({
+        data: paquetes.map((paquete) => ({
+          envioId: paquete.id,
+          tipo: 'NOTA' as const,
+          detalle: 'Devolución asignada: el repartidor lleva el paquete al comercio',
+          actorTipo: 'REPARTIDOR' as const,
+          actorId: oferta.repartidorId,
+        })),
+      });
+      return;
+    }
+
+    await tx.envio.update({
+      where: { id: oferta.envioId },
+      data: { estado: 'ASIGNADO', repartidorId: oferta.repartidorId },
     });
     await tx.eventoEnvio.create({
       data: {
@@ -111,6 +154,45 @@ export class OfertasRepository {
         data: { estado: 'EN_PAUSA', enColaDesde: null, viajesConsecutivos: 0 },
       });
       return vencidas.length;
+    });
+  }
+
+  // Respuestas del repartidor (HU 28): ofertas aceptadas, rechazadas y vencidas. El rango
+  // se aplica sobre el momento de la respuesta: cuándo aceptó o rechazó, o cuándo venció.
+  // Trae además los cierres del envío (cancelación o cambio de vehículo), que el service
+  // necesita para descartar las ofertas que no vencieron por inactividad.
+  buscarHistorialPorRepartidor(
+    repartidorId: number,
+    desde?: Date,
+    hasta?: Date,
+  ) {
+    const rango: Prisma.DateTimeFilter = {
+      ...(desde && { gte: desde }),
+      ...(hasta && { lte: hasta }),
+    };
+
+    return this.prisma.oferta.findMany({
+      where: {
+        repartidorId,
+        OR: [
+          { estado: { in: ['ACEPTADA', 'RECHAZADA'] }, respondidaEn: rango },
+          { estado: 'VENCIDA', expiraEn: rango },
+        ],
+      },
+      include: {
+        envio: {
+          select: {
+            id: true,
+            codigoSeguimiento: true,
+            eventos: {
+              where: {
+                OR: [{ estadoNuevo: 'CANCELADO' }, { tipo: 'REASIGNACION' }],
+              },
+              select: { creadoEn: true },
+            },
+          },
+        },
+      },
     });
   }
 }

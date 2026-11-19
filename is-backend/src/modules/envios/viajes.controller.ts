@@ -5,6 +5,9 @@ import {
   type UsuarioAutenticado,
 } from '../../common/auth';
 import { AvanzarViajeDto } from './dto/avanzar-viaje.dto';
+import { ConfirmarDevolucionDto } from './dto/confirmar-devolucion.dto';
+import { ReportarIncidenteDto } from './dto/reportar-incidente.dto';
+import { ReportarNovedadDto } from './dto/reportar-novedad.dto';
 import { ViajesService } from './viajes.service';
 
 // Endpoints del repartidor logueado sobre su viaje activo (E-2).
@@ -19,6 +22,12 @@ export class ViajesController {
     return this.viajesService.obtenerViajeActual(usuario.id);
   }
 
+  // HU 34: "Mi historial", las entregas del día en curso.
+  @Get('historial')
+  obtenerHistorial(@UsuarioActual() usuario: UsuarioAutenticado) {
+    return this.viajesService.historialDelDia(usuario.id);
+  }
+
   // Es una acción, no crea un recurso: responde 200.
   @Post('actual/avanzar')
   @HttpCode(200)
@@ -27,5 +36,33 @@ export class ViajesController {
     @Body() evidencia: AvanzarViajeDto,
   ) {
     return this.viajesService.avanzarViajeActual(usuario.id, evidencia);
+  }
+
+  // HU39: Confirmar en el comercio la entrega de un paquete devuelto, exigiendo la foto de la constancia.
+  @Post('actual/confirmar-devolucion')
+  @HttpCode(200)
+  confirmarDevolucion(
+    @UsuarioActual() usuario: UsuarioAutenticado,
+    @Body() dto: ConfirmarDevolucionDto,
+  ) {
+    return this.viajesService.confirmarDevolucionActual(usuario.id, dto);
+  }
+
+  @Post('actual/incidente')
+  @HttpCode(200)
+  reportarIncidente(
+    @UsuarioActual() usuario: UsuarioAutenticado,
+    @Body() dto: ReportarIncidenteDto,
+  ) {
+    return this.viajesService.reportarIncidente(usuario.id, dto);
+  }
+
+  @Post('actual/novedad')
+  @HttpCode(200)
+  reportarNovedad(
+    @UsuarioActual() usuario: UsuarioAutenticado,
+    @Body() dto: ReportarNovedadDto,
+  ) {
+    return this.viajesService.reportarNovedad(usuario.id, dto);
   }
 }

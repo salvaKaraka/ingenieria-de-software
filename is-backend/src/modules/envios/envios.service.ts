@@ -7,72 +7,47 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  EstadoEnvio,
   Prisma,
-  type EstadoEnvio,
   type TamanioPaquete,
   type TipoVehiculo,
 } from '../../generated/prisma/client';
+import {
+  convertirMedianocheArgentinaAUTC,
+  finDelDiaArgentina,
+} from '../../common/dia-argentina';
 import { AsignacionService } from '../asignacion/asignacion.service';
 import { ComerciosService } from '../comercios/comercios.service';
 import { generarCodigoSeguimiento } from './codigo-seguimiento.util';
-import { esTransicionValida } from './domain/estado-envio';
+import {
+  ESTADOS_CON_PAQUETE_RETIRADO,
+  ESTADOS_FINALES,
+  esTransicionValida,
+} from './domain/estado-envio';
 import { armarHistorial } from './domain/historial';
 import { ActualizarEnvioDto } from './dto/actualizar-envio.dto';
 import { CrearEnvioDto } from './dto/crear-envio.dto';
 import { ListarEnviosDto } from './dto/listar-envios.dto';
+import { ReintentarEnvioDto } from './dto/reintentar-envio.dto';
 import { EnviosRepository } from './envios.repository';
 
 // Vehículo MÍNIMO según el tamaño (supuesto 8): el motor después acepta uno más grande.
+const ESTADOS_DEL_DEPOSITO: readonly EstadoEnvio[] = [
+  'EN_CUSTODIA',
+  'EN_DEVOLUCION',
+];
+
 const VEHICULO_MINIMO: Record<TamanioPaquete, TipoVehiculo> = {
   CHICO: 'MOTO',
   MEDIANO: 'AUTO',
   GRANDE: 'CAMION',
 };
 
-const ZONA_HORARIA_OPERATIVA = 'America/Argentina/Buenos_Aires';
-const FORMATEADOR_OPERATIVO = new Intl.DateTimeFormat('en-US', {
-  timeZone: ZONA_HORARIA_OPERATIVA,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: 'h23',
-});
-
-function convertirMedianocheArgentinaAUTC(fecha: string): Date {
-  const [anio, mes, dia] = fecha.split('-').map(Number);
-  const medianocheComoUTC = Date.UTC(anio, mes - 1, dia);
-  let instanteUTC = medianocheComoUTC;
-
-  // Recalcular el desfase en el instante resultante contempla cambios horarios de la zona.
-  for (let intento = 0; intento < 3; intento++) {
-    const partes = new Map(
-      FORMATEADOR_OPERATIVO.formatToParts(new Date(instanteUTC)).map(
-        (parte) => [parte.type, parte.value],
-      ),
-    );
-    const fechaLocalComoUTC = Date.UTC(
-      Number(partes.get('year')),
-      Number(partes.get('month')) - 1,
-      Number(partes.get('day')),
-      Number(partes.get('hour')),
-      Number(partes.get('minute')),
-      Number(partes.get('second')),
-    );
-    const desfase = fechaLocalComoUTC - instanteUTC;
-    const siguienteInstanteUTC = medianocheComoUTC - desfase;
-    if (siguienteInstanteUTC === instanteUTC) break;
-    instanteUTC = siguienteInstanteUTC;
-  }
-
-  return new Date(instanteUTC);
-}
-
 // Cómo se nombra cada dato en el historial cuando el operario lo modifica (HU 31).
 const ETIQUETA_CAMPO: Record<keyof ActualizarEnvioDto, string> = {
   destinoDireccion: 'dirección de entrega',
+  destinoLat: 'punto de entrega en el mapa',
+  destinoLon: 'punto de entrega en el mapa',
   destinatarioNombre: 'nombre del destinatario',
   destinatarioApellido: 'apellido del destinatario',
   destinatarioDni: 'DNI del destinatario',
@@ -137,6 +112,10 @@ export class EnviosService {
           comercioId: dto.comercioId,
           origenDireccion: delComercio.origenDireccion,
           destinoDireccion: dto.destinoDireccion,
+          origenLat: dto.origenLat,
+          origenLon: dto.origenLon,
+          destinoLat: dto.destinoLat,
+          destinoLon: dto.destinoLon,
           destinatarioNombre: dto.destinatarioNombre,
           destinatarioApellido: dto.destinatarioApellido,
           destinatarioDni: dto.destinatarioDni,
@@ -178,6 +157,7 @@ export class EnviosService {
       desde,
       hasta,
       q: filtros.q?.trim() || undefined,
+      orden: filtros.orden,
       saltar: (pagina - 1) * limite,
       tomar: limite,
     });
@@ -208,10 +188,51 @@ export class EnviosService {
       idsDe('OPERARIO'),
       idsDe('REPARTIDOR'),
     );
+    // Un paquete de una orden de devolución que no es el que se ofreció muestra igual las
+    // ofertas de la orden (las del representante desde que se creó la orden).
+    const orden = envio.ordenDevolucion;
+    const representante = orden?.envios[0];
+    const ofertasDeLaOrden =
+      orden && representante && representante.id !== envio.id
+        ? representante.ofertas.filter((o) => o.creadaEn >= orden.creadaEn)
+        : [];
+    const { ordenDevolucion, ...datos } = envio;
     return {
-      ...envio,
-      historial: armarHistorial(envio.eventos, envio.ofertas, nombres),
+      ...datos,
+      ordenDevolucion: ordenDevolucion && {
+        id: ordenDevolucion.id,
+        confirmadaEn: ordenDevolucion.confirmadaEn,
+        paquetes: ordenDevolucion.envios.map((p) => ({
+          envioId: p.id,
+          codigoSeguimiento: p.codigoSeguimiento,
+        })),
+      },
+      historial: armarHistorial(
+        envio.eventos,
+        [...envio.ofertas, ...ofertasDeLaOrden],
+        nombres,
+      ),
     };
+  }
+
+  // Panel del día (HU4): un grupo por cada estado no final, en el orden del enum y con su
+  // cantidad. Los grupos salen del enum (no de una lista fija) para que un estado nuevo
+  // aparezca solo. Cada envío viaja una única vez, dentro de su grupo.
+  // Los paquetes del depósito (en custodia o en una orden de devolución) no son parte de la
+  // operación del día: se siguen en la pestaña Depósito.
+  async obtenerPanel() {
+    const fueraDelPanel = [...ESTADOS_FINALES, ...ESTADOS_DEL_DEPOSITO];
+    const envios =
+      await this.enviosRepository.obtenerPanelEnvios(fueraDelPanel);
+
+    const grupos = Object.values(EstadoEnvio)
+      .filter((estado) => !fueraDelPanel.includes(estado))
+      .map((estado) => {
+        const delEstado = envios.filter((envio) => envio.estado === estado);
+        return { estado, cantidad: delEstado.length, envios: delEstado };
+      });
+
+    return { total: envios.length, grupos };
   }
 
   async cancelar(id: number, operarioId: number) {
@@ -220,11 +241,28 @@ export class EnviosService {
       throw new NotFoundException('El envío no existe');
     }
 
+    // HU 39 (escenario 3): devuelto al comercio es un estado final.
+    if (envio.estado === 'DEVUELTO_AL_COMERCIO') {
+      throw new ConflictException('El envío ya finalizó su ciclo');
+    }
+
+    // HU 30: con el paquete fuera del comercio ya no se cancela; se gestiona como devolución.
+    if (
+      ESTADOS_CON_PAQUETE_RETIRADO.includes(envio.estado) ||
+      (envio.estado !== 'CANCELADO' && envio._count.eventos > 0)
+    ) {
+      throw new ConflictException(
+        'No se puede cancelar: el paquete ya fue retirado',
+      );
+    }
+
     if (!esTransicionValida(envio.estado, 'CANCELADO', 'OPERARIO')) {
       throw new ConflictException(
         envio.estado === 'CANCELADO'
           ? 'El envío ya está cancelado'
-          : 'No se puede cancelar un envío entregado',
+          : envio.estado === 'ENTREGADO'
+            ? 'No se puede cancelar un envío entregado'
+            : 'No se puede cancelar el envío en su estado actual',
       );
     }
 
@@ -244,6 +282,72 @@ export class EnviosService {
     // abierta): que el motor les ofrezca los envíos que esperan.
     await this.asignacion.reintentarPendientes();
     return cancelado;
+  }
+
+  async reintentar(id: number, dto: ReintentarEnvioDto, operarioId: number) {
+    const envio = await this.enviosRepository.obtenerEstado(id);
+    if (!envio) {
+      throw new NotFoundException('El envío no existe');
+    }
+    if (envio.estado !== 'CON_NOVEDAD') {
+      throw new ConflictException(
+        'Solo se pueden reintentar envíos con novedad',
+      );
+    }
+    if (!esTransicionValida(envio.estado, 'RETIRADO', 'OPERARIO')) {
+      throw new ConflictException('No se puede reintentar este envío');
+    }
+
+    const resultado = await this.enviosRepository.reintentar(
+      id,
+      envio.estado,
+      dto,
+      operarioId,
+    );
+    if (resultado === 'REPARTIDOR_NO_DISPONIBLE') {
+      throw new ConflictException(
+        'El repartidor que tiene el paquete no está disponible (en pausa, en emergencia o cerrando la jornada). Marcá el envío para devolución o esperá a que vuelva.',
+      );
+    }
+    if (!resultado) {
+      throw new ConflictException(
+        'El envío o el repartidor cambió de estado. Actualizá el detalle e intentá nuevamente.',
+      );
+    }
+    return {
+      ...resultado,
+      mensaje: resultado.asignadoAhora
+        ? 'Reintento asignado al repartidor'
+        : 'Reintento en espera: se asignará al mismo repartidor cuando esté disponible',
+    };
+  }
+
+  async marcarParaDevolucion(id: number, operarioId: number) {
+    const envio = await this.enviosRepository.obtenerEstado(id);
+    if (!envio) {
+      throw new NotFoundException('El envío no existe');
+    }
+    if (envio.estado !== 'CON_NOVEDAD') {
+      throw new ConflictException('Solo se pueden devolver envíos con novedad');
+    }
+    if (!esTransicionValida(envio.estado, 'A_DEVOLVER', 'OPERARIO')) {
+      throw new ConflictException('No se puede devolver este envío');
+    }
+
+    const resultado = await this.enviosRepository.marcarParaDevolucion(
+      id,
+      operarioId,
+    );
+    if (!resultado) {
+      throw new ConflictException(
+        'El envío cambió de estado, intentá nuevamente',
+      );
+    }
+    return resultado;
+  }
+
+  asignarReintentoPendiente(repartidorId: number): Promise<boolean> {
+    return this.enviosRepository.asignarReintentoPendiente(repartidorId);
   }
 
   async actualizar(id: number, dto: ActualizarEnvioDto, operarioId: number) {
@@ -272,6 +376,15 @@ export class EnviosService {
           valor !== undefined && valor !== envio[campo as keyof typeof dto],
       ),
     ) as Pick<ActualizarEnvioDto, keyof ActualizarEnvioDto>;
+    // Una dirección nueva sin punto en el mapa: el punto viejo ya no le corresponde.
+    if (
+      cambios.destinoDireccion !== undefined &&
+      dto.destinoLat === undefined &&
+      envio.destinoLat !== null
+    ) {
+      cambios.destinoLat = null;
+      cambios.destinoLon = null;
+    }
     const camposCambiados = Object.keys(
       cambios,
     ) as (keyof ActualizarEnvioDto)[];
@@ -290,8 +403,12 @@ export class EnviosService {
     const cambiaVehiculo =
       nuevoVehiculo !== undefined && nuevoVehiculo !== envio.vehiculoRequerido;
 
+    // Mover el punto en el mapa también le cambia el destino al repartidor.
     const avisoDireccion =
-      cambios.destinoDireccion !== undefined && envio.repartidorId !== null;
+      (cambios.destinoDireccion !== undefined ||
+        cambios.destinoLat !== undefined ||
+        cambios.destinoLon !== undefined) &&
+      envio.repartidorId !== null;
 
     const actualizado = await this.enviosRepository.actualizar(
       id,
@@ -305,7 +422,8 @@ export class EnviosService {
         cambiaVehiculo,
         avisoDireccion,
         // Sin los valores: el historial no tiene por qué mostrar el DNI.
-        detalle: `Datos modificados: ${camposCambiados.map((campo) => ETIQUETA_CAMPO[campo]).join(', ')}`,
+        // Set: la latitud y la longitud se nombran igual y no tienen que salir dos veces.
+        detalle: `Datos modificados: ${[...new Set(camposCambiados.map((campo) => ETIQUETA_CAMPO[campo]))].join(', ')}`,
       },
     );
 
@@ -342,15 +460,7 @@ export class EnviosService {
   }
 
   private finDelDia(fecha: string): Date {
-    if (fecha.length !== 10) return new Date(fecha);
-
-    const [anio, mes, dia] = fecha.split('-').map(Number);
-    const diaSiguiente = new Date(Date.UTC(anio, mes - 1, dia + 1))
-      .toISOString()
-      .slice(0, 10);
-    return new Date(
-      convertirMedianocheArgentinaAUTC(diaSiguiente).getTime() - 1,
-    );
+    return fecha.length === 10 ? finDelDiaArgentina(fecha) : new Date(fecha);
   }
 
   private inicioDelDia(fecha: string): Date {

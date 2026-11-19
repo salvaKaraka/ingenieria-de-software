@@ -5,10 +5,15 @@ import {
 } from '@nestjs/common';
 import { Prisma, RolUsuario } from '../../generated/prisma/client';
 import { AsignacionService } from '../asignacion/asignacion.service';
+import { OfertasService } from '../asignacion/ofertas.service';
 import { AuthService } from '../auth/auth.service';
+import { EnviosService } from '../envios/envios.service';
+import type { Sesion } from '../auth/tipos';
 import {
+  type ActualizarPerfilRepartidorDto,
   type ActualizarRepartidorDto,
   type CrearRepartidorDto,
+  type FiltroHistorialRespuestasDto,
   type FiltroRepartidoresDto,
 } from './dto';
 import {
@@ -33,6 +38,8 @@ export class RepartidoresService {
     private readonly repo: RepartidoresRepository,
     private readonly authService: AuthService,
     private readonly asignacion: AsignacionService,
+    private readonly ofertasService: OfertasService,
+    private readonly enviosService: EnviosService,
   ) {}
 
   async listar(filtros?: FiltroRepartidoresDto): Promise<RepartidorPublico[]> {
@@ -184,6 +191,28 @@ export class RepartidoresService {
     return { pin: nuevoPin };
   }
 
+  async rehabilitar(id: number): Promise<{ estado: 'DISPONIBLE' | 'OCUPADO' }> {
+    const repartidor = await this.buscarPorId(id);
+    if (
+      repartidor.estado !== 'EMERGENCIA' &&
+      repartidor.estado !== 'EN_PAUSA'
+    ) {
+      throw new ConflictException(
+        'Solo se puede rehabilitar a un repartidor en emergencia o en pausa',
+      );
+    }
+
+    if (!(await this.repo.rehabilitar(id))) {
+      throw new ConflictException(
+        'El estado del repartidor cambió. Actualizá la flota e intentá de nuevo.',
+      );
+    }
+    const reintentoAsignado =
+      await this.enviosService.asignarReintentoPendiente(id);
+    await this.asignacion.reintentarPendientes();
+    return { estado: reintentoAsignado ? 'OCUPADO' : 'DISPONIBLE' };
+  }
+
   // Vuelve a habilitar a un repartidor dado de baja: es la única forma de que regrese, porque
   // su DNI y su email siguen ocupados y no se lo puede dar de alta otra vez.
   async reactivar(id: number): Promise<RepartidorConPin> {
@@ -202,5 +231,50 @@ export class RepartidoresService {
     // Si esto fallara, queda activo sin PIN conocido y se resuelve con "Resetear PIN".
     const pin = await this.authService.asignarNuevoPin(id);
     return { ...repartidor, activo: true, pin };
+  }
+
+  // HU #68: Bloqueo por viaje activo en tránsito ("En camino a retirar", "Paquete en poder", "En domicilio de entrega").
+  private async verificarSinViajeEnTransito(id: number): Promise<void> {
+    if (await this.repo.tieneViajeEnTransito(id)) {
+      throw new ConflictException(
+        'No podés modificar tu perfil mientras tenés un viaje en curso',
+      );
+    }
+  }
+
+  // HU #68: Modificar datos de contacto (teléfono y email).
+  async actualizarPerfil(
+    id: number,
+    dto: ActualizarPerfilRepartidorDto,
+  ): Promise<RepartidorPublico> {
+    await this.buscarPorId(id);
+    await this.verificarSinViajeEnTransito(id);
+
+    const datos: Prisma.RepartidorUpdateInput = {
+      ...(dto.telefono !== undefined && { telefono: dto.telefono.trim() }),
+      ...(dto.email !== undefined && { email: dto.email.trim().toLowerCase() }),
+    };
+
+    const repartidor = await this.conDatosUnicos(() =>
+      this.repo.actualizar(id, datos),
+    );
+    return ocultarDni(repartidor);
+  }
+
+  // HU #68: el repartidor pide un PIN nuevo demostrando que conoce el actual.
+  // Verificar el PIN, generar el nuevo y renovar la sesión es tarea del módulo auth.
+  async cambiarPin(
+    id: number,
+    pinActual: string,
+  ): Promise<{ pin: string; sesion: Sesion }> {
+    await this.buscarPorId(id);
+    await this.verificarSinViajeEnTransito(id);
+    return this.authService.cambiarPinPropio(id, pinActual);
+  }
+
+  // HU #28: Historial de respuestas y métricas de ofertas del repartidor
+  async historialRespuestas(id: number, filtro?: FiltroHistorialRespuestasDto) {
+    await this.buscarPorId(id);
+    return this.ofertasService.consultarHistorial(id, filtro);
   }
 }

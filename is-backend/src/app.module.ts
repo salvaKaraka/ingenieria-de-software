@@ -9,6 +9,7 @@ import { HealthModule } from './health/health.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ComerciosModule } from './modules/comercios/comercios.module';
 import { EnviosModule } from './modules/envios/envios.module';
+import { ExcepcionesModule } from './modules/excepciones/excepciones.module';
 import { RepartidoresModule } from './modules/repartidores/repartidores.module';
 import { AsignacionModule } from './modules/asignacion/asignacion.module';
 import { SeguimientoModule } from './modules/seguimiento/seguimiento.module';
@@ -29,6 +30,8 @@ import { SeguimientoModule } from './modules/seguimiento/seguimiento.module';
     RepartidoresModule,
     AsignacionModule,
     SeguimientoModule,
+    // Panel de excepciones del operario (HU 12 y HU 22)
+    ExcepcionesModule,
     // Herramientas de prueba (/api/dev/...): nunca en producción.
     ...(process.env.NODE_ENV === 'production' ? [] : [DevModule]),
   ],

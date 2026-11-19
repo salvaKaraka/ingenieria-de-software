@@ -4,6 +4,7 @@ import type {
   TipoActor,
   TipoEvento,
 } from '../../../generated/prisma/client';
+import { cerradaAntesDeVencer } from '../../asignacion/domain/cierre-oferta';
 
 export type EventoHistorial = {
   id: number;
@@ -112,9 +113,7 @@ export function armarHistorial(
       });
     }
 
-    const cerradaAntes = cierres.some(
-      (cierre) => cierre >= oferta.creadaEn && cierre < oferta.expiraEn,
-    );
+    const cerradaAntes = cerradaAntesDeVencer(oferta, cierres);
     if (oferta.estado === 'VENCIDA' && !cerradaAntes) {
       entradas.push({
         ...base,

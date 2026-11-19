@@ -11,7 +11,12 @@ type Tx = Prisma.TransactionClient;
 export type EnvioBloqueado = {
   id: number;
   estado: EstadoEnvio;
+  // En una orden de devolución, el de la orden: el repartidor lleva todos sus paquetes.
   vehiculoRequerido: TipoVehiculo;
+  // Solo si el envío viaja en una orden de devolución (HU 38).
+  ordenDevolucionId: number | null;
+  ordenTieneRepartidor: boolean;
+  esRepresentanteDeLaOrden: boolean;
 };
 export type Candidato = {
   id: number;
@@ -33,10 +38,16 @@ export class AsignacionRepository {
   // el mismo envío al mismo tiempo, espera acá y después ve la oferta que creamos nosotros.
   async bloquearEnvio(tx: Tx, envioId: number): Promise<EnvioBloqueado | null> {
     const filas = await tx.$queryRaw<EnvioBloqueado[]>`
-      SELECT id, estado, vehiculo_requerido AS "vehiculoRequerido"
-      FROM envios
-      WHERE id = ${envioId}
-      FOR UPDATE`;
+      SELECT e.id, e.estado,
+        COALESCE(o.vehiculo_requerido, e.vehiculo_requerido) AS "vehiculoRequerido",
+        e.orden_devolucion_id AS "ordenDevolucionId",
+        (o.repartidor_id IS NOT NULL) AS "ordenTieneRepartidor",
+        (e.id = (SELECT MIN(id) FROM envios WHERE orden_devolucion_id = e.orden_devolucion_id))
+          AS "esRepresentanteDeLaOrden"
+      FROM envios e
+      LEFT JOIN ordenes_devolucion o ON o.id = e.orden_devolucion_id
+      WHERE e.id = ${envioId}
+      FOR UPDATE OF e`;
     return filas[0] ?? null;
   }
 
@@ -45,6 +56,52 @@ export class AsignacionRepository {
       where: { envioId, estado: 'PENDIENTE' },
     });
     return cantidad > 0;
+  }
+
+  tieneIncidente(tx: Tx, envioId: number): Promise<boolean> {
+    return tx.eventoEnvio
+      .count({ where: { envioId, tipo: 'INCIDENTE' } })
+      .then((cantidad) => cantidad > 0);
+  }
+
+  async marcarInterrumpidoComoPendiente(tx: Tx, envioId: number) {
+    const { count } = await tx.envio.updateMany({
+      where: { id: envioId, estado: 'INTERRUMPIDO' },
+      data: { estado: 'PENDIENTE', repartidorId: null },
+    });
+    if (count === 0) return false;
+
+    await tx.eventoEnvio.create({
+      data: {
+        envioId,
+        tipo: 'REASIGNACION',
+        estadoAnterior: 'INTERRUMPIDO',
+        estadoNuevo: 'PENDIENTE',
+        detalle: 'Envío devuelto al motor para su reasignación',
+        actorTipo: 'SISTEMA',
+      },
+    });
+    return true;
+  }
+
+  async marcarParado(tx: Tx, envioId: number, estadoAnterior: EstadoEnvio) {
+    const { count } = await tx.envio.updateMany({
+      where: { id: envioId, estado: estadoAnterior },
+      data: { estado: 'PARADO', repartidorId: null },
+    });
+    if (count === 0) return false;
+
+    await tx.eventoEnvio.create({
+      data: {
+        envioId,
+        tipo: 'CAMBIO_ESTADO',
+        estadoAnterior,
+        estadoNuevo: 'PARADO',
+        detalle: 'Sin repartidores compatibles para reasignar',
+        actorTipo: 'SISTEMA',
+      },
+    });
+    return true;
   }
 
   // Primer repartidor de la cola FIFO que puede recibir este envío.
@@ -139,16 +196,25 @@ export class AsignacionRepository {
     return tx.oferta.create({ data: { envioId, repartidorId, expiraEn } });
   }
 
-  // Envíos esperando repartidor, del más viejo al más nuevo (también FIFO).
+  // Envíos esperando repartidor, del más viejo al más nuevo (también FIFO). Incluye las
+  // órdenes de devolución sin repartidor, representadas por su primer paquete (HU 38).
   async enviosPendientesSinOferta(): Promise<number[]> {
-    const envios = await this.prisma.envio.findMany({
-      where: {
-        estado: 'PENDIENTE',
-        ofertas: { none: { estado: 'PENDIENTE' } },
-      },
-      orderBy: { creadoEn: 'asc' },
-      select: { id: true },
-    });
-    return envios.map((envio) => envio.id);
+    const filas = await this.prisma.$queryRaw<{ id: number }[]>`
+      SELECT e.id
+      FROM envios e
+      LEFT JOIN ordenes_devolucion o ON o.id = e.orden_devolucion_id
+      WHERE NOT EXISTS (
+          SELECT 1 FROM ofertas f WHERE f.envio_id = e.id AND f.estado = 'PENDIENTE'
+        )
+        AND (
+          e.estado = 'PENDIENTE'
+          OR (
+            e.estado = 'EN_DEVOLUCION'
+            AND o.repartidor_id IS NULL
+            AND e.id = (SELECT MIN(id) FROM envios WHERE orden_devolucion_id = o.id)
+          )
+        )
+      ORDER BY COALESCE(o.creada_en, e.creado_en), e.id`;
+    return filas.map((fila) => fila.id);
   }
 }

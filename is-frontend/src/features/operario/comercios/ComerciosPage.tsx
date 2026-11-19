@@ -3,6 +3,7 @@ import { api, ErrorApi } from '../../../shared/api'
 import { Boton } from '../../../shared/ui/Boton'
 import { Campo } from '../../../shared/ui/Campo'
 import { Modal } from '../../../shared/ui/Modal'
+import { Selector } from '../../../shared/ui/Selector'
 import { Tabla } from '../../../shared/ui/Tabla'
 
 interface Comercio {
@@ -14,6 +15,25 @@ interface Comercio {
   requiereFoto: boolean
   requiereDni: boolean
   activo: boolean
+}
+
+interface ResumenDiarioComercio {
+  comercioId: number
+  comercioNombre: string
+  fecha: string
+  entregados: number
+  devueltos: number
+  cancelados: number
+}
+
+// Fecha de hoy en Argentina (AAAA-MM-DD) para el selector por defecto del resumen diario (HU 41).
+function fechaHoyArgentina(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
 }
 
 type FormularioComercio = Omit<Comercio, 'id' | 'activo'>
@@ -40,6 +60,13 @@ export function ComerciosPage() {
   const [mensajeExito, setMensajeExito] = useState<string | null>(null)
   const [errorCarga, setErrorCarga] = useState(false)
   const ultimaConsulta = useRef(0)
+
+  // Estado del resumen diario por comercio (HU 41)
+  const [comercioResumenId, setComercioResumenId] = useState('')
+  const [fechaResumen, setFechaResumen] = useState(fechaHoyArgentina)
+  const [resumen, setResumen] = useState<ResumenDiarioComercio | null>(null)
+  const [cargandoResumen, setCargandoResumen] = useState(false)
+  const [errorResumen, setErrorResumen] = useState<string | null>(null)
 
   const cargarComercios = useCallback(async (query = '') => {
     // Mientras se escribe, las respuestas pueden llegar desordenadas: solo vale la última.
@@ -151,6 +178,34 @@ export function ComerciosPage() {
     }
   }
 
+  const generarResumen = async (evento: FormEvent) => {
+    evento.preventDefault()
+    if (!comercioResumenId) {
+      setErrorResumen('Seleccioná un comercio')
+      return
+    }
+    if (!fechaResumen) {
+      setErrorResumen('Seleccioná una fecha')
+      return
+    }
+
+    setErrorResumen(null)
+    setCargandoResumen(true)
+    try {
+      const datos = await api<ResumenDiarioComercio>(
+        `/comercios/${comercioResumenId}/resumen?fecha=${encodeURIComponent(fechaResumen)}`,
+      )
+      setResumen(datos)
+    } catch (err) {
+      setResumen(null)
+      setErrorResumen(
+        err instanceof ErrorApi ? err.message : 'No se pudo generar el resumen diario',
+      )
+    } finally {
+      setCargandoResumen(false)
+    }
+  }
+
   const columnasTabla = [
     { titulo: 'Nombre', celda: (comercio: Comercio) => <span className="font-bold text-slate-800">{comercio.nombre}</span> },
     { titulo: 'Dirección', celda: (comercio: Comercio) => <span className="text-slate-600">{comercio.direccion}</span> },
@@ -249,6 +304,78 @@ export function ComerciosPage() {
           mensajeVacio={cargando ? 'Cargando comercios...' : 'No se encontraron comercios.'}
         />
       </div>
+
+      {/* HU 41: Resumen diario por comercio */}
+      <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div>
+          <h2 className="text-xl font-bold text-slate-800">Resumen diario por comercio</h2>
+          <p className="text-sm text-slate-600">
+            Consultá la cantidad de envíos entregados, devueltos y cancelados en una fecha para rendir cuentas al comercio.
+          </p>
+        </div>
+
+        <form onSubmit={generarResumen} className="grid grid-cols-1 items-end gap-4 md:grid-cols-3">
+          <Selector
+            etiqueta="Comercio"
+            value={comercioResumenId}
+            onChange={(evento) => {
+              setComercioResumenId(evento.target.value)
+              setErrorResumen(null)
+            }}
+            opciones={[
+              { valor: '', etiqueta: 'Seleccionar comercio...' },
+              ...comercios.map((comercio) => ({
+                valor: String(comercio.id),
+                etiqueta: comercio.nombre,
+              })),
+            ]}
+          />
+
+          <Campo
+            etiqueta="Fecha"
+            type="date"
+            value={fechaResumen}
+            onChange={(evento) => {
+              setFechaResumen(evento.target.value)
+              setErrorResumen(null)
+            }}
+          />
+
+          <div>
+            <Boton type="submit" disabled={cargandoResumen}>
+              {cargandoResumen ? 'Generando...' : 'Generar resumen'}
+            </Boton>
+          </div>
+        </form>
+
+        {errorResumen && (
+          <p role="alert" className="rounded-md bg-rose-50 p-3 text-sm font-medium text-rose-700">
+            {errorResumen}
+          </p>
+        )}
+
+        {resumen && (
+          <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <p className="text-sm font-semibold text-slate-700">
+              Resumen de <span className="text-slate-900">{resumen.comercioNombre}</span> ({resumen.fecha})
+            </p>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="rounded-lg border border-emerald-200 bg-white p-4 shadow-sm">
+                <p className="text-sm font-medium text-slate-600">Entregados</p>
+                <p className="mt-1 text-3xl font-bold text-emerald-700">{resumen.entregados}</p>
+              </div>
+              <div className="rounded-lg border border-amber-200 bg-white p-4 shadow-sm">
+                <p className="text-sm font-medium text-slate-600">Devueltos</p>
+                <p className="mt-1 text-3xl font-bold text-amber-700">{resumen.devueltos}</p>
+              </div>
+              <div className="rounded-lg border border-rose-200 bg-white p-4 shadow-sm">
+                <p className="text-sm font-medium text-slate-600">Cancelados</p>
+                <p className="mt-1 text-3xl font-bold text-rose-700">{resumen.cancelados}</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
 
       <Modal
         abierto={modalAbierto}

@@ -6,6 +6,13 @@ const COLORES: Record<EstadoEnvio, string> = {
   EN_CAMINO_A_RETIRAR: 'bg-indigo-100 text-indigo-800',
   RETIRADO: 'bg-violet-100 text-violet-800',
   EN_DOMICILIO: 'bg-blue-100 text-blue-800',
+  INTERRUMPIDO: 'bg-red-100 text-red-800',
+  PARADO: 'bg-orange-100 text-orange-800',
+  CON_NOVEDAD: 'bg-rose-100 text-rose-800',
+  A_DEVOLVER: 'bg-purple-100 text-purple-800',
+  EN_CUSTODIA: 'bg-fuchsia-100 text-fuchsia-800',
+  EN_DEVOLUCION: 'bg-teal-100 text-teal-800',
+  DEVUELTO_AL_COMERCIO: 'bg-emerald-100 text-emerald-800',
   ENTREGADO: 'bg-green-100 text-green-800',
   CANCELADO: 'bg-gray-200 text-gray-700',
 }

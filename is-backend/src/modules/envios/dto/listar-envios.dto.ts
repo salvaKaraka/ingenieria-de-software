@@ -2,6 +2,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -43,6 +44,14 @@ export class ListarEnviosDto {
   @IsOptional()
   @IsString()
   q?: string;
+
+  // registro (por defecto): los últimos registrados primero.
+  // actividad: los últimos que cambiaron primero (para "Finalizados", lo último que terminó).
+  @IsOptional()
+  @IsIn(['registro', 'actividad'], {
+    message: 'El orden debe ser registro o actividad',
+  })
+  orden?: 'registro' | 'actividad';
 
   @IsOptional()
   @Type(() => Number)

@@ -4,6 +4,13 @@ export type EstadoEnvio =
   | 'EN_CAMINO_A_RETIRAR'
   | 'RETIRADO'
   | 'EN_DOMICILIO'
+  | 'INTERRUMPIDO'
+  | 'PARADO'
+  | 'CON_NOVEDAD'
+  | 'A_DEVOLVER'
+  | 'EN_CUSTODIA'
+  | 'EN_DEVOLUCION'
+  | 'DEVUELTO_AL_COMERCIO'
   | 'ENTREGADO'
   | 'CANCELADO';
 
@@ -22,5 +29,6 @@ export interface TrackingResponseDto {
   franjaEstimadaInicio?: string;
   franjaEstimadaFin?: string;
   fechaEntrega?: string;
+  avisoReprogramacion?: string
   historial: HistorialEstadoItem[];
 }

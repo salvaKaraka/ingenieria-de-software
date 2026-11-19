@@ -1,7 +1,10 @@
 import { ConflictException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
+import request from 'supertest';
 import { AppModule } from '../src/app.module';
+import { configurarApp } from '../src/configurar-app';
 import { PrismaService } from '../src/database/prisma.service';
 import type { EstadoEnvio } from '../src/generated/prisma/client';
 import { AsignacionService } from '../src/modules/asignacion/asignacion.service';
@@ -14,13 +17,17 @@ import { emailUnico, vaciarBase } from './utils';
 describe('Cancelación de envíos (e2e)', () => {
   let app: NestExpressApplication;
   let prisma: PrismaService;
+  let jwt: JwtService;
   let envios: EnviosService;
   let motor: AsignacionService;
   let ofertas: OfertasService;
   let comercioId: number;
   let operarioId: number;
 
-  async function crearRepartidor(minutosEnCola = 30) {
+  async function crearRepartidor(
+    minutosEnCola = 30,
+    estado: 'DISPONIBLE' | 'OCUPADO' = 'DISPONIBLE',
+  ) {
     const repartidor = await prisma.repartidor.create({
       data: {
         nombre: 'R',
@@ -29,15 +36,21 @@ describe('Cancelación de envíos (e2e)', () => {
         email: emailUnico(),
         direccion: 'x',
         vehiculo: 'MOTO',
-        estado: 'DISPONIBLE',
-        enColaDesde: new Date(Date.now() - minutosEnCola * 60_000),
+        estado,
+        enColaDesde:
+          estado === 'DISPONIBLE'
+            ? new Date(Date.now() - minutosEnCola * 60_000)
+            : null,
       },
     });
     return repartidor.id;
   }
 
   let codigo = 0;
-  async function crearEnvio(estado: EstadoEnvio = 'PENDIENTE') {
+  async function crearEnvio(
+    estado: EstadoEnvio = 'PENDIENTE',
+    repartidorId?: number,
+  ) {
     const envio = await prisma.envio.create({
       data: {
         codigoSeguimiento: `CANC${++codigo}`,
@@ -49,6 +62,7 @@ describe('Cancelación de envíos (e2e)', () => {
         requiereFoto: false,
         requiereDni: false,
         estado,
+        repartidorId,
       },
     });
     return envio.id;
@@ -61,8 +75,10 @@ describe('Cancelación de envíos (e2e)', () => {
     app = moduleRef.createNestApplication<NestExpressApplication>({
       logger: false,
     });
+    configurarApp(app);
     await app.init();
     prisma = app.get(PrismaService);
+    jwt = app.get(JwtService);
     envios = app.get(EnviosService);
     motor = app.get(AsignacionService);
     ofertas = app.get(OfertasService);
@@ -85,7 +101,13 @@ describe('Cancelación de envíos (e2e)', () => {
     operarioId = operario.id;
   });
 
-  afterAll(() => app.close());
+  afterAll(async () => {
+    await app.close();
+  });
+
+  async function cookieDe(id: number, rol: 'OPERARIO' | 'REPARTIDOR') {
+    return `access_token=${await jwt.signAsync({ sub: id, rol })}`;
+  }
 
   it('cierra la oferta abierta y el repartidor vuelve a la cola sin quedar en pausa', async () => {
     const repartidorId = await crearRepartidor();
@@ -171,5 +193,97 @@ describe('Cancelación de envíos (e2e)', () => {
       expect(envio.estado).toBe('ASIGNADO');
       expect(repartidor.estado).toBe('OCUPADO');
     }
+  });
+
+  it('cancela antes del retiro, libera al repartidor y le avisa que no retire el paquete', async () => {
+    const repartidorId = await crearRepartidor(30, 'OCUPADO');
+    const envioId = await crearEnvio('EN_CAMINO_A_RETIRAR', repartidorId);
+
+    await request(app.getHttpServer())
+      .post(`/api/envios/${envioId}/cancelar`)
+      .set('Cookie', await cookieDe(operarioId, 'OPERARIO'))
+      .expect(200);
+
+    const envio = await prisma.envio.findUniqueOrThrow({
+      where: { id: envioId },
+    });
+    expect(envio.estado).toBe('CANCELADO');
+    expect(envio.repartidorId).toBe(repartidorId);
+    expect(
+      await prisma.repartidor.findUniqueOrThrow({
+        where: { id: repartidorId },
+      }),
+    ).toMatchObject({ estado: 'DISPONIBLE' });
+
+    const viajeActual = await request(app.getHttpServer())
+      .get('/api/repartidor/viajes/actual')
+      .set('Cookie', await cookieDe(repartidorId, 'REPARTIDOR'))
+      .expect(200);
+    expect(viajeActual.body).toEqual({
+      viaje: null,
+      avisoCancelacion: 'El envío fue cancelado. No lo retires.',
+    });
+  });
+
+  it.each(['RETIRADO', 'EN_DOMICILIO'] as const)(
+    'rechaza cancelar en %s con el mensaje exacto y conserva el estado',
+    async (estado) => {
+      const repartidorId = await crearRepartidor(30, 'OCUPADO');
+      const envioId = await crearEnvio(estado, repartidorId);
+
+      const respuesta = await request(app.getHttpServer())
+        .post(`/api/envios/${envioId}/cancelar`)
+        .set('Cookie', await cookieDe(operarioId, 'OPERARIO'))
+        .expect(409);
+
+      expect(respuesta.body.message).toBe(
+        'No se puede cancelar: el paquete ya fue retirado',
+      );
+      expect(
+        await prisma.envio.findUniqueOrThrow({ where: { id: envioId } }),
+      ).toMatchObject({ estado, repartidorId });
+      expect(
+        await prisma.repartidor.findUniqueOrThrow({
+          where: { id: repartidorId },
+        }),
+      ).toMatchObject({ estado: 'OCUPADO' });
+    },
+  );
+
+  it('cancela un envío pendiente sin repartidor y lo excluye de la asignación automática', async () => {
+    const envioId = await crearEnvio('PENDIENTE');
+
+    await request(app.getHttpServer())
+      .post(`/api/envios/${envioId}/cancelar`)
+      .set('Cookie', await cookieDe(operarioId, 'OPERARIO'))
+      .expect(200);
+
+    expect(
+      await prisma.envio.findUniqueOrThrow({ where: { id: envioId } }),
+    ).toMatchObject({ estado: 'CANCELADO', repartidorId: null });
+    expect(await motor.asignar(envioId)).toBeNull();
+  });
+
+  it('cancela un envío asignado, libera al repartidor y le avisa que no retire el paquete', async () => {
+    const repartidorId = await crearRepartidor(30, 'OCUPADO');
+    const envioId = await crearEnvio('ASIGNADO', repartidorId);
+
+    await request(app.getHttpServer())
+      .post(`/api/envios/${envioId}/cancelar`)
+      .set('Cookie', await cookieDe(operarioId, 'OPERARIO'))
+      .expect(200);
+
+    expect(
+      await prisma.repartidor.findUniqueOrThrow({
+        where: { id: repartidorId },
+      }),
+    ).toMatchObject({ estado: 'DISPONIBLE' });
+    const viajeActual = await request(app.getHttpServer())
+      .get('/api/repartidor/viajes/actual')
+      .set('Cookie', await cookieDe(repartidorId, 'REPARTIDOR'))
+      .expect(200);
+    expect(viajeActual.body.avisoCancelacion).toBe(
+      'El envío fue cancelado. No lo retires.',
+    );
   });
 });

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router'
 import { OfertaActual } from '../ofertas/OfertaActual.tsx'
 import { ViajeActual } from '../viaje/ViajeActual.tsx'
 import { PanelJornada } from './PanelJornada.tsx'
@@ -21,11 +22,15 @@ export function InicioRepartidorPage() {
     <>
       {aviso && <p className="rounded-xl bg-green-800 p-4 text-center font-semibold">{aviso}</p>}
       <OfertaActual key={`oferta-${vuelta}`} alAceptar={() => refrescar()} />
-      <ViajeActual
-        key={`viaje-${vuelta}`}
-        alEntregar={() => refrescar('¡Entrega registrada! Ya estás de nuevo en la cola.')}
-      />
+      <ViajeActual key={`viaje-${vuelta}`} alTerminar={refrescar} />
       <PanelJornada key={`jornada-${vuelta}`} />
+      {/* HU 34 */}
+      <Link
+        to="/repartidor/historial"
+        className="block rounded-2xl border border-slate-700 p-4 text-center font-semibold text-slate-200"
+      >
+        Mi historial
+      </Link>
     </>
   )
 }

@@ -5,6 +5,12 @@ import { Test } from '@nestjs/testing';
 import { ComerciosRepository } from './comercios.repository';
 import { ComerciosService } from './comercios.service';
 import { ActualizarComercioDto } from './dto/actualizar-comercio.dto';
+import { ResumenDiarioComercioDto } from './dto/resumen-diario-comercio.dto';
+import { ESTADOS_FINALES } from '../envios/domain/estado-envio';
+import {
+  convertirMedianocheArgentinaAUTC,
+  finDelDiaArgentina,
+} from '../../common/dia-argentina';
 
 describe('ComerciosService', () => {
   let service: ComerciosService;
@@ -16,6 +22,7 @@ describe('ComerciosService', () => {
     actualizar: jest.fn(),
     eliminarLogico: jest.fn(),
     contarEnviosEnCurso: jest.fn(),
+    contarFinalizadosPorEstado: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -119,6 +126,85 @@ describe('ComerciosService', () => {
     repository.buscarPorId.mockResolvedValue(null);
     await expect(service.eliminarLogico(99)).rejects.toThrow(NotFoundException);
     expect(repository.eliminarLogico).not.toHaveBeenCalled();
+  });
+
+  describe('obtenerResumenDiario (HU 41)', () => {
+    it('devuelve la cantidad de envíos entregados, devueltos y cancelados del día', async () => {
+      repository.buscarPorId.mockResolvedValue({
+        id: 1,
+        nombre: 'Panadería Sol',
+        activo: true,
+      });
+      repository.contarFinalizadosPorEstado.mockResolvedValue([
+        { estado: 'ENTREGADO', cantidad: 4 },
+        { estado: 'CANCELADO', cantidad: 1 },
+      ]);
+
+      const resumen = await service.obtenerResumenDiario(1, '2026-11-17');
+
+      expect(resumen).toEqual({
+        comercioId: 1,
+        comercioNombre: 'Panadería Sol',
+        fecha: '2026-11-17',
+        entregados: 4,
+        devueltos: 0,
+        cancelados: 1,
+      });
+      expect(repository.contarFinalizadosPorEstado).toHaveBeenCalledWith(
+        1,
+        convertirMedianocheArgentinaAUTC('2026-11-17'),
+        finDelDiaArgentina('2026-11-17'),
+        ESTADOS_FINALES,
+      );
+    });
+
+    it('devuelve todos los totales en 0 cuando el comercio no tuvo envíos en la fecha seleccionada', async () => {
+      repository.buscarPorId.mockResolvedValue({
+        id: 2,
+        nombre: 'Kiosco Don Pepe',
+        activo: true,
+      });
+      repository.contarFinalizadosPorEstado.mockResolvedValue([]);
+
+      const resumen = await service.obtenerResumenDiario(2, '2026-11-17');
+
+      expect(resumen).toEqual({
+        comercioId: 2,
+        comercioNombre: 'Kiosco Don Pepe',
+        fecha: '2026-11-17',
+        entregados: 0,
+        devueltos: 0,
+        cancelados: 0,
+      });
+    });
+
+    it('lanza NotFoundException si el comercio no existe al pedir el resumen', async () => {
+      repository.buscarPorId.mockResolvedValue(null);
+
+      await expect(
+        service.obtenerResumenDiario(999, '2026-11-17'),
+      ).rejects.toThrow(NotFoundException);
+      expect(repository.contarFinalizadosPorEstado).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('ResumenDiarioComercioDto', () => {
+  async function errores(datos: object) {
+    const lista = await validate(
+      plainToInstance(ResumenDiarioComercioDto, datos),
+    );
+    return lista.map((error) => error.property);
+  }
+
+  it('acepta una fecha válida en formato AAAA-MM-DD', async () => {
+    expect(await errores({ fecha: '2026-11-17' })).toEqual([]);
+  });
+
+  it('rechaza si falta la fecha o tiene un formato inválido', async () => {
+    expect(await errores({})).toEqual(['fecha']);
+    expect(await errores({ fecha: '17/11/2026' })).toEqual(['fecha']);
+    expect(await errores({ fecha: '2026-02-30' })).toEqual(['fecha']);
   });
 });
 

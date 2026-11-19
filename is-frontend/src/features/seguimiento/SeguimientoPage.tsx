@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router'
 import { api, ErrorApi } from '../../shared/api.ts'
 import { usePolling } from '../../shared/usePolling.ts'
-import { ETIQUETA_ESTADO_ENVIO, type EstadoEnvio } from '../../shared/tipos.ts'
+import type { EstadoEnvio } from '../../shared/tipos.ts'
 import type { TrackingResponseDto } from './types.ts'
 
 const NO_ENCONTRADO = 'Código de seguimiento no encontrado'
@@ -16,8 +16,8 @@ const DEMO_ENVIOS: Record<string, TrackingResponseDto> = {
     destinatario: 'Carlos M.',
     direccionDestino: 'Av. Corrientes',
     horaSalida: '2026-10-18T11:30:00Z',
-    franjaEstimadaInicio: '14:00',
-    franjaEstimadaFin: '17:00',
+    franjaEstimadaInicio: '2026-10-18T12:15:00Z',
+    franjaEstimadaFin: '2026-10-18T12:45:00Z',
     historial: [
       { estado: 'PENDIENTE', fecha: '2026-10-18T09:15:00Z' },
       { estado: 'ASIGNADO', fecha: '2026-10-18T10:00:00Z' },
@@ -42,8 +42,6 @@ const DEMO_ENVIOS: Record<string, TrackingResponseDto> = {
     destinatario: 'Ana R.',
     direccionDestino: 'Belgrano',
     horaSalida: '2026-10-18T09:00:00Z',
-    franjaEstimadaInicio: '11:00',
-    franjaEstimadaFin: '13:00',
     fechaEntrega: '2026-10-18T12:45:00Z',
     historial: [
       { estado: 'PENDIENTE', fecha: '2026-10-18T08:00:00Z' },
@@ -117,6 +115,54 @@ function formatearHora(horaStr?: string): string {
   return horaStr
 }
 
+// "14:25": la franja llega en ISO y se muestra en la hora local del destinatario.
+function horaYMinutos(isoString: string): string {
+  return new Intl.DateTimeFormat('es-AR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date(isoString))
+}
+
+// HU 17: el destinatario ve nombres pensados para él, no los estados internos de la operación.
+// Varios estados internos se ven igual (por ejemplo, todo el circuito de devolución).
+const ETIQUETA_PARA_DESTINATARIO: Record<EstadoEnvio, string> = {
+  PENDIENTE: 'Pendiente',
+  ASIGNADO: 'Asignado',
+  EN_CAMINO_A_RETIRAR: 'En camino a retirar',
+  RETIRADO: 'Paquete retirado',
+  EN_DOMICILIO: 'En domicilio de entrega',
+  INTERRUMPIDO: 'Demorado',
+  PARADO: 'Demorado',
+  CON_NOVEDAD: 'No pudimos entregarlo',
+  A_DEVOLVER: 'En devolución al comercio',
+  EN_CUSTODIA: 'En devolución al comercio',
+  EN_DEVOLUCION: 'En devolución al comercio',
+  DEVUELTO_AL_COMERCIO: 'Devuelto al comercio',
+  ENTREGADO: 'Entregado',
+  CANCELADO: 'Cancelado',
+}
+
+const MENSAJE_DETENIDO: Partial<Record<EstadoEnvio, string>> = {
+  INTERRUMPIDO: 'Tu envío tiene una demora. Estamos coordinando cómo continuar.',
+  PARADO: 'Tu envío tiene una demora. Estamos coordinando cómo continuar.',
+  CON_NOVEDAD: 'Visitamos tu domicilio y no pudimos entregar el paquete',
+  A_DEVOLVER: 'El envío será devuelto al comercio.',
+  EN_CUSTODIA: 'El envío será devuelto al comercio.',
+  EN_DEVOLUCION: 'El envío está volviendo al comercio.',
+  DEVUELTO_AL_COMERCIO: 'El paquete fue devuelto al comercio.',
+}
+
+// Dos pasos seguidos con el mismo nombre para el destinatario se muestran como uno solo.
+function historialParaDestinatario(historial: { estado: EstadoEnvio; fecha: string }[]) {
+  return historial.filter(
+    (item, idx) =>
+      idx === 0 ||
+      ETIQUETA_PARA_DESTINATARIO[item.estado] !==
+        ETIQUETA_PARA_DESTINATARIO[historial[idx - 1].estado],
+  )
+}
+
 const CONFIG_BADGE: Record<EstadoEnvio, { clases: string; dotClases: string; pulsante?: boolean }> = {
   PENDIENTE: {
     clases: 'bg-amber-100 text-amber-800 border-amber-200',
@@ -143,6 +189,37 @@ const CONFIG_BADGE: Record<EstadoEnvio, { clases: string; dotClases: string; pul
     dotClases: 'bg-blue-500',
     pulsante: true,
   },
+  INTERRUMPIDO: {
+    clases: 'bg-red-100 text-red-800 border-red-200',
+    dotClases: 'bg-red-500',
+    pulsante: true,
+  },
+  PARADO: {
+    clases: 'bg-orange-100 text-orange-800 border-orange-200',
+    dotClases: 'bg-orange-500',
+  },
+  CON_NOVEDAD: {
+    clases: 'bg-rose-100 text-rose-800 border-rose-200',
+    dotClases: 'bg-rose-500',
+    pulsante: true,
+  },
+  A_DEVOLVER: {
+    clases: 'bg-purple-100 text-purple-800 border-purple-200',
+    dotClases: 'bg-purple-500',
+  },
+  EN_CUSTODIA: {
+    clases: 'bg-purple-100 text-purple-800 border-purple-200',
+    dotClases: 'bg-purple-500',
+  },
+  EN_DEVOLUCION: {
+    clases: 'bg-purple-100 text-purple-800 border-purple-200',
+    dotClases: 'bg-purple-500',
+    pulsante: true,
+  },
+  DEVUELTO_AL_COMERCIO: {
+    clases: 'bg-gray-100 text-gray-800 border-gray-200',
+    dotClases: 'bg-gray-500',
+  },
   ENTREGADO: {
     clases: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     dotClases: 'bg-emerald-500',
@@ -158,7 +235,7 @@ function BadgeEstado({ estado }: { estado: EstadoEnvio }) {
     clases: 'bg-gray-100 text-gray-800 border-gray-200',
     dotClases: 'bg-gray-500',
   }
-  const texto = ETIQUETA_ESTADO_ENVIO[estado] ?? estado
+  const texto = ETIQUETA_PARA_DESTINATARIO[estado] ?? estado
 
   return (
     <span
@@ -178,6 +255,7 @@ function LineaProgreso({
   historial: { estado: EstadoEnvio; fecha: string }[]
 }) {
   const esCancelado = estadoActual === 'CANCELADO'
+  const mensajeDetenido = MENSAJE_DETENIDO[estadoActual]
   const indiceActual = PASOS_PROGRESO.findIndex((p) => p.estado === estadoActual)
 
   const mapaFechas = new Map<EstadoEnvio, string>()
@@ -199,6 +277,15 @@ function LineaProgreso({
           </span>
         )}
       </div>
+
+      {mensajeDetenido && (
+        <p
+          role="status"
+          className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm font-medium text-orange-900"
+        >
+          {mensajeDetenido}
+        </p>
+      )}
 
       {/* Versión Desktop / Tablet (horizontal responsive) */}
       <div className="hidden sm:block">
@@ -542,6 +629,15 @@ export function SeguimientoPage() {
                 </div>
               </div>
 
+              {tracking.avisoReprogramacion && (
+                <p
+                  role="status"
+                  className="rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm font-semibold text-violet-900"
+                >
+                  {tracking.avisoReprogramacion}
+                </p>
+              )}
+
               {/* Datos de origen y destino enmascarados (Épica 2.5) */}
               {(tracking.comercio || tracking.destinatario || tracking.direccionDestino) && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-xl bg-gray-50 p-4 border border-gray-200 text-xs">
@@ -671,13 +767,18 @@ export function SeguimientoPage() {
                     </div>
                   )}
 
-                  {(tracking.franjaEstimadaInicio || tracking.franjaEstimadaFin) && (
+                  {/* HU 70: solo viene mientras el paquete va hacia el domicilio */}
+                  {tracking.franjaEstimadaInicio && tracking.franjaEstimadaFin && (
                     <div>
                       <span className="text-xs font-semibold uppercase tracking-wider text-blue-700 block">
-                        Franja estimada de entrega
+                        Llegada estimada
                       </span>
-                      <p className="text-sm font-semibold text-blue-950 mt-0.5">
-                        {formatearHora(tracking.franjaEstimadaInicio)} - {formatearHora(tracking.franjaEstimadaFin)}
+                      <p className="text-base font-semibold text-blue-950 mt-0.5">
+                        Llegada estimada entre {horaYMinutos(tracking.franjaEstimadaInicio)} y{' '}
+                        {horaYMinutos(tracking.franjaEstimadaFin)}
+                      </p>
+                      <p className="text-xs text-blue-800 mt-1">
+                        Es una estimación: puede variar según el tránsito.
                       </p>
                     </div>
                   )}
@@ -703,7 +804,7 @@ export function SeguimientoPage() {
 
                 {tracking.historial && tracking.historial.length > 0 ? (
                   <div className="relative pl-6 space-y-5 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-gray-200">
-                    {tracking.historial.map((item, idx) => (
+                    {historialParaDestinatario(tracking.historial).map((item, idx, lista) => (
                       <div
                         key={`${item.estado}-${item.fecha}-${idx}`}
                         className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1"
@@ -711,16 +812,16 @@ export function SeguimientoPage() {
                         <span className="absolute -left-6 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-white ring-4 ring-white">
                           <span
                             className={`h-2.5 w-2.5 rounded-full ${
-                              item.estado === tracking.estadoActual ? 'bg-blue-600' : 'bg-gray-400'
+                              idx === lista.length - 1 ? 'bg-blue-600' : 'bg-gray-400'
                             }`}
                           />
                         </span>
 
                         <div className="flex items-center gap-2">
                           <span className="font-semibold text-sm text-gray-900">
-                            {ETIQUETA_ESTADO_ENVIO[item.estado] ?? item.estado}
+                            {ETIQUETA_PARA_DESTINATARIO[item.estado] ?? item.estado}
                           </span>
-                          {item.estado === tracking.estadoActual && (
+                          {idx === lista.length - 1 && (
                             <span className="text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full">
                               Actual
                             </span>

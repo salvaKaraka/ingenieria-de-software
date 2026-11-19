@@ -48,6 +48,9 @@ const FILTROS_VACIOS: FiltrosEnvios = {
   fecha: '',
 }
 
+// Cuántos envíos trae cada consulta. Si hay más, se avisa para que el operario filtre.
+const LIMITE = 50
+
 const PESTANAS: { id: Pestana; etiqueta: string }[] = [
   { id: 'PENDIENTE', etiqueta: 'Pendientes de asignar' },
   { id: 'EN_CURSO', etiqueta: 'En curso' },
@@ -57,6 +60,7 @@ const PESTANAS: { id: Pestana; etiqueta: string }[] = [
 export function EnviosPage() {
   const navigate = useNavigate()
   const [envios, setEnvios] = useState<EnvioResumen[]>([])
+  const [total, setTotal] = useState(0)
   const [comercios, setComercios] = useState<ComercioOpcion[]>([])
   const [filtros, setFiltros] = useState<FiltrosEnvios>(FILTROS_VACIOS)
   const [filtrosAplicados, setFiltrosAplicados] = useState<FiltrosEnvios | null>(null)
@@ -76,8 +80,9 @@ export function EnviosPage() {
     try {
       const filtros: Record<Pestana, string> = {
         PENDIENTE: 'PENDIENTE',
-        EN_CURSO: 'ASIGNADO,EN_CAMINO_A_RETIRAR,RETIRADO,EN_DOMICILIO',
-        FINALIZADO: 'ENTREGADO,CANCELADO',
+        EN_CURSO:
+          'ASIGNADO,EN_CAMINO_A_RETIRAR,RETIRADO,EN_DOMICILIO,INTERRUMPIDO,PARADO,CON_NOVEDAD,A_DEVOLVER,EN_CUSTODIA,EN_DEVOLUCION',
+        FINALIZADO: 'ENTREGADO,CANCELADO,DEVUELTO_AL_COMERCIO',
       }
       const parametros = new URLSearchParams()
       if (filtrosAplicados) {
@@ -96,11 +101,16 @@ export function EnviosPage() {
         }
       } else {
         parametros.set('estado', filtros[pestanaActiva])
+        // En curso y finalizados: arriba lo que se movió último (por ejemplo, lo que terminó
+        // recién), no lo último que se registró.
+        if (pestanaActiva !== 'PENDIENTE') parametros.set('orden', 'actividad')
       }
+      parametros.set('limite', String(LIMITE))
 
       const respuesta = await api<RespuestaPaginada>(`/envios?${parametros.toString()}`)
 
       setEnvios(Array.isArray(respuesta?.datos) ? respuesta.datos : [])
+      setTotal(respuesta?.total ?? 0)
       setUltimaActualizacion(new Date())
       setError(false)
     } catch {
@@ -212,7 +222,14 @@ export function EnviosPage() {
           </p>
         </div>
 
-        <div className="rounded-lg shadow-xl transition hover:scale-105">
+        <div className="flex flex-wrap items-center gap-3">
+          <Boton
+            variante="secundario"
+            onClick={() => navigate('/operario/panel')}
+            className="border-white/30 bg-white/10 text-white hover:bg-white/20"
+          >
+            📊 Panel del día
+          </Boton>
           <Boton
             onClick={() => navigate('/operario/envios/nuevo')}
             className="rounded-xl border-none bg-amber-400 px-6 py-3 font-bold text-slate-900 shadow-lg hover:bg-amber-300"
@@ -316,6 +333,12 @@ export function EnviosPage() {
             <p className="font-medium">Sincronizando envíos...</p>
           </div>
         ) : (
+          <>
+          {total > envios.length && (
+            <p className="border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600">
+              Se muestran los {envios.length} más recientes de {total}. Usá los filtros para encontrar los demás.
+            </p>
+          )}
           <Tabla
             columnas={columnasTabla}
             filas={envios}
@@ -326,6 +349,7 @@ export function EnviosPage() {
                 : 'No hay envíos en esta categoría.'
             }
           />
+          </>
         )}
       </div>
     </div>

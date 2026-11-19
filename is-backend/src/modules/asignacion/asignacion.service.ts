@@ -5,11 +5,27 @@ import {
   MAX_VIAJES_CONSECUTIVOS,
   OFERTA_SEGUNDOS,
 } from './asignacion.constants';
-import { AsignacionRepository } from './asignacion.repository';
+import {
+  AsignacionRepository,
+  type EnvioBloqueado,
+} from './asignacion.repository';
 import { vehiculosQuePuedenLlevar } from './domain/vehiculos';
 
 // Si todos los candidatos tuvieran que descansar, este tope evita un bucle infinito.
 const MAX_INTENTOS = 50;
+
+// Un envío nuevo o interrumpido, o una orden de devolución que todavía nadie lleva (HU 38).
+// La orden se ofrece a través de uno solo de sus paquetes para no generar una oferta por cada uno.
+function necesitaRepartidor(envio: EnvioBloqueado): boolean {
+  if (envio.estado === 'PENDIENTE' || envio.estado === 'INTERRUMPIDO')
+    return true;
+  return (
+    envio.estado === 'EN_DEVOLUCION' &&
+    envio.ordenDevolucionId !== null &&
+    !envio.ordenTieneRepartidor &&
+    envio.esRepresentanteDeLaOrden
+  );
+}
 
 // Motor de asignación (épica 3.2): cruza los envíos pendientes con la cola FIFO de repartidores.
 // Lo usan: B-3 (al crear un envío), D-2 (al rechazar), D-3 (al vencer una oferta),
@@ -26,8 +42,14 @@ export class AsignacionService {
     // Todo en una transacción: los bloqueos de fila duran hasta que termina.
     return this.repo.transaccion(async (tx) => {
       const envio = await this.repo.bloquearEnvio(tx, envioId);
-      if (!envio || envio.estado !== 'PENDIENTE') return null;
+      if (!envio || !necesitaRepartidor(envio)) return null;
       if (await this.repo.tieneOfertaVigente(tx, envioId)) return null;
+      // Una orden de devolución sin candidatos sigue esperando: no pasa a PARADO aunque alguno
+      // de sus paquetes haya tenido un incidente en su viaje original.
+      const esReasignacionPorIncidente =
+        envio.estado === 'INTERRUMPIDO' ||
+        (envio.estado === 'PENDIENTE' &&
+          (await this.repo.tieneIncidente(tx, envioId)));
 
       for (let intento = 0; intento < MAX_INTENTOS; intento++) {
         const candidato = await this.repo.tomarCandidato(
@@ -39,6 +61,9 @@ export class AsignacionService {
           this.logger.log(
             `Envío ${envioId}: sin repartidores disponibles (vehículo mínimo: ${envio.vehiculoRequerido})`,
           );
+          if (esReasignacionPorIncidente) {
+            await this.repo.marcarParado(tx, envioId, envio.estado);
+          }
           return null;
         }
 
@@ -58,6 +83,12 @@ export class AsignacionService {
             continue;
           }
           esAsignacionExcepcional = true;
+        }
+
+        if (envio.estado === 'INTERRUMPIDO') {
+          const pasoAPendiente =
+            await this.repo.marcarInterrumpidoComoPendiente(tx, envioId);
+          if (!pasoAPendiente) return null;
         }
 
         const expiraEn = new Date(Date.now() + OFERTA_SEGUNDOS * 1000);
@@ -84,6 +115,9 @@ export class AsignacionService {
         }
 
         return oferta;
+      }
+      if (esReasignacionPorIncidente) {
+        await this.repo.marcarParado(tx, envioId, envio.estado);
       }
       return null;
     });

@@ -39,6 +39,15 @@ enum EstadoEnvio {
   EN_CAMINO_A_RETIRAR
   RETIRADO
   EN_DOMICILIO
+  INTERRUMPIDO
+  PARADO
+  CON_NOVEDAD
+  A_DEVOLVER
+  // Circuito de depósito (HU 37-39): el operario lo recibe en la base, lo manda de vuelta
+  // al comercio en una orden de devolución y el repartidor confirma la entrega.
+  EN_CUSTODIA
+  EN_DEVOLUCION
+  DEVUELTO_AL_COMERCIO
   ENTREGADO
   CANCELADO
 }
@@ -50,6 +59,7 @@ enum EstadoRepartidor {
   OCUPADO
   EN_PAUSA
   EMERGENCIA
+  ESPERANDO_VALIDACION_CIERRE
 }
 
 enum EstadoOferta {
@@ -73,6 +83,7 @@ enum TipoEvento {
   NOVEDAD
   INCIDENTE
   NOTA
+  DEVOLUCION // el paquete volvió a la base al cerrar la jornada del repartidor (G-1)
 }
 
 // Tipo de usuario que inicia sesión. Va en el JWT y lo usan los guards (@Roles).
@@ -96,7 +107,8 @@ model Comercio {
   creadoEn      DateTime @default(now()) @map("creado_en")
   actualizadoEn DateTime @updatedAt @map("actualizado_en")
 
-  envios Envio[]
+  envios            Envio[]
+  ordenesDevolucion OrdenDevolucion[]
 
   @@map("comercios")
 }
@@ -120,6 +132,7 @@ model Repartidor {
   enColaDesde        DateTime?        @map("en_cola_desde")
   // Entregas seguidas sin descanso (regla de máximo 2 consecutivos, supuesto 5 de TAREAS.md)
   viajesConsecutivos Int              @default(0) @map("viajes_consecutivos")
+  cierreSolicitado   Boolean          @default(false) @map("cierre_solicitado")
   activo             Boolean          @default(true)
   // HMAC-SHA256 del PIN (con la clave PIN_SECRET del .env), nunca el PIN en texto plano.
   // Determinístico: permite buscar al repartidor por su PIN y garantizar que sea único.
@@ -128,8 +141,9 @@ model Repartidor {
   creadoEn           DateTime         @default(now()) @map("creado_en")
   actualizadoEn      DateTime         @updatedAt @map("actualizado_en")
 
-  envios  Envio[]
-  ofertas Oferta[]
+  envios            Envio[]
+  ofertas           Oferta[]
+  ordenesDevolucion OrdenDevolucion[]
 
   // Búsqueda del motor de asignación: disponibles de un vehículo en orden FIFO
   @@index([estado, vehiculo, enColaDesde])
@@ -137,29 +151,45 @@ model Repartidor {
 }
 
 model Envio {
-  id                   Int            @id @default(autoincrement())
+  id                   Int              @id @default(autoincrement())
   // Aleatorio y no predecible: es lo que recibe el destinatario en el link de seguimiento
-  codigoSeguimiento    String         @unique @map("codigo_seguimiento")
-  comercioId           Int            @map("comercio_id")
-  comercio             Comercio       @relation(fields: [comercioId], references: [id])
-  origenDireccion      String         @map("origen_direccion")
-  destinoDireccion     String         @map("destino_direccion")
-  destinatarioNombre   String?        @map("destinatario_nombre")
-  destinatarioApellido String?        @map("destinatario_apellido")
-  destinatarioDni      String?        @map("destinatario_dni")
-  destinatarioTelefono String?        @map("destinatario_telefono")
+  codigoSeguimiento    String           @unique @map("codigo_seguimiento")
+  comercioId           Int              @map("comercio_id")
+  comercio             Comercio         @relation(fields: [comercioId], references: [id])
+  origenDireccion      String           @map("origen_direccion")
+  destinoDireccion     String           @map("destino_direccion")
+  // Dónde está cada dirección en el mapa (HU 70). El operario confirma el punto al cargar el
+  // envío; quedan vacías si el mapa no encontró la dirección y nadie marcó el punto.
+  origenLat            Float?           @map("origen_lat")
+  origenLon            Float?           @map("origen_lon")
+  destinoLat           Float?           @map("destino_lat")
+  destinoLon           Float?           @map("destino_lon")
+  destinatarioNombre   String?          @map("destinatario_nombre")
+  destinatarioApellido String?          @map("destinatario_apellido")
+  destinatarioDni      String?          @map("destinatario_dni")
+  destinatarioTelefono String?          @map("destinatario_telefono")
   tamanio              TamanioPaquete
-  vehiculoRequerido    TipoVehiculo   @map("vehiculo_requerido")
+  vehiculoRequerido    TipoVehiculo     @map("vehiculo_requerido")
   observaciones        String?
   // Copiados del comercio al crear el envío: un cambio posterior del comercio no afecta envíos en curso (riesgo 15)
-  requiereFoto         Boolean        @map("requiere_foto")
-  requiereDni          Boolean        @map("requiere_dni")
-  estado               EstadoEnvio    @default(PENDIENTE)
-  repartidorId         Int?           @map("repartidor_id")
+  requiereFoto         Boolean          @map("requiere_foto")
+  requiereDni          Boolean          @map("requiere_dni")
+  // Foto de la entrega (HU 18) como data URI. Pesa cientos de kb: solo la devuelve el detalle del envío.
+  fotoUrl              String?          @map("foto_url")
+  // Minutos que se estima que tarda el viaje del retiro a la entrega (HU 70). Se calcula una
+  // sola vez y se guarda: así la franja que ve el destinatario no cambia entre consultas.
+  duracionEstimadaMin  Int?             @map("duracion_estimada_min")
+  // Indica que el operario pidió reintentar tras una novedad, pero el mismo repartidor aún está ocupado.
+  reintentoPendiente   Boolean          @default(false) @map("reintento_pendiente")
+  // Orden de devolución en la que viaja de vuelta al comercio (HU 38). null si nunca entró a una.
+  ordenDevolucionId    Int?             @map("orden_devolucion_id")
+  ordenDevolucion      OrdenDevolucion? @relation(fields: [ordenDevolucionId], references: [id])
+  estado               EstadoEnvio      @default(PENDIENTE)
+  repartidorId         Int?             @map("repartidor_id")
   // Restrict: un repartidor con envíos no se puede borrar (las bajas son lógicas) y no se pierde el historial
-  repartidor           Repartidor?    @relation(fields: [repartidorId], references: [id], onDelete: Restrict)
-  creadoEn             DateTime       @default(now()) @map("creado_en")
-  actualizadoEn        DateTime       @updatedAt @map("actualizado_en")
+  repartidor           Repartidor?      @relation(fields: [repartidorId], references: [id], onDelete: Restrict)
+  creadoEn             DateTime         @default(now()) @map("creado_en")
+  actualizadoEn        DateTime         @updatedAt @map("actualizado_en")
 
   eventos EventoEnvio[]
   ofertas Oferta[]
@@ -167,7 +197,29 @@ model Envio {
   @@index([estado])
   @@index([comercioId])
   @@index([repartidorId])
+  @@index([ordenDevolucionId])
   @@map("envios")
+}
+
+// Paquetes en custodia de un mismo comercio que vuelven juntos en un solo viaje (HU 38).
+// El motor de asignación la ofrece como cualquier envío, a través de uno de sus paquetes.
+model OrdenDevolucion {
+  id                Int          @id @default(autoincrement())
+  comercioId        Int          @map("comercio_id")
+  comercio          Comercio     @relation(fields: [comercioId], references: [id])
+  // El vehículo más grande que piden sus paquetes: tiene que poder llevarlos a todos.
+  vehiculoRequerido TipoVehiculo @map("vehiculo_requerido")
+  repartidorId      Int?         @map("repartidor_id")
+  repartidor        Repartidor?  @relation(fields: [repartidorId], references: [id], onDelete: Restrict)
+  // Constancia de recepción del comercio (HU 39), como data URI. Es de la orden, no de cada envío.
+  fotoConstanciaUrl String?      @map("foto_constancia_url")
+  creadaEn          DateTime     @default(now()) @map("creada_en")
+  confirmadaEn      DateTime?    @map("confirmada_en")
+
+  envios Envio[]
+
+  @@index([repartidorId])
+  @@map("ordenes_devolucion")
 }
 
 // Historial del envío: todo cambio de estado crea un evento (seguimiento, épica 2.3, y auditoría, RNF-03).

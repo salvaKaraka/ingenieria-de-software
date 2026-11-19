@@ -12,6 +12,7 @@ import {
 import { ComerciosService } from './comercios.service';
 import { CrearComercioDto } from './dto/crear-comercio.dto';
 import { ActualizarComercioDto } from './dto/actualizar-comercio.dto';
+import { ResumenDiarioComercioDto } from './dto/resumen-diario-comercio.dto';
 import { Roles } from '../../common/auth';
 
 @Controller('comercios')
@@ -29,6 +30,15 @@ export class ComerciosController {
   @Get(':id')
   async obtenerPorId(@Param('id', ParseIntPipe) id: number) {
     return this.comerciosService.obtenerPorId(id);
+  }
+
+  // GET /api/comercios/:id/resumen?fecha=AAAA-MM-DD (HU 41: resumen diario por comercio)
+  @Get(':id/resumen')
+  async obtenerResumenDiario(
+    @Param('id', ParseIntPipe) id: number,
+    @Query() query: ResumenDiarioComercioDto,
+  ) {
+    return this.comerciosService.obtenerResumenDiario(id, query.fecha);
   }
 
   // 3. POST /api/comercios

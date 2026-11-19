@@ -1,14 +1,22 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import type { AsignacionService } from '../asignacion/asignacion.service';
+import { MotivoNovedadDomicilio } from './dto/reportar-novedad.dto';
 import type { EnviosRepository } from './envios.repository';
 import { ViajesService } from './viajes.service';
 
 describe('ViajesService', () => {
   const repository = {
     buscarViajeActivoPorRepartidor: jest.fn(),
+    buscarAvisoCancelacionPorRepartidor: jest.fn(),
     avanzarViaje: jest.fn(),
+    listarEntregadosDelRepartidorDesde: jest.fn(),
+    reportarIncidente: jest.fn(),
+    reportarNovedad: jest.fn(),
   };
-  const asignacion = { reintentarPendientes: jest.fn() };
+  const asignacion = {
+    asignar: jest.fn(),
+    reintentarPendientes: jest.fn(),
+  };
   let service: ViajesService;
 
   const envioEn = (estado: string) => ({
@@ -43,6 +51,18 @@ describe('ViajesService', () => {
     });
   });
 
+  it('avisa al repartidor que no retire un envío cancelado', async () => {
+    repository.buscarViajeActivoPorRepartidor.mockResolvedValue(null);
+    repository.buscarAvisoCancelacionPorRepartidor.mockResolvedValue(
+      'El envío fue cancelado. No lo retires.',
+    );
+
+    await expect(service.obtenerViajeActual(1)).resolves.toEqual({
+      viaje: null,
+      avisoCancelacion: 'El envío fue cancelado. No lo retires.',
+    });
+  });
+
   it('devuelve el viaje con el siguiente estado y sin el DNI del destinatario', async () => {
     repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
       envioEn('ASIGNADO'),
@@ -73,6 +93,94 @@ describe('ViajesService', () => {
     expect(viaje?.aviso).toBeNull();
   });
 
+  it('reporta un incidente, interrumpe el viaje y dispara la reasignación', async () => {
+    repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
+      envioEn('RETIRADO'),
+    );
+    repository.reportarIncidente.mockResolvedValue({
+      envioId: 5,
+      estadoAnterior: 'RETIRADO',
+    });
+    asignacion.asignar.mockResolvedValue({ id: 8 });
+
+    await expect(
+      service.reportarIncidente(1, { ubicacion: '  Calle 9 123  ' }),
+    ).resolves.toMatchObject({
+      estado: 'INTERRUMPIDO',
+      estadoEnvio: 'PENDIENTE',
+    });
+    expect(repository.reportarIncidente).toHaveBeenCalledWith(1, 'Calle 9 123');
+    expect(asignacion.asignar).toHaveBeenCalledWith(5);
+  });
+
+  it('deja parado el envío si el motor no encuentra reemplazo', async () => {
+    repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
+      envioEn('EN_CAMINO_A_RETIRAR'),
+    );
+    repository.reportarIncidente.mockResolvedValue({
+      envioId: 5,
+      estadoAnterior: 'EN_CAMINO_A_RETIRAR',
+    });
+    asignacion.asignar.mockResolvedValue(null);
+
+    await expect(service.reportarIncidente(1, {})).resolves.toMatchObject({
+      estadoEnvio: 'PARADO',
+    });
+    expect(repository.reportarIncidente).toHaveBeenCalledWith(1, undefined);
+  });
+
+  it('exige ubicación si el repartidor ya retiró el paquete', async () => {
+    repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
+      envioEn('RETIRADO'),
+    );
+
+    await expect(service.reportarIncidente(1, {})).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(repository.reportarIncidente).not.toHaveBeenCalled();
+  });
+
+  it('rechaza reportar un incidente sin viaje en curso', async () => {
+    repository.buscarViajeActivoPorRepartidor.mockResolvedValue(null);
+
+    await expect(
+      service.reportarIncidente(1, { ubicacion: 'Calle 9 123' }),
+    ).rejects.toThrow('No tenés un viaje activo para reportar un incidente');
+    expect(repository.reportarIncidente).not.toHaveBeenCalled();
+  });
+
+  it('registra una novedad en domicilio y devuelve al repartidor a su cola', async () => {
+    repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
+      envioEn('EN_DOMICILIO'),
+    );
+    repository.reportarNovedad.mockResolvedValue(true);
+
+    await expect(
+      service.reportarNovedad(1, {
+        motivo: MotivoNovedadDomicilio.DIRECCION_INCORRECTA,
+        comentario: 'El número no existe',
+      }),
+    ).resolves.toEqual({
+      estado: 'CON_NOVEDAD',
+      mensaje: 'Novedad registrada. El operario decidirá cómo continuar.',
+    });
+    expect(repository.reportarNovedad).toHaveBeenCalledWith(1, {
+      motivo: MotivoNovedadDomicilio.DIRECCION_INCORRECTA,
+      comentario: 'El número no existe',
+    });
+    expect(asignacion.reintentarPendientes).toHaveBeenCalled();
+  });
+
+  it('no permite reportar una novedad antes de llegar al domicilio', async () => {
+    repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
+      envioEn('RETIRADO'),
+    );
+    await expect(
+      service.reportarNovedad(1, { motivo: MotivoNovedadDomicilio.CLIENTE_AUSENTE }),
+    ).rejects.toThrow('Solo podés reportar una novedad al llegar al domicilio');
+    expect(repository.reportarNovedad).not.toHaveBeenCalled();
+  });
+
   it('avanza un paso y no dispara el motor si todavía no entregó', async () => {
     repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
       envioEn('RETIRADO'),
@@ -88,6 +196,7 @@ describe('ViajesService', () => {
       'RETIRADO',
       'EN_DOMICILIO',
       1,
+      undefined,
       undefined,
     );
     expect(asignacion.reintentarPendientes).not.toHaveBeenCalled();
@@ -108,7 +217,7 @@ describe('ViajesService', () => {
     expect(asignacion.reintentarPendientes).toHaveBeenCalled();
   });
 
-  describe('evidencia de entrega (E-4)', () => {
+  describe('evidencia de entrega (E-4 / HU 18)', () => {
     const entregando = (cambios: object) =>
       repository.buscarViajeActivoPorRepartidor.mockResolvedValue({
         ...envioEn('EN_DOMICILIO'),
@@ -141,6 +250,7 @@ describe('ViajesService', () => {
         'ENTREGADO',
         1,
         'Evidencia: DNI verificado',
+        undefined,
       );
     });
 
@@ -153,24 +263,79 @@ describe('ViajesService', () => {
       );
     });
 
-    it('no entrega sin confirmar que mandó la foto por WhatsApp', async () => {
+    // Escenario 2: Finalización fallida por falta de foto con texto textual verbatim
+    it('rechaza la entrega si el comercio exige foto y no se cargó ninguna (Escenario 2)', async () => {
       entregando({ requiereDni: false, requiereFoto: true });
+      await expect(service.avanzarViajeActual(1, {})).rejects.toThrow(
+        'Este comercio exige una foto de la entrega',
+      );
+      expect(repository.avanzarViaje).not.toHaveBeenCalled();
+    });
+
+    // Escenario 1: Entrega con foto exitosa
+    it('completa la entrega exitosamente cuando se envía la foto requerida (Escenario 1)', async () => {
+      entregando({ requiereDni: false, requiereFoto: true });
+      repository.avanzarViaje.mockResolvedValue(true);
+      const fotoData = 'data:image/jpeg;base64,abc123foto';
+
       await expect(
-        service.avanzarViajeActual(1, { fotoEnviada: false }),
-      ).rejects.toThrow('Confirmá que mandaste la foto por WhatsApp');
+        service.avanzarViajeActual(1, { foto: fotoData }),
+      ).resolves.toEqual({
+        estado: 'ENTREGADO',
+        siguienteEstado: null,
+      });
+
+      expect(repository.avanzarViaje).toHaveBeenCalledWith(
+        5,
+        'EN_DOMICILIO',
+        'ENTREGADO',
+        1,
+        'Evidencia: foto adjunta',
+        fotoData,
+      );
+    });
+
+    // Escenario 3: Finalización sin foto cuando no se exige
+    it('permite finalizar entrega sin foto si el comercio solo exige DNI y ya se ingresó (Escenario 3)', async () => {
+      entregando({ requiereDni: true, requiereFoto: false });
+      repository.avanzarViaje.mockResolvedValue(true);
+
+      await expect(
+        service.avanzarViajeActual(1, { dni: '30111222' }),
+      ).resolves.toEqual({
+        estado: 'ENTREGADO',
+        siguienteEstado: null,
+      });
+
+      expect(repository.avanzarViaje).toHaveBeenCalledWith(
+        5,
+        'EN_DOMICILIO',
+        'ENTREGADO',
+        1,
+        'Evidencia: DNI verificado',
+        undefined,
+      );
     });
 
     it('con DNI y foto deja las dos cosas en el historial, sin el número de DNI', async () => {
       entregando({ requiereDni: true, requiereFoto: true });
       repository.avanzarViaje.mockResolvedValue(true);
+      const fotoData = 'data:image/png;base64,fotoprueba';
+
       await service.avanzarViajeActual(1, {
         dni: '30111222',
-        fotoEnviada: true,
+        foto: fotoData,
       });
-      const detalle = repository.avanzarViaje.mock.calls[0][4] as string;
-      expect(detalle).toBe(
-        'Evidencia: DNI verificado, foto enviada por WhatsApp',
+
+      expect(repository.avanzarViaje).toHaveBeenCalledWith(
+        5,
+        'EN_DOMICILIO',
+        'ENTREGADO',
+        1,
+        'Evidencia: DNI verificado, foto adjunta',
+        fotoData,
       );
+      const detalle = repository.avanzarViaje.mock.calls[0][4] as string;
       expect(detalle).not.toContain('30111222');
     });
 
@@ -190,6 +355,18 @@ describe('ViajesService', () => {
         estado: 'EN_DOMICILIO',
       });
     });
+
+    it('no acepta una foto antes de llegar al domicilio de entrega', async () => {
+      repository.buscarViajeActivoPorRepartidor.mockResolvedValue(
+        envioEn('EN_CAMINO_A_RETIRAR'),
+      );
+      await expect(
+        service.avanzarViajeActual(1, { foto: 'data:image/jpeg;base64,abc1' }),
+      ).rejects.toThrow(
+        'La fotografía solo puede capturarse en el domicilio de entrega',
+      );
+      expect(repository.avanzarViaje).not.toHaveBeenCalled();
+    });
   });
 
   it('sin viaje activo, avanzar responde 409', async () => {
@@ -207,5 +384,42 @@ describe('ViajesService', () => {
     await expect(service.avanzarViajeActual(1)).rejects.toBeInstanceOf(
       ConflictException,
     );
+  });
+
+  describe('historial del día (HU 34)', () => {
+    // 15:00 de Argentina del 11/11 (18:00 UTC)
+    const ahora = new Date('2026-11-11T18:00:00Z');
+    const entregado = (id: number, comercio: string, entregadoEn: string) => ({
+      id,
+      codigoSeguimiento: `COD${id}`,
+      destinoDireccion: 'Calle 50 567',
+      comercio: { nombre: comercio },
+      eventos: [{ creadoEn: new Date(entregadoEn) }],
+    });
+
+    it('busca solo desde las 00:00 de Argentina de hoy (no muestra días anteriores)', async () => {
+      repository.listarEntregadosDelRepartidorDesde.mockResolvedValue([]);
+      await service.historialDelDia(7, ahora);
+      expect(
+        repository.listarEntregadosDelRepartidorDesde,
+      ).toHaveBeenCalledWith(7, new Date('2026-11-11T03:00:00Z'));
+    });
+
+    it('lista las entregas con comercio y hora, la más reciente primero', async () => {
+      repository.listarEntregadosDelRepartidorDesde.mockResolvedValue([
+        entregado(1, 'Kiosco', '2026-11-11T13:00:00Z'),
+        entregado(2, 'Farmacia', '2026-11-11T16:30:00Z'),
+      ]);
+      const { entregas } = await service.historialDelDia(7, ahora);
+      expect(entregas.map((e) => e.comercio)).toEqual(['Farmacia', 'Kiosco']);
+      expect(entregas[0].entregadoEn).toEqual(new Date('2026-11-11T16:30:00Z'));
+    });
+
+    it('sin entregas hoy devuelve la lista vacía', async () => {
+      repository.listarEntregadosDelRepartidorDesde.mockResolvedValue([]);
+      await expect(service.historialDelDia(7, ahora)).resolves.toEqual({
+        entregas: [],
+      });
+    });
   });
 });

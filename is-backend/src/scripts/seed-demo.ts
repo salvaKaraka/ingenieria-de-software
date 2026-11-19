@@ -9,6 +9,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../app.module';
 import { PrismaService } from '../database/prisma.service';
 import { verificarBaseLocal } from '../dev/dev.constants';
+import { puntoDe } from './puntos-demo';
 import type {
   EstadoEnvio,
   EstadoRepartidor,
@@ -29,7 +30,7 @@ const VEHICULO_MINIMO: Record<TamanioPaquete, TipoVehiculo> = {
 const COMERCIOS = [
   {
     nombre: 'Kiosco Don Pepe',
-    direccion: 'Calle 7 1234',
+    direccion: 'Avenida 7 1234',
     foto: false,
     dni: false,
   },
@@ -124,12 +125,12 @@ const ENVIOS: EnvioDemo[] = [
   {
     comercio: 1,
     tamanio: 'MEDIANO',
-    destino: 'Calle 60 300',
+    destino: 'Avenida 60 300',
     destinatario: ['Laura', 'Méndez'],
     dni: '26222333',
     final: 'ENTREGADO',
     repartidor: 3,
-    evidencia: 'Evidencia: foto enviada por WhatsApp',
+    evidencia: 'Evidencia: foto adjunta',
   },
   {
     comercio: 3,
@@ -139,7 +140,7 @@ const ENVIOS: EnvioDemo[] = [
     dni: '27333444',
     final: 'ENTREGADO',
     repartidor: 5,
-    evidencia: 'Evidencia: DNI verificado, foto enviada por WhatsApp',
+    evidencia: 'Evidencia: DNI verificado, foto adjunta',
     observaciones: 'Entregar en el portón',
   },
   {
@@ -156,7 +157,7 @@ const ENVIOS: EnvioDemo[] = [
   {
     comercio: 0,
     tamanio: 'CHICO',
-    destino: 'Calle 19 540',
+    destino: 'Avenida 19 540',
     destinatario: ['Nicolás', 'Acosta'],
     dni: '29555666',
     final: 'ENTREGADO',
@@ -174,17 +175,17 @@ const ENVIOS: EnvioDemo[] = [
   {
     comercio: 1,
     tamanio: 'CHICO',
-    destino: 'Calle 44 980',
+    destino: 'Avenida 44 980',
     destinatario: ['Julia', 'Castro'],
     dni: '31777888',
     final: 'ENTREGADO',
     repartidor: 2,
-    evidencia: 'Evidencia: foto enviada por WhatsApp',
+    evidencia: 'Evidencia: foto adjunta',
   },
   {
     comercio: 0,
     tamanio: 'CHICO',
-    destino: 'Calle 1 220',
+    destino: 'Avenida 1 220',
     destinatario: ['Ramiro', 'Vega'],
     dni: '32888999',
     final: 'ENTREGADO',
@@ -242,11 +243,13 @@ async function main() {
     const minutos = (m: number) => new Date(inicio.getTime() + m * 60_000);
 
     const codigos: string[] = [];
+    const custodia: { codigo: string; horasEnCustodia: number }[] = [];
     await prisma.$transaction(
       async (tx) => {
         await tx.oferta.deleteMany();
         await tx.eventoEnvio.deleteMany();
         await tx.envio.deleteMany();
+        await tx.ordenDevolucion.deleteMany();
         await tx.refreshToken.deleteMany();
         await tx.repartidor.deleteMany();
         await tx.comercio.deleteMany();
@@ -316,6 +319,8 @@ async function main() {
               comercioId: comercio.id,
               origenDireccion: comercio.direccion,
               destinoDireccion: e.destino,
+              ...puntoDe('origen', comercio.direccion),
+              ...puntoDe('destino', e.destino),
               destinatarioNombre: e.destinatario[0],
               destinatarioApellido: e.destinatario[1],
               destinatarioTelefono: `221 600-0${String(i).padStart(3, '0')}`,
@@ -390,6 +395,92 @@ async function main() {
             });
           }
         }
+
+        // HU 37-40: dos paquetes que volvieron al depósito después de una novedad. Uno lleva
+        // más de 24 horas en custodia (alerta de HU 40) y el otro, unas pocas horas.
+        const libreria = comercios[1];
+        const lucas = repartidores[0];
+        for (const [n, horasEnCustodia] of [26, 3].entries()) {
+          const reingreso = new Date(Date.now() - horasEnCustodia * 3_600_000);
+          const paso = (minutosAntes: number) =>
+            new Date(reingreso.getTime() - minutosAntes * 60_000);
+          const destino = n === 0 ? 'Calle 13 1450' : 'Calle 49 720';
+          const envio = await tx.envio.create({
+            data: {
+              codigoSeguimiento: generarCodigoSeguimiento(),
+              comercioId: libreria.id,
+              origenDireccion: libreria.direccion,
+              destinoDireccion: destino,
+              destinatarioNombre: n === 0 ? 'Sergio' : 'Paula',
+              destinatarioApellido: n === 0 ? 'Ibáñez' : 'Ríos',
+              destinatarioTelefono: `221 600-09${n}`,
+              tamanio: 'CHICO',
+              vehiculoRequerido: 'MOTO',
+              requiereFoto: libreria.requiereFoto,
+              requiereDni: libreria.requiereDni,
+              estado: 'EN_CUSTODIA',
+              creadoEn: paso(180),
+            },
+          });
+          custodia.push({ codigo: envio.codigoSeguimiento, horasEnCustodia });
+          const recorrido: [EstadoEnvio, EstadoEnvio, number][] = [
+            ['PENDIENTE', 'ASIGNADO', 170],
+            ['ASIGNADO', 'EN_CAMINO_A_RETIRAR', 165],
+            ['EN_CAMINO_A_RETIRAR', 'RETIRADO', 150],
+            ['RETIRADO', 'EN_DOMICILIO', 130],
+          ];
+          await tx.eventoEnvio.createMany({
+            data: [
+              {
+                envioId: envio.id,
+                tipo: 'CREADO',
+                estadoNuevo: 'PENDIENTE',
+                actorTipo: 'OPERARIO',
+                actorId: operario.id,
+                creadoEn: paso(180),
+              },
+              ...recorrido.map(([anterior, nuevo, antes]) => ({
+                envioId: envio.id,
+                tipo: 'CAMBIO_ESTADO' as const,
+                estadoAnterior: anterior,
+                estadoNuevo: nuevo,
+                actorTipo: 'REPARTIDOR' as const,
+                actorId: lucas.id,
+                creadoEn: paso(antes),
+              })),
+              {
+                envioId: envio.id,
+                tipo: 'NOVEDAD',
+                estadoAnterior: 'EN_DOMICILIO',
+                estadoNuevo: 'CON_NOVEDAD',
+                detalle: 'Cliente ausente',
+                actorTipo: 'REPARTIDOR',
+                actorId: lucas.id,
+                creadoEn: paso(125),
+              },
+              {
+                envioId: envio.id,
+                tipo: 'CAMBIO_ESTADO',
+                estadoAnterior: 'CON_NOVEDAD',
+                estadoNuevo: 'A_DEVOLVER',
+                detalle: 'Marcado para devolución al comercio',
+                actorTipo: 'OPERARIO',
+                actorId: operario.id,
+                creadoEn: paso(110),
+              },
+              {
+                envioId: envio.id,
+                tipo: 'DEVOLUCION',
+                estadoAnterior: 'A_DEVOLVER',
+                estadoNuevo: 'EN_CUSTODIA',
+                detalle: 'En custodia',
+                actorTipo: 'OPERARIO',
+                actorId: operario.id,
+                creadoEn: reingreso,
+              },
+            ],
+          });
+        }
       },
       { timeout: 60_000 },
     );
@@ -413,6 +504,10 @@ async function main() {
       console.log(
         `  ${codigos[i]}  ${e.destinatario.join(' ')} — ${COMERCIOS[e.comercio].nombre}, ${e.final.toLowerCase()}${e.nota ? ` (${e.nota})` : ''}`,
       );
+    }
+    console.log('\nPaquetes en el depósito (Librería del Bosque):');
+    for (const { codigo, horasEnCustodia } of custodia) {
+      console.log(`  ${codigo}  en custodia hace ${horasEnCustodia} h`);
     }
   } finally {
     await app.close();

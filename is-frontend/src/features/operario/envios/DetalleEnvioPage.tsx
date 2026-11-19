@@ -1,5 +1,5 @@
 import { useCallback, useState, type FormEvent } from 'react'
-import { useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 import { api, ErrorApi } from '../../../shared/api.ts'
 import {
   ETIQUETA_ESTADO_ENVIO,
@@ -8,7 +8,8 @@ import {
   type TamanioPaquete,
   type TipoVehiculo,
 } from '../../../shared/tipos.ts'
-import { Boton, Campo, EtiquetaEstado, Modal, Selector } from '../../../shared/ui/index.ts'
+import { Boton, Campo, EtiquetaEstado, Modal, Selector, type Coordenadas } from '../../../shared/ui/index.ts'
+import { SelectorDireccion } from './SelectorDireccion'
 import { usePolling } from '../../../shared/usePolling.ts'
 import { describirEvidencia } from './evidencia.ts'
 import { AVISO_EXCEPCION, esAsignacionPorExcepcion } from './excepcion.ts'
@@ -32,6 +33,8 @@ interface DetalleEnvio {
   estado: EstadoEnvio
   origenDireccion: string
   destinoDireccion: string
+  destinoLat: number | null
+  destinoLon: number | null
   destinatarioNombre: string | null
   destinatarioApellido: string | null
   destinatarioDni: string | null
@@ -40,6 +43,14 @@ interface DetalleEnvio {
   vehiculoRequerido: TipoVehiculo
   requiereFoto: boolean
   requiereDni: boolean
+  reintentoPendiente: boolean
+  // Orden de devolución en la que viaja de vuelta al comercio (HU 38).
+  ordenDevolucion: {
+    id: number
+    confirmadaEn: string | null
+    paquetes: { envioId: number; codigoSeguimiento: string }[]
+  } | null
+  fotoUrl?: string | null
   observaciones: string | null
   comercio: { nombre: string }
   repartidor: { nombre: string; apellido: string } | null
@@ -52,21 +63,50 @@ const ACTOR: Record<EntradaHistorial['actorTipo'], string> = {
   SISTEMA: 'Sistema',
 }
 
+// Textos que el backend guarda pensando en otro lector (el repartidor o el destinatario).
+// En el historial del operario se reemplazan por una descripción propia.
+const DETALLE_REINTENTO = 'Tu envío fue reprogramado'
+const AVISO_CANCELACION = 'El envío fue cancelado. No lo retires.'
+
 function describirEntrada(entrada: EntradaHistorial): string {
   if (entrada.tipo === 'CREADO') return 'Envío registrado'
   if (entrada.tipo === 'OFERTA_ENVIADA') return `Oferta enviada a ${entrada.repartidorNombre}`
   if (entrada.tipo === 'OFERTA_RECHAZADA') return 'Oferta rechazada'
   if (entrada.tipo === 'OFERTA_VENCIDA') return `Oferta vencida por inactividad (${entrada.repartidorNombre})`
+  // HU 24: el operario pidió reintentar la entrega (o el sistema la asignó cuando el repartidor quedó libre).
+  if (entrada.tipo === 'REASIGNACION' && entrada.detalle === DETALLE_REINTENTO) {
+    return entrada.estadoNuevo === 'RETIRADO'
+      ? 'Reintento de entrega asignado al repartidor'
+      : 'Reintento de entrega en espera'
+  }
   // Modificaciones del operario (HU 31): el detalle dice qué pasó. Van antes que estadoNuevo
   // porque la reasignación por cambio de tamaño también lo trae (vuelve a PENDIENTE).
   if (entrada.tipo === 'REASIGNACION') return entrada.detalle ?? 'Envío reasignado'
-  // La novedad es lo que le llega al repartidor en la app: se aclara para no leerla como un
-  // segundo cambio de datos, que ya figura en su propia entrada.
-  if (entrada.tipo === 'NOVEDAD') return `Aviso al repartidor: «${entrada.detalle ?? 'Novedad registrada'}»`
+  // HU 23: la novedad la reporta el repartidor desde el domicilio. Las otras NOVEDAD son avisos
+  // que el operario le mandó al repartidor (HU 31).
+  if (entrada.tipo === 'NOVEDAD') {
+    return entrada.actorTipo === 'REPARTIDOR'
+      ? `Novedad reportada: «${entrada.detalle ?? 'sin detalle'}»`
+      : `Aviso al repartidor: «${entrada.detalle ?? 'Novedad registrada'}»`
+  }
   if (entrada.tipo === 'NOTA') return entrada.detalle ?? 'Modificación de datos'
   if (entrada.estadoNuevo) return ETIQUETA_ESTADO_ENVIO[entrada.estadoNuevo]
   return entrada.detalle ?? entrada.tipo
 }
+
+// Segunda línea de la entrada: la evidencia de la entrega (E-4), el aviso que recibió el
+// repartidor al cancelar, etc. No se repite si ya es el título.
+function detalleEntrada(entrada: EntradaHistorial): string | null {
+  if (!entrada.estadoNuevo || !entrada.detalle) return null
+  if (entrada.tipo === 'REASIGNACION' || entrada.tipo === 'NOVEDAD') return null
+  if (entrada.detalle === AVISO_CANCELACION) return `Se avisó al repartidor: «${AVISO_CANCELACION}»`
+  if (entrada.detalle === ETIQUETA_ESTADO_ENVIO[entrada.estadoNuevo]) return null
+  return entrada.detalle
+}
+
+// La foto se usa como src de un <img>: solo se muestra si es una imagen embebida (lo único que
+// acepta el backend), nunca una URL externa que haga pedidos a otro sitio desde el panel.
+const FOTO_DATA_URI = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/
 
 function responsable(entrada: EntradaHistorial): string {
   return [ACTOR[entrada.actorTipo], entrada.actorNombre].filter(Boolean).join(' ')
@@ -74,6 +114,15 @@ function responsable(entrada: EntradaHistorial): string {
 
 // Antes de que el repartidor retire el paquete (HU 31).
 const ESTADOS_MODIFICABLES: EstadoEnvio[] = ['PENDIENTE', 'ASIGNADO', 'EN_CAMINO_A_RETIRAR']
+// Incluye RETIRADO y EN_DOMICILIO a propósito: el backend responde que ya fue retirado (HU 30).
+const ESTADOS_CON_ACCION_CANCELAR: EstadoEnvio[] = [
+  'PENDIENTE',
+  'ASIGNADO',
+  'EN_CAMINO_A_RETIRAR',
+  'PARADO',
+  'RETIRADO',
+  'EN_DOMICILIO',
+]
 
 export function DetalleEnvioPage() {
   const { id } = useParams()
@@ -84,6 +133,12 @@ export function DetalleEnvioPage() {
   const [cancelando, setCancelando] = useState(false)
   const [errorCancelacion, setErrorCancelacion] = useState<string | null>(null)
   const [copiado, setCopiado] = useState(false)
+  const [confirmandoReintento, setConfirmandoReintento] = useState(false)
+  const [confirmandoDevolucion, setConfirmandoDevolucion] = useState(false)
+  const [procesandoNovedad, setProcesandoNovedad] = useState(false)
+  const [errorNovedad, setErrorNovedad] = useState<string | null>(null)
+  const [direccionReintento, setDireccionReintento] = useState('')
+  const [ubicacionReintento, setUbicacionReintento] = useState<Coordenadas | null>(null)
 
   const [editando, setEditando] = useState(false)
   const [guardandoEdicion, setGuardandoEdicion] = useState(false)
@@ -91,6 +146,7 @@ export function DetalleEnvioPage() {
   const [errorModificacion, setErrorModificacion] = useState<string | null>(null)
   const [formEdicion, setFormEdicion] = useState<{
     destinoDireccion: string
+    destinoUbicacion: Coordenadas | null
     destinatarioNombre: string
     destinatarioApellido: string
     destinatarioDni: string
@@ -99,6 +155,7 @@ export function DetalleEnvioPage() {
     observaciones: string
   }>({
     destinoDireccion: '',
+    destinoUbicacion: null,
     destinatarioNombre: '',
     destinatarioApellido: '',
     destinatarioDni: '',
@@ -140,6 +197,56 @@ export function DetalleEnvioPage() {
     setTimeout(() => setCopiado(false), 2000)
   }
 
+  const abrirReintento = () => {
+    if (!envio) return
+    setDireccionReintento(envio.destinoDireccion)
+    setUbicacionReintento(
+      envio.destinoLat !== null && envio.destinoLon !== null
+        ? { lat: envio.destinoLat, lon: envio.destinoLon }
+        : null,
+    )
+    setErrorNovedad(null)
+    setConfirmandoReintento(true)
+  }
+
+  const reintentarEntrega = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!envio) return
+    setProcesandoNovedad(true)
+    setErrorNovedad(null)
+    try {
+      await api(`/envios/${id}/reintentar`, {
+        metodo: 'POST',
+        datos: {
+          destinoDireccion: direccionReintento.trim(),
+          destinoLat: ubicacionReintento?.lat ?? null,
+          destinoLon: ubicacionReintento?.lon ?? null,
+        },
+      })
+      setConfirmandoReintento(false)
+      await cargar()
+    } catch (err) {
+      setErrorNovedad(err instanceof ErrorApi ? err.message : 'No se pudo reintentar la entrega.')
+    } finally {
+      setProcesandoNovedad(false)
+    }
+  }
+
+  const marcarDevolucion = async () => {
+    if (!envio) return
+    setProcesandoNovedad(true)
+    setErrorNovedad(null)
+    try {
+      await api(`/envios/${id}/devolver`, { metodo: 'POST' })
+      setConfirmandoDevolucion(false)
+      await cargar()
+    } catch (err) {
+      setErrorNovedad(err instanceof ErrorApi ? err.message : 'No se pudo marcar la devolución.')
+    } finally {
+      setProcesandoNovedad(false)
+    }
+  }
+
   const abrirModalEdicion = () => {
     if (!envio) return
     // Con el paquete ya retirado el botón sigue visible, pero explica por qué no se puede
@@ -150,6 +257,8 @@ export function DetalleEnvioPage() {
     }
     setFormEdicion({
       destinoDireccion: envio.destinoDireccion,
+      destinoUbicacion:
+        envio.destinoLat !== null && envio.destinoLon !== null ? { lat: envio.destinoLat, lon: envio.destinoLon } : null,
       destinatarioNombre: envio.destinatarioNombre ?? '',
       destinatarioApellido: envio.destinatarioApellido ?? '',
       destinatarioDni: envio.destinatarioDni ?? '',
@@ -168,6 +277,8 @@ export function DetalleEnvioPage() {
     // vacíos se mandan igual y el backend explica qué falta.
     const nuevos = {
       destinoDireccion: formEdicion.destinoDireccion.trim(),
+      destinoLat: formEdicion.destinoUbicacion?.lat ?? null,
+      destinoLon: formEdicion.destinoUbicacion?.lon ?? null,
       destinatarioNombre: formEdicion.destinatarioNombre.trim(),
       destinatarioApellido: formEdicion.destinatarioApellido.trim(),
       destinatarioDni: formEdicion.destinatarioDni.replace(/\D/g, '') || null,
@@ -177,6 +288,8 @@ export function DetalleEnvioPage() {
     }
     const actuales = {
       destinoDireccion: envio.destinoDireccion,
+      destinoLat: envio.destinoLat,
+      destinoLon: envio.destinoLon,
       destinatarioNombre: envio.destinatarioNombre ?? '',
       destinatarioApellido: envio.destinatarioApellido ?? '',
       destinatarioDni: envio.destinatarioDni,
@@ -191,6 +304,11 @@ export function DetalleEnvioPage() {
     if (Object.keys(cambios).length === 0) {
       setEditando(false)
       return
+    }
+    // El punto viaja completo: el backend rechaza una latitud sin su longitud.
+    if ('destinoLat' in cambios || 'destinoLon' in cambios) {
+      cambios.destinoLat = nuevos.destinoLat
+      cambios.destinoLon = nuevos.destinoLon
     }
 
     setGuardandoEdicion(true)
@@ -211,7 +329,8 @@ export function DetalleEnvioPage() {
   }
 
   const destinatario = [envio.destinatarioNombre, envio.destinatarioApellido].filter(Boolean).join(' ')
-  const sePuedeCancelar = envio.estado !== 'ENTREGADO' && envio.estado !== 'CANCELADO'
+  const sePuedeCancelar = ESTADOS_CON_ACCION_CANCELAR.includes(envio.estado)
+  const fotoEntrega = envio.fotoUrl && FOTO_DATA_URI.test(envio.fotoUrl) ? envio.fotoUrl : null
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -237,6 +356,21 @@ export function DetalleEnvioPage() {
             <Boton variante="peligro" onClick={() => setConfirmandoCancelacion(true)}>
               Cancelar envío
             </Boton>
+          )}
+          {envio.estado === 'CON_NOVEDAD' && envio.reintentoPendiente && (
+            <p className="w-full rounded-md bg-amber-50 p-3 text-sm text-amber-900" role="status">
+              Reintento en espera: se asignará al mismo repartidor cuando termine su viaje.
+            </p>
+          )}
+          {envio.estado === 'CON_NOVEDAD' && !envio.reintentoPendiente && (
+            <>
+              <Boton variante="primario" onClick={abrirReintento}>
+                Reintentar entrega
+              </Boton>
+              <Boton variante="peligro" onClick={() => setConfirmandoDevolucion(true)}>
+                Devolver al comercio
+              </Boton>
+            </>
           )}
         </div>
       </div>
@@ -302,7 +436,44 @@ export function DetalleEnvioPage() {
             <dd className="font-medium">{envio.observaciones}</dd>
           </div>
         )}
+        {fotoEntrega && (
+          <div className="sm:col-span-2">
+            <dt className="text-gray-500">Foto de evidencia de entrega</dt>
+            <dd className="mt-2">
+              <img
+                src={fotoEntrega}
+                alt="Foto de evidencia de entrega"
+                className="max-h-72 rounded-lg border border-gray-300 object-contain shadow-sm"
+              />
+            </dd>
+          </div>
+        )}
       </dl>
+
+      {envio.ordenDevolucion && (
+        <p className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">
+          {envio.ordenDevolucion.confirmadaEn ? 'Volvió' : 'Vuelve'} al comercio en la{' '}
+          <Link to="/operario/deposito" className="font-semibold underline">
+            orden de devolución #{envio.ordenDevolucion.id}
+          </Link>
+          {envio.ordenDevolucion.paquetes.length > 1 && (
+            <>
+              {' '}junto con{' '}
+              {envio.ordenDevolucion.paquetes
+                .filter((p) => p.envioId !== envio.id)
+                .map((p, i) => (
+                  <span key={p.envioId}>
+                    {i > 0 && ', '}
+                    <Link to={`/operario/envios/${p.envioId}`} className="font-mono font-semibold underline">
+                      {p.codigoSeguimiento}
+                    </Link>
+                  </span>
+                ))}
+            </>
+          )}
+          .
+        </p>
+      )}
 
       <section className="rounded-lg border border-gray-200 bg-white p-6">
         <h2 className="mb-4 text-lg font-semibold">Historial</h2>
@@ -313,9 +484,17 @@ export function DetalleEnvioPage() {
             {envio.historial.map((entrada) => (
               <li key={entrada.clave}>
                 <p className="font-medium">{describirEntrada(entrada)}</p>
-                {/* Por ejemplo, la evidencia que se pidió al entregar (E-4). */}
-                {entrada.estadoNuevo && entrada.detalle && (
-                  <p className="text-sm text-gray-600">{entrada.detalle}</p>
+                {detalleEntrada(entrada) && <p className="text-sm text-gray-600">{detalleEntrada(entrada)}</p>}
+                {/* La foto es del envío (se guarda una sola vez): se muestra en el paso de la entrega. */}
+                {entrada.estadoNuevo === 'ENTREGADO' && fotoEntrega && (
+                  <div className="mt-2">
+                    <p className="text-xs font-semibold text-gray-500">Foto adjunta:</p>
+                    <img
+                      src={fotoEntrega}
+                      alt="Foto de evidencia en entrega"
+                      className="mt-1 max-h-48 rounded-lg border border-gray-300 object-contain shadow-sm"
+                    />
+                  </div>
                 )}
                 <p className="text-xs text-gray-500">
                   {new Date(entrada.fecha).toLocaleString('es-AR')} · {responsable(entrada)}
@@ -327,12 +506,15 @@ export function DetalleEnvioPage() {
       </section>
 
       {/* Modal de edición */}
-      <Modal abierto={editando} onCerrar={() => setEditando(false)} titulo="Modificar datos del envío">
+      <Modal abierto={editando} onCerrar={() => setEditando(false)} titulo="Modificar datos del envío" ancho="max-w-xl">
         <form onSubmit={guardarEdicion} className="space-y-4">
-          <Campo
+          <SelectorDireccion
             etiqueta="Dirección de destino"
-            value={formEdicion.destinoDireccion}
-            onChange={(e) => setFormEdicion((prev) => ({ ...prev, destinoDireccion: e.target.value }))}
+            direccion={formEdicion.destinoDireccion}
+            alCambiarDireccion={(destinoDireccion) => setFormEdicion((prev) => ({ ...prev, destinoDireccion }))}
+            ubicacion={formEdicion.destinoUbicacion}
+            alCambiarUbicacion={(destinoUbicacion) => setFormEdicion((prev) => ({ ...prev, destinoUbicacion }))}
+            buscarAlMontar={false}
             required
           />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -386,6 +568,57 @@ export function DetalleEnvioPage() {
         </form>
       </Modal>
 
+      <Modal
+        abierto={confirmandoReintento}
+        onCerrar={() => setConfirmandoReintento(false)}
+        titulo="Reintentar entrega"
+        ancho="max-w-xl"
+      >
+        <form onSubmit={reintentarEntrega} className="space-y-4">
+          <SelectorDireccion
+            etiqueta="Dirección corregida"
+            direccion={direccionReintento}
+            alCambiarDireccion={setDireccionReintento}
+            ubicacion={ubicacionReintento}
+            alCambiarUbicacion={setUbicacionReintento}
+            buscarAlMontar={false}
+            required
+          />
+          {errorNovedad && (
+            <p className="text-sm text-red-600" role="alert">{errorNovedad}</p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Boton variante="secundario" onClick={() => setConfirmandoReintento(false)}>
+              Volver
+            </Boton>
+            <Boton variante="primario" disabled={procesandoNovedad}>
+              {procesandoNovedad ? 'Reintentando...' : 'Reintentar entrega'}
+            </Boton>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        abierto={confirmandoDevolucion}
+        onCerrar={() => setConfirmandoDevolucion(false)}
+        titulo="¿Devolver al comercio?"
+      >
+        <p className="mb-4 text-sm text-gray-600">
+          El envío quedará marcado para devolución y se agregará a los paquetes que el repartidor debe rendir.
+        </p>
+        {errorNovedad && (
+          <p className="mb-4 text-sm text-red-600" role="alert">{errorNovedad}</p>
+        )}
+        <div className="flex justify-end gap-2">
+          <Boton variante="secundario" onClick={() => setConfirmandoDevolucion(false)}>
+            Volver
+          </Boton>
+          <Boton variante="peligro" onClick={marcarDevolucion} disabled={procesandoNovedad}>
+            {procesandoNovedad ? 'Marcando...' : 'Devolver al comercio'}
+          </Boton>
+        </div>
+      </Modal>
+
       {/* Modal de cancelación */}
       <Modal
         abierto={confirmandoCancelacion}
@@ -393,7 +626,7 @@ export function DetalleEnvioPage() {
         titulo="¿Cancelar este envío?"
       >
         <p className="mb-4 text-sm text-gray-600">
-          No se puede deshacer. Si ya tenía repartidor, queda libre para otro viaje.
+          Solo se puede cancelar antes del retiro. Si el paquete ya fue retirado, corresponde gestionarlo como devolución.
         </p>
         {errorCancelacion && <p className="mb-4 text-sm text-red-600">{errorCancelacion}</p>}
         <div className="flex justify-end gap-2">

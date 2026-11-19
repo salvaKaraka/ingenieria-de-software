@@ -2,11 +2,13 @@ import { NavLink, Outlet, useNavigate } from 'react-router'
 import { useSesion } from '../../features/auth/sesion.ts'
 
 const SECCIONES = [
+  { ruta: '/operario/panel', nombre: 'Panel del día' },
   { ruta: '/operario/envios', nombre: 'Envíos' },
   { ruta: '/operario/comercios', nombre: 'Comercios' },
   { ruta: '/operario/repartidores', nombre: 'Repartidores' },
   { ruta: '/operario/flota', nombre: 'Flota' },
   { ruta: '/operario/excepciones', nombre: 'Excepciones' },
+  { ruta: '/operario/deposito', nombre: 'Depósito' },
 ]
 
 // Estructura del panel del operario: menú a la izquierda (arriba en pantallas chicas) y la página a la derecha.

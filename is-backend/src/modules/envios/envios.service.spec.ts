@@ -44,6 +44,10 @@ describe('EnviosService', () => {
     cancelar: jest.fn(),
     buscarParaActualizar: jest.fn(),
     actualizar: jest.fn(),
+    obtenerPanelEnvios: jest.fn(),
+    reintentar: jest.fn(),
+    marcarParaDevolucion: jest.fn(),
+    asignarReintentoPendiente: jest.fn(),
   };
 
   const comerciosService = {
@@ -181,6 +185,11 @@ describe('EnviosService', () => {
   });
 
   describe('listar (B-4)', () => {
+    it('pasa el orden pedido: actividad para ver primero lo último que terminó', async () => {
+      await service.listar({ estado: ['ENTREGADO'], orden: 'actividad' });
+      expect(filtrosAlRepository()).toMatchObject({ orden: 'actividad' });
+    });
+
     it('sin filtros usa la página 1 con 20 resultados', async () => {
       const respuesta = await service.listar({});
       expect(filtrosAlRepository()).toMatchObject({ saltar: 0, tomar: 20 });
@@ -311,6 +320,7 @@ describe('EnviosService', () => {
   describe('cancelar (B-4)', () => {
     it('cancela un envío pendiente y registra quién lo hizo', async () => {
       repository.obtenerEstado.mockResolvedValue({
+        _count: { eventos: 0 },
         id: 5,
         estado: 'PENDIENTE',
       });
@@ -320,23 +330,61 @@ describe('EnviosService', () => {
     });
 
     it('después de cancelar, el motor reintenta los envíos pendientes', async () => {
-      repository.obtenerEstado.mockResolvedValue({ id: 5, estado: 'ASIGNADO' });
+      repository.obtenerEstado.mockResolvedValue({
+        _count: { eventos: 0 },
+        id: 5,
+        estado: 'ASIGNADO',
+      });
       repository.cancelar.mockResolvedValue({ id: 5, estado: 'CANCELADO' });
       await service.cancelar(5, 12);
       expect(asignacion.reintentarPendientes).toHaveBeenCalled();
     });
 
-    it.each(['ASIGNADO', 'EN_CAMINO_A_RETIRAR', 'RETIRADO', 'EN_DOMICILIO'])(
+    it.each(['PENDIENTE', 'ASIGNADO', 'EN_CAMINO_A_RETIRAR'])(
       'permite cancelar un envío en estado %s',
       async (estado) => {
-        repository.obtenerEstado.mockResolvedValue({ id: 5, estado });
+        repository.obtenerEstado.mockResolvedValue({
+          _count: { eventos: 0 },
+          id: 5,
+          estado,
+        });
         repository.cancelar.mockResolvedValue({ id: 5, estado: 'CANCELADO' });
         await expect(service.cancelar(5, 12)).resolves.toBeDefined();
       },
     );
 
+    it.each(['RETIRADO', 'EN_DOMICILIO'])(
+      'rechaza cancelar en %s con el mensaje de devolución',
+      async (estado) => {
+        repository.obtenerEstado.mockResolvedValue({
+          _count: { eventos: 0 },
+          id: 5,
+          estado,
+        });
+
+        await expect(service.cancelar(5, 12)).rejects.toThrow(
+          'No se puede cancelar: el paquete ya fue retirado',
+        );
+        expect(repository.cancelar).not.toHaveBeenCalled();
+      },
+    );
+
+    it('no cancela un envío parado cuyo paquete ya había sido retirado (HU 30)', async () => {
+      repository.obtenerEstado.mockResolvedValue({
+        _count: { eventos: 1 },
+        id: 5,
+        estado: 'PARADO',
+      });
+
+      await expect(service.cancelar(5, 12)).rejects.toThrow(
+        'No se puede cancelar: el paquete ya fue retirado',
+      );
+      expect(repository.cancelar).not.toHaveBeenCalled();
+    });
+
     it('cancelar un envío entregado da 409', async () => {
       repository.obtenerEstado.mockResolvedValue({
+        _count: { eventos: 0 },
         id: 5,
         estado: 'ENTREGADO',
       });
@@ -348,6 +396,7 @@ describe('EnviosService', () => {
 
     it('cancelar un envío ya cancelado da 409', async () => {
       repository.obtenerEstado.mockResolvedValue({
+        _count: { eventos: 0 },
         id: 5,
         estado: 'CANCELADO',
       });
@@ -364,11 +413,69 @@ describe('EnviosService', () => {
     });
 
     it('si el estado cambió mientras se cancelaba, da 409', async () => {
-      repository.obtenerEstado.mockResolvedValue({ id: 5, estado: 'RETIRADO' });
+      repository.obtenerEstado.mockResolvedValue({
+        _count: { eventos: 0 },
+        id: 5,
+        estado: 'ASIGNADO',
+      });
       repository.cancelar.mockResolvedValue(null);
       await expect(service.cancelar(5, 12)).rejects.toBeInstanceOf(
         ConflictException,
       );
+    });
+  });
+
+  describe('reintento de envíos con novedad (HU 24)', () => {
+    it('reintenta solo un envío que está con novedad', async () => {
+      repository.obtenerEstado.mockResolvedValue({
+        _count: { eventos: 0 },
+        id: 5,
+        estado: 'CON_NOVEDAD',
+      });
+      repository.reintentar.mockResolvedValue({
+        envioId: 5,
+        estado: 'RETIRADO',
+        asignadoAhora: true,
+      });
+
+      await expect(
+        service.reintentar(5, { destinoDireccion: 'Calle 51 777' }, 12),
+      ).resolves.toMatchObject({ estado: 'RETIRADO', asignadoAhora: true });
+      expect(repository.reintentar).toHaveBeenCalledWith(
+        5,
+        'CON_NOVEDAD',
+        { destinoDireccion: 'Calle 51 777' },
+        12,
+      );
+    });
+
+    it('rechaza reintentar un envío que no tiene novedad', async () => {
+      repository.obtenerEstado.mockResolvedValue({
+        _count: { eventos: 0 },
+        id: 5,
+        estado: 'RETIRADO',
+      });
+      await expect(
+        service.reintentar(5, { destinoDireccion: 'Calle 51 777' }, 12),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(repository.reintentar).not.toHaveBeenCalled();
+    });
+
+    it('marca para devolución un envío con novedad', async () => {
+      repository.obtenerEstado.mockResolvedValue({
+        _count: { eventos: 0 },
+        id: 5,
+        estado: 'CON_NOVEDAD',
+      });
+      repository.marcarParaDevolucion.mockResolvedValue({
+        envioId: 5,
+        estado: 'A_DEVOLVER',
+      });
+
+      await expect(service.marcarParaDevolucion(5, 12)).resolves.toMatchObject({
+        estado: 'A_DEVOLVER',
+      });
+      expect(repository.marcarParaDevolucion).toHaveBeenCalledWith(5, 12);
     });
   });
 
@@ -380,6 +487,8 @@ describe('EnviosService', () => {
       tamanio: 'CHICO',
       vehiculoRequerido: 'MOTO',
       destinoDireccion: 'Calle 50 123',
+      destinoLat: null,
+      destinoLon: null,
       destinatarioNombre: 'Ana',
       destinatarioApellido: 'Paz',
       destinatarioDni: '30111222',
@@ -545,6 +654,88 @@ describe('EnviosService', () => {
       );
     });
 
+    describe('punto de entrega en el mapa (HU 70)', () => {
+      const conPunto = { destinoLat: -34.91, destinoLon: -57.95 };
+
+      beforeEach(() => repository.actualizar.mockResolvedValue({ id: 5 }));
+
+      it('guarda la dirección nueva con el punto que marcó el operario', async () => {
+        repository.buscarParaActualizar.mockResolvedValue(envioEditable());
+        await service.actualizar(
+          5,
+          {
+            destinoDireccion: 'Avenida 7 1234',
+            destinoLat: -34.92,
+            destinoLon: -57.94,
+          },
+          OPERARIO_ID,
+        );
+
+        expect(repository.actualizar).toHaveBeenCalledWith(
+          5,
+          'PENDIENTE',
+          {
+            destinoDireccion: 'Avenida 7 1234',
+            destinoLat: -34.92,
+            destinoLon: -57.94,
+          },
+          OPERARIO_ID,
+          expect.objectContaining({
+            detalle:
+              'Datos modificados: dirección de entrega, punto de entrega en el mapa',
+          }),
+        );
+      });
+
+      it('borra el punto viejo si cambia la dirección y no viene uno nuevo', async () => {
+        repository.buscarParaActualizar.mockResolvedValue(
+          envioEditable(conPunto),
+        );
+
+        await service.actualizar(
+          5,
+          { destinoDireccion: 'Avenida 7 1234' },
+          OPERARIO_ID,
+        );
+
+        expect(repository.actualizar).toHaveBeenCalledWith(
+          5,
+          'PENDIENTE',
+          {
+            destinoDireccion: 'Avenida 7 1234',
+            destinoLat: null,
+            destinoLon: null,
+          },
+          OPERARIO_ID,
+          expect.anything(),
+        );
+      });
+
+      it('mover solo el punto le avisa al repartidor asignado', async () => {
+        repository.buscarParaActualizar.mockResolvedValue(
+          envioEditable({ ...conPunto, estado: 'ASIGNADO', repartidorId: 8 }),
+        );
+
+        await service.actualizar(
+          5,
+          { destinoLat: -34.92, destinoLon: -57.95 },
+          OPERARIO_ID,
+        );
+
+        expect(repository.actualizar).toHaveBeenCalledWith(
+          5,
+          'ASIGNADO',
+          { destinoLat: -34.92 },
+          OPERARIO_ID,
+          {
+            cambiaVehiculo: false,
+            avisoDireccion: true,
+            detalle: 'Datos modificados: punto de entrega en el mapa',
+          },
+        );
+      });
+    });
+
     it('rechaza con 409 y mensaje exacto si el paquete ya fue retirado', async () => {
       repository.buscarParaActualizar.mockResolvedValue(
         envioEditable({ estado: 'RETIRADO', repartidorId: 8 }),
@@ -566,6 +757,87 @@ describe('EnviosService', () => {
       await expect(
         service.actualizar(99, { destinatarioNombre: 'Juan' }, OPERARIO_ID),
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('obtenerPanel', () => {
+    const envioPanel = (id: number, estado: string) => ({
+      id,
+      codigoSeguimiento: `P${id}`,
+      estado,
+      destinoDireccion: 'Calle Destino 456',
+      destinatarioNombre: 'Juan',
+      destinatarioApellido: 'Pérez',
+      tamanio: 'CHICO',
+      comercio: { nombre: 'Comercio A' },
+      repartidor: null,
+      eventos: [],
+    });
+
+    it('pide al repository todo lo que no está en un estado final ni en el depósito', async () => {
+      repository.obtenerPanelEnvios.mockResolvedValue([]);
+
+      await service.obtenerPanel();
+
+      expect(repository.obtenerPanelEnvios).toHaveBeenCalledWith([
+        'ENTREGADO',
+        'CANCELADO',
+        'DEVUELTO_AL_COMERCIO',
+        'EN_CUSTODIA',
+        'EN_DEVOLUCION',
+      ]);
+    });
+
+    it('agrupa los envíos por estado, en el orden del recorrido, con la cantidad de cada grupo', async () => {
+      repository.obtenerPanelEnvios.mockResolvedValue([
+        envioPanel(1, 'PENDIENTE'),
+        envioPanel(2, 'RETIRADO'),
+        envioPanel(3, 'PENDIENTE'),
+        envioPanel(4, 'ASIGNADO'),
+      ]);
+
+      const resultado = await service.obtenerPanel();
+
+      expect(resultado.total).toBe(4);
+      expect(
+        resultado.grupos.map((grupo) => ({
+          estado: grupo.estado,
+          cantidad: grupo.cantidad,
+          ids: grupo.envios.map((envio) => envio.id),
+        })),
+      ).toEqual([
+        { estado: 'PENDIENTE', cantidad: 2, ids: [1, 3] },
+        { estado: 'ASIGNADO', cantidad: 1, ids: [4] },
+        { estado: 'EN_CAMINO_A_RETIRAR', cantidad: 0, ids: [] },
+        { estado: 'RETIRADO', cantidad: 1, ids: [2] },
+        { estado: 'EN_DOMICILIO', cantidad: 0, ids: [] },
+        { estado: 'INTERRUMPIDO', cantidad: 0, ids: [] },
+        { estado: 'PARADO', cantidad: 0, ids: [] },
+        { estado: 'CON_NOVEDAD', cantidad: 0, ids: [] },
+        { estado: 'A_DEVOLVER', cantidad: 0, ids: [] },
+      ]);
+    });
+
+    it('no arma grupos para los estados finales', async () => {
+      repository.obtenerPanelEnvios.mockResolvedValue([]);
+
+      const resultado = await service.obtenerPanel();
+
+      const estados = resultado.grupos.map((grupo) => grupo.estado);
+      expect(estados).not.toContain('ENTREGADO');
+      expect(estados).not.toContain('CANCELADO');
+    });
+
+    it('devuelve total 0 y todos los grupos vacíos cuando no hay envíos pendientes ni en curso', async () => {
+      repository.obtenerPanelEnvios.mockResolvedValue([]);
+
+      const resultado = await service.obtenerPanel();
+
+      expect(resultado.total).toBe(0);
+      expect(resultado.grupos.length).toBeGreaterThan(0);
+      expect(resultado.grupos.every((grupo) => grupo.cantidad === 0)).toBe(
+        true,
+      );
     });
   });
 });

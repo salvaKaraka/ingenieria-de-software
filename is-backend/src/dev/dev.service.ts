@@ -199,10 +199,11 @@ export class DevService {
     // Se compara por id (no por pinHmac) para no dejar afuera a los repartidores sin PIN (null).
     const otros = dePrueba ? { id: { not: dePrueba.id } } : {};
 
-    const [, , envios, , repartidores] = await this.prisma.$transaction([
+    const [, , envios, , , repartidores] = await this.prisma.$transaction([
       this.prisma.oferta.deleteMany(),
       this.prisma.eventoEnvio.deleteMany(),
       this.prisma.envio.deleteMany(),
+      this.prisma.ordenDevolucion.deleteMany(),
       this.prisma.refreshToken.deleteMany({
         where: {
           rol: 'REPARTIDOR',

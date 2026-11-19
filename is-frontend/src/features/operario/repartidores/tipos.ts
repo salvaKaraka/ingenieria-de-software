@@ -6,6 +6,7 @@ export type EstadoRepartidor =
   | 'OCUPADO'
   | 'EN_PAUSA'
   | 'EMERGENCIA'
+  | 'ESPERANDO_VALIDACION_CIERRE'
 
 export const ETIQUETA_ESTADO_REPARTIDOR: Record<EstadoRepartidor, string> = {
   FUERA_DE_JORNADA: 'Fuera de jornada',
@@ -13,6 +14,7 @@ export const ETIQUETA_ESTADO_REPARTIDOR: Record<EstadoRepartidor, string> = {
   OCUPADO: 'Ocupado',
   EN_PAUSA: 'En pausa',
   EMERGENCIA: 'Emergencia',
+  ESPERANDO_VALIDACION_CIERRE: 'Esperando validación de cierre',
 }
 
 export const COLOR_ESTADO_REPARTIDOR: Record<EstadoRepartidor, string> = {
@@ -21,6 +23,7 @@ export const COLOR_ESTADO_REPARTIDOR: Record<EstadoRepartidor, string> = {
   OCUPADO: 'bg-blue-100 text-blue-800',
   EN_PAUSA: 'bg-amber-100 text-amber-800',
   EMERGENCIA: 'bg-red-100 text-red-800',
+  ESPERANDO_VALIDACION_CIERRE: 'bg-purple-100 text-purple-800',
 }
 
 export type Repartidor = {
@@ -36,6 +39,7 @@ export type Repartidor = {
   estado: EstadoRepartidor
   enColaDesde: string | null
   viajesConsecutivos: number
+  cierreSolicitado?: boolean
   activo: boolean
   creadoEn: string
   actualizadoEn: string

@@ -6,7 +6,9 @@ import {
   TipoVehiculo,
 } from '../../generated/prisma/client';
 import type { AsignacionService } from '../asignacion/asignacion.service';
+import type { OfertasService } from '../asignacion/ofertas.service';
 import type { AuthService } from '../auth/auth.service';
+import type { EnviosService } from '../envios/envios.service';
 import type {
   RepartidoresRepository,
   RepartidorPublico,
@@ -18,6 +20,8 @@ describe('RepartidoresService', () => {
   let repo: jest.Mocked<RepartidoresRepository>;
   let authService: jest.Mocked<AuthService>;
   let asignacion: jest.Mocked<AsignacionService>;
+  let ofertasService: jest.Mocked<OfertasService>;
+  let enviosService: jest.Mocked<EnviosService>;
 
   const repartidorEjemplo: RepartidorPublico = {
     id: 1,
@@ -32,6 +36,7 @@ describe('RepartidoresService', () => {
     enColaDesde: null,
     viajesConsecutivos: 0,
     activo: true,
+    cierreSolicitado: false,
     creadoEn: new Date('2026-01-01T10:00:00Z'),
     actualizadoEn: new Date('2026-01-01T10:00:00Z'),
   };
@@ -49,18 +54,34 @@ describe('RepartidoresService', () => {
       darDeBajaSiEstaLibre: jest.fn(),
       cambiarVehiculoSiEstaLibre: jest.fn(),
       reactivarSiEstaInactivo: jest.fn(),
+      rehabilitar: jest.fn(),
+      tieneViajeEnTransito: jest.fn(),
     } as unknown as jest.Mocked<RepartidoresRepository>;
 
     authService = {
       asignarNuevoPin: jest.fn(),
       cerrarSesiones: jest.fn(),
+      cambiarPinPropio: jest.fn(),
     } as unknown as jest.Mocked<AuthService>;
 
     asignacion = {
       reintentarPendientes: jest.fn(),
     } as unknown as jest.Mocked<AsignacionService>;
 
-    servicio = new RepartidoresService(repo, authService, asignacion);
+    ofertasService = {
+      consultarHistorial: jest.fn(),
+    } as unknown as jest.Mocked<OfertasService>;
+    enviosService = {
+      asignarReintentoPendiente: jest.fn(),
+    } as unknown as jest.Mocked<EnviosService>;
+
+    servicio = new RepartidoresService(
+      repo,
+      authService,
+      asignacion,
+      ofertasService,
+      enviosService,
+    );
   });
 
   describe('listar', () => {
@@ -214,6 +235,46 @@ describe('RepartidoresService', () => {
       await expect(
         servicio.actualizar(999, { nombre: 'Otro' }),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('rehabilitar', () => {
+    it.each([EstadoRepartidor.EMERGENCIA, EstadoRepartidor.EN_PAUSA])(
+      'devuelve a la cola al repartidor en %s y reintenta pendientes',
+      async (estado) => {
+        repo.buscarPorId.mockResolvedValue({ ...repartidorEjemplo, estado });
+        repo.rehabilitar.mockResolvedValue(true);
+
+        await expect(servicio.rehabilitar(1)).resolves.toEqual({
+          estado: 'DISPONIBLE',
+        });
+        expect(repo.rehabilitar).toHaveBeenCalledWith(1);
+        expect(enviosService.asignarReintentoPendiente).toHaveBeenCalledWith(1);
+        expect(asignacion.reintentarPendientes).toHaveBeenCalled();
+      },
+    );
+
+    it('devuelve OCUPADO si al rehabilitar asigna un reintento pendiente', async () => {
+      repo.buscarPorId.mockResolvedValue({
+        ...repartidorEjemplo,
+        estado: EstadoRepartidor.EMERGENCIA,
+      });
+      repo.rehabilitar.mockResolvedValue(true);
+      enviosService.asignarReintentoPendiente.mockResolvedValue(true);
+
+      await expect(servicio.rehabilitar(1)).resolves.toEqual({
+        estado: 'OCUPADO',
+      });
+      expect(asignacion.reintentarPendientes).toHaveBeenCalled();
+    });
+
+    it('rechaza rehabilitar un repartidor que no está en emergencia ni en pausa', async () => {
+      repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
+
+      await expect(servicio.rehabilitar(1)).rejects.toThrow(
+        'Solo se puede rehabilitar a un repartidor en emergencia o en pausa',
+      );
+      expect(repo.rehabilitar).not.toHaveBeenCalled();
     });
   });
 
@@ -415,6 +476,153 @@ describe('RepartidoresService', () => {
       expect(authService.asignarNuevoPin).toHaveBeenCalledWith(1);
       expect(resultado).toMatchObject({ id: 1, activo: true, pin: '5555' });
       expect(resultado.dni).toBe('•••••456');
+    });
+  });
+
+  describe('actualizarPerfil (HU #68)', () => {
+    it('permite actualizar teléfono y email a un chofer disponible sin viajes en tránsito (Escenario 1)', async () => {
+      repo.buscarPorId.mockResolvedValue({
+        ...repartidorEjemplo,
+        estado: EstadoRepartidor.DISPONIBLE,
+      });
+      repo.tieneViajeEnTransito.mockResolvedValue(false);
+      repo.actualizar.mockResolvedValue({
+        ...repartidorEjemplo,
+        telefono: '1199887766',
+        email: 'nuevo@repartos.com',
+      });
+
+      const resultado = await servicio.actualizarPerfil(1, {
+        telefono: ' 1199887766 ',
+        email: ' NUEVO@repartos.com ',
+      });
+
+      expect(repo.actualizar).toHaveBeenCalledWith(1, {
+        telefono: '1199887766',
+        email: 'nuevo@repartos.com',
+      });
+      expect(resultado.telefono).toBe('1199887766');
+      expect(resultado.email).toBe('nuevo@repartos.com');
+      expect(resultado.dni).toBe('•••••456');
+    });
+
+    it('permite actualizar a un chofer en pausa sin viajes en tránsito', async () => {
+      repo.buscarPorId.mockResolvedValue({
+        ...repartidorEjemplo,
+        estado: EstadoRepartidor.EN_PAUSA,
+      });
+      repo.tieneViajeEnTransito.mockResolvedValue(false);
+      repo.actualizar.mockResolvedValue({
+        ...repartidorEjemplo,
+        telefono: '1122334455',
+      });
+
+      const resultado = await servicio.actualizarPerfil(1, {
+        telefono: '1122334455',
+      });
+
+      expect(resultado.telefono).toBe('1122334455');
+    });
+
+    it('rechaza la actualización si el chofer posee un viaje activo en curso (Bloqueo por viaje en tránsito)', async () => {
+      repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
+      repo.tieneViajeEnTransito.mockResolvedValue(true);
+
+      await expect(
+        servicio.actualizarPerfil(1, { telefono: '1122334455' }),
+      ).rejects.toThrow(ConflictException);
+
+      expect(repo.actualizar).not.toHaveBeenCalled();
+    });
+
+    it('lanza ConflictException si el email ya pertenece a otro repartidor', async () => {
+      repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
+      repo.tieneViajeEnTransito.mockResolvedValue(false);
+      const errorP2002 = new Prisma.PrismaClientKnownRequestError(
+        'Unique constraint failed',
+        { code: 'P2002', clientVersion: '7.10.0', meta: { target: ['email'] } },
+      );
+      repo.actualizar.mockRejectedValue(errorP2002);
+
+      await expect(
+        servicio.actualizarPerfil(1, { email: 'repetido@repartos.com' }),
+      ).rejects.toThrow(
+        new ConflictException('Ya existe un repartidor con ese email'),
+      );
+    });
+  });
+
+  describe('cambiarPin (HU #68)', () => {
+    it('delega en auth la verificación del PIN actual y devuelve el PIN nuevo generado por el sistema', async () => {
+      repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
+      repo.tieneViajeEnTransito.mockResolvedValue(false);
+      const generado = { pin: '4821', sesion: {} as never };
+      authService.cambiarPinPropio.mockResolvedValue(generado);
+
+      const resultado = await servicio.cambiarPin(1, '1234');
+
+      expect(authService.cambiarPinPropio).toHaveBeenCalledWith(1, '1234');
+      expect(resultado).toBe(generado);
+    });
+
+    it('rechaza cambiar el PIN si el chofer posee un viaje en tránsito', async () => {
+      repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
+      repo.tieneViajeEnTransito.mockResolvedValue(true);
+
+      await expect(servicio.cambiarPin(1, '1234')).rejects.toThrow(
+        ConflictException,
+      );
+
+      expect(authService.cambiarPinPropio).not.toHaveBeenCalled();
+    });
+
+    it('lanza NotFoundException si el repartidor no existe', async () => {
+      repo.buscarPorId.mockResolvedValue(null);
+
+      await expect(servicio.cambiarPin(999, '1234')).rejects.toThrow(
+        NotFoundException,
+      );
+
+      expect(authService.cambiarPinPropio).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('historialRespuestas (HU #28)', () => {
+    it('lanza NotFoundException si el repartidor no existe', async () => {
+      repo.buscarPorId.mockResolvedValue(null);
+
+      await expect(servicio.historialRespuestas(999)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(ofertasService.consultarHistorial).not.toHaveBeenCalled();
+    });
+
+    it('delega en ofertasService si el repartidor existe', async () => {
+      repo.buscarPorId.mockResolvedValue(repartidorEjemplo);
+      const resultadoMock = {
+        repartidorId: 1,
+        rango: { desde: null, hasta: null },
+        totales: { aceptadas: 1, rechazadas: 0, vencidas: 0 },
+        detalle: [
+          {
+            id: 10,
+            estado: 'ACEPTADA' as const,
+            fecha: '2026-11-03T10:00:00.000Z',
+            envioId: 100,
+          },
+        ],
+      };
+      ofertasService.consultarHistorial.mockResolvedValue(resultadoMock);
+
+      const res = await servicio.historialRespuestas(1, {
+        desde: '2026-11-01',
+      });
+
+      expect(repo.buscarPorId).toHaveBeenCalledWith(1);
+      expect(ofertasService.consultarHistorial).toHaveBeenCalledWith(1, {
+        desde: '2026-11-01',
+      });
+      expect(res).toEqual(resultadoMock);
     });
   });
 });

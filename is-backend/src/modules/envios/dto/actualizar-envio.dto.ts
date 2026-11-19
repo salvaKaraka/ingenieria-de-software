@@ -7,6 +7,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { TamanioPaquete } from '../../../generated/prisma/client';
+import { Latitud, Longitud } from './coordenadas';
 
 // Solo viajan los datos que cambian. Los obligatorios en el alta no se pueden vaciar (ni con
 // null); el DNI y las observaciones sí se borran mandando null.
@@ -17,6 +18,14 @@ export class ActualizarEnvioDto {
   @IsString()
   @IsNotEmpty({ message: 'La dirección de destino no puede estar vacía' })
   destinoDireccion?: string;
+
+  // El punto de entrega en el mapa. Si cambia la dirección y no viene un punto nuevo,
+  // el anterior se borra: ya no corresponde a la dirección.
+  @Latitud('destino')
+  destinoLat?: number | null;
+
+  @Longitud('destino')
+  destinoLon?: number | null;
 
   @ValidateIf(SI_VIENE)
   @IsString()

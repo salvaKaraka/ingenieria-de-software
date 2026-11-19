@@ -2,11 +2,20 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Optional,
 } from '@nestjs/common';
 import { AsignacionService } from '../asignacion/asignacion.service';
+import { DepositoRepository } from './deposito.repository';
+import { inicioDelDia } from './domain/dia';
 import { esTransicionValida, siguienteEstado } from './domain/estado-envio';
 import { AvanzarViajeDto } from './dto/avanzar-viaje.dto';
+import { ConfirmarDevolucionDto } from './dto/confirmar-devolucion.dto';
+import { ReportarIncidenteDto } from './dto/reportar-incidente.dto';
+import { ReportarNovedadDto } from './dto/reportar-novedad.dto';
 import { EnviosRepository } from './envios.repository';
+
+const punto = (lat: number | null, lon: number | null) =>
+  lat !== null && lon !== null ? { lat, lon } : null;
 
 type ExigenciasEntrega = {
   requiereDni: boolean;
@@ -20,12 +29,57 @@ export class ViajesService {
   constructor(
     private readonly enviosRepository: EnviosRepository,
     private readonly asignacionService: AsignacionService,
+    @Optional() private readonly depositoRepository?: DepositoRepository,
   ) {}
 
   async obtenerViajeActual(repartidorId: number) {
     const envio =
       await this.enviosRepository.buscarViajeActivoPorRepartidor(repartidorId);
-    if (!envio) return { viaje: null };
+    if (!envio) {
+      // HU 39: sin un viaje de entrega, puede estar llevando una orden de devolución.
+      const orden =
+        await this.depositoRepository?.buscarOrdenActivaPorRepartidor(
+          repartidorId,
+        );
+      if (orden) {
+        const cantidad = orden.envios.length;
+        return {
+          viaje: {
+            envioId: orden.envios[0]?.id ?? null,
+            codigoSeguimiento: orden.envios[0]?.codigoSeguimiento ?? null,
+            estado: 'EN_DEVOLUCION' as const,
+            siguienteEstado: null,
+            esDevolucion: true,
+            ordenId: orden.id,
+            paquetes: orden.envios.map((paquete) => paquete.codigoSeguimiento),
+            comercio: {
+              nombre: orden.comercio.nombre,
+              telefono: orden.comercio.telefono,
+            },
+            origenDireccion: 'Depósito (base)',
+            destinoDireccion: orden.comercio.direccion,
+            origen: null,
+            destino: null,
+            destinatario: {
+              nombre: orden.comercio.nombre,
+              apellido: null,
+              telefono: orden.comercio.telefono,
+            },
+            observaciones: `Devolución al comercio: ${cantidad} ${cantidad === 1 ? 'paquete' : 'paquetes'}`,
+            requiereFoto: true,
+            requiereDni: false,
+            aviso: null,
+          },
+        };
+      }
+      const avisoCancelacion =
+        await this.enviosRepository.buscarAvisoCancelacionPorRepartidor(
+          repartidorId,
+        );
+      return avisoCancelacion
+        ? { viaje: null, avisoCancelacion }
+        : { viaje: null };
+    }
 
     // Si el operario cambió la dirección con el viaje en curso (HU 31), se le avisa.
     const aviso =
@@ -43,6 +97,9 @@ export class ViajesService {
         comercio: envio.comercio,
         origenDireccion: envio.origenDireccion,
         destinoDireccion: envio.destinoDireccion,
+        // Para el mapa del repartidor: null si la dirección no se ubicó al cargar el envío.
+        origen: punto(envio.origenLat, envio.origenLon),
+        destino: punto(envio.destinoLat, envio.destinoLon),
         destinatario: {
           nombre: envio.destinatarioNombre,
           apellido: envio.destinatarioApellido,
@@ -54,6 +111,28 @@ export class ViajesService {
         aviso,
       },
     };
+  }
+
+  // HU 34: entregas que el repartidor completó hoy (día de Argentina), la más reciente primero.
+  // Las novedades, cancelaciones y entregas de días anteriores no aparecen.
+  async historialDelDia(repartidorId: number, ahora: Date = new Date()) {
+    const envios =
+      await this.enviosRepository.listarEntregadosDelRepartidorDesde(
+        repartidorId,
+        inicioDelDia(ahora),
+      );
+
+    const entregas = envios
+      .map((envio) => ({
+        envioId: envio.id,
+        codigoSeguimiento: envio.codigoSeguimiento,
+        comercio: envio.comercio.nombre,
+        destinoDireccion: envio.destinoDireccion,
+        entregadoEn: envio.eventos[0].creadoEn,
+      }))
+      .sort((a, b) => b.entregadoEn.getTime() - a.entregadoEn.getTime());
+
+    return { entregas };
   }
 
   async avanzarViajeActual(
@@ -71,6 +150,13 @@ export class ViajesService {
       throw new ConflictException('El viaje no se puede avanzar desde acá');
     }
 
+    // HU 18: la foto es de la entrega, así que solo se acepta en el paso que entrega.
+    if (evidencia.foto && nuevo !== 'ENTREGADO') {
+      throw new ConflictException(
+        'La fotografía solo puede capturarse en el domicilio de entrega',
+      );
+    }
+
     const detalle =
       nuevo === 'ENTREGADO'
         ? this.verificarEvidencia(envio, evidencia)
@@ -82,6 +168,7 @@ export class ViajesService {
       nuevo,
       repartidorId,
       detalle,
+      evidencia.foto,
     );
     if (!avanzado) {
       throw new ConflictException(
@@ -97,9 +184,120 @@ export class ViajesService {
     return { estado: nuevo, siguienteEstado: siguienteEstado(nuevo) };
   }
 
-  // E-4 (épica 4.3): no se entrega sin la evidencia que exige el comercio. La comparación del
-  // DNI se hace acá y no en el front para no mandarle al celular el DNI del destinatario.
-  // Devuelve el texto que queda en el historial del envío (sin el DNI, que es un dato sensible).
+  // HU 39: el repartidor entrega en el comercio todos los paquetes de su orden de
+  // devolución. Exige la foto de la constancia de recepción (escenario 2).
+  async confirmarDevolucionActual(
+    repartidorId: number,
+    dto: ConfirmarDevolucionDto = {},
+  ) {
+    if (!dto.foto || !dto.foto.trim()) {
+      throw new BadRequestException('Falta la foto de la constancia');
+    }
+
+    const orden =
+      await this.depositoRepository?.buscarOrdenActivaPorRepartidor(
+        repartidorId,
+      );
+    if (!orden || !this.depositoRepository) {
+      throw new ConflictException(
+        'No tenés ninguna devolución activa para confirmar',
+      );
+    }
+
+    const confirmada = await this.depositoRepository.confirmarDevolucion(
+      orden.id,
+      repartidorId,
+      dto.foto,
+    );
+    if (!confirmada) {
+      throw new ConflictException(
+        'La devolución cambió mientras la confirmabas. Actualizá la pantalla.',
+      );
+    }
+
+    // Quedó libre (o con un reintento pendiente): el motor le puede ofrecer otro viaje.
+    await this.asignacionService.reintentarPendientes();
+
+    return {
+      ordenId: orden.id,
+      estado: 'DEVUELTO_AL_COMERCIO' as const,
+      cantidadPaquetes: orden.envios.length,
+      mensaje: `Devolución confirmada en ${orden.comercio.nombre}`,
+    };
+  }
+
+  async reportarIncidente(repartidorId: number, dto: ReportarIncidenteDto) {
+    const envio =
+      await this.enviosRepository.buscarViajeActivoPorRepartidor(repartidorId);
+    if (
+      !envio ||
+      !esTransicionValida(envio.estado, 'INTERRUMPIDO', 'REPARTIDOR')
+    ) {
+      throw new ConflictException(
+        'No tenés un viaje activo para reportar un incidente',
+      );
+    }
+
+    const paqueteRetirado =
+      envio.estado === 'RETIRADO' || envio.estado === 'EN_DOMICILIO';
+    const ubicacion = dto.ubicacion?.trim();
+    if (paqueteRetirado && (!ubicacion || ubicacion.length < 3)) {
+      throw new BadRequestException(
+        'Ingresá la ubicación actual para reasignar el paquete',
+      );
+    }
+    const interrumpido = await this.enviosRepository.reportarIncidente(
+      repartidorId,
+      ubicacion,
+    );
+    if (!interrumpido) {
+      throw new ConflictException(
+        'El viaje cambió mientras reportabas el incidente. Actualizá la pantalla e intentá de nuevo.',
+      );
+    }
+
+    const oferta = await this.asignacionService.asignar(interrumpido.envioId);
+    return {
+      estado: 'INTERRUMPIDO' as const,
+      estadoEnvio: oferta ? ('PENDIENTE' as const) : ('PARADO' as const),
+      mensaje: oferta
+        ? 'Incidente reportado. El envío se ofreció a otro repartidor.'
+        : 'Incidente reportado. No hay repartidores compatibles; el envío quedó parado.',
+    };
+  }
+
+  async reportarNovedad(repartidorId: number, dto: ReportarNovedadDto) {
+    const envio =
+      await this.enviosRepository.buscarViajeActivoPorRepartidor(repartidorId);
+    if (
+      !envio ||
+      !esTransicionValida(envio.estado, 'CON_NOVEDAD', 'REPARTIDOR')
+    ) {
+      throw new ConflictException(
+        'Solo podés reportar una novedad al llegar al domicilio',
+      );
+    }
+
+    const registrada = await this.enviosRepository.reportarNovedad(
+      repartidorId,
+      dto,
+    );
+    if (!registrada) {
+      throw new ConflictException(
+        'El viaje cambió mientras reportabas la novedad. Actualizá la pantalla e intentá de nuevo.',
+      );
+    }
+
+    await this.asignacionService.reintentarPendientes();
+    return {
+      estado: 'CON_NOVEDAD' as const,
+      mensaje: 'Novedad registrada. El operario decidirá cómo continuar.',
+    };
+  }
+
+  // E-4 (épica 4.3 / HU 18): no se entrega sin la evidencia que exige el comercio.
+  // La comparación del DNI se hace acá y no en el front para no mandarle al celular el DNI del destinatario.
+  // Devuelve el texto que queda en el historial del envío.
   private verificarEvidencia(
     envio: ExigenciasEntrega,
     evidencia: AvanzarViajeDto,
@@ -123,14 +321,13 @@ export class ViajesService {
       }
     }
 
-    if (envio.requiereFoto) {
-      if (!evidencia.fotoEnviada) {
-        throw new BadRequestException(
-          'Confirmá que mandaste la foto por WhatsApp',
-        );
-      }
-      registro.push('foto enviada por WhatsApp');
+    // La foto tiene que venir en este mismo pedido: no alcanza con decir que se mandó.
+    if (envio.requiereFoto && !evidencia.foto) {
+      throw new BadRequestException(
+        'Este comercio exige una foto de la entrega',
+      );
     }
+    if (evidencia.foto) registro.push('foto adjunta');
 
     return registro.length > 0
       ? `Evidencia: ${registro.join(', ')}`

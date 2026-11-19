@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import type { EstadoEnvio } from '../../generated/prisma/client';
 import { CrearComercioDto } from './dto/crear-comercio.dto';
 import { ActualizarComercioDto } from './dto/actualizar-comercio.dto';
 
@@ -52,10 +53,54 @@ export class ComerciosRepository {
   }
 
   // Pendientes o en viaje: todo lo que no está entregado ni cancelado.
-  async contarEnviosEnCurso(comercioId: number) {
+  async contarEnviosEnCurso(
+    comercioId: number,
+    estadosFinales: readonly EstadoEnvio[],
+  ) {
     return this.prisma.envio.count({
-      where: { comercioId, estado: { notIn: ['ENTREGADO', 'CANCELADO'] } },
+      where: { comercioId, estado: { notIn: [...estadosFinales] } },
     });
+  }
+
+  // Resumen diario por comercio (HU 41): agrupa los envíos del comercio que están en un
+  // estado final y cuya finalización (o creación si no tiene evento de cierre) cayó en [desde, hasta].
+  async contarFinalizadosPorEstado(
+    comercioId: number,
+    desde: Date,
+    hasta: Date,
+    estadosFinales: readonly EstadoEnvio[],
+  ): Promise<{ estado: EstadoEnvio; cantidad: number }[]> {
+    const grupos = await this.prisma.envio.groupBy({
+      by: ['estado'],
+      where: {
+        comercioId,
+        estado: { in: [...estadosFinales] },
+        OR: [
+          {
+            eventos: {
+              some: {
+                estadoNuevo: { in: [...estadosFinales] },
+                creadoEn: { gte: desde, lte: hasta },
+              },
+            },
+          },
+          {
+            eventos: {
+              none: {
+                estadoNuevo: { in: [...estadosFinales] },
+              },
+            },
+            creadoEn: { gte: desde, lte: hasta },
+          },
+        ],
+      },
+      _count: { _all: true },
+    });
+
+    return grupos.map((grupo) => ({
+      estado: grupo.estado,
+      cantidad: grupo._count._all,
+    }));
   }
 
   // 💥 BAJA LÓGICA (NO BORRAR REGISTRO DE BD)
